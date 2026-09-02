@@ -6351,8 +6351,7 @@
             if (d.nombre.trim()) {
                 crearGrupo(d.nombre.trim(), d.icono).then(function (g) {
                     state.creandoGrupo = false;
-                    if (g)
-                        toast('Grupo "' + g.nombre + '" creado');
+                    toast(g ? 'Grupo "' + g.nombre + '" creado' : 'No se pudo crear el grupo — revisa tu conexión');
                     renderGruposView();
                 });
             }
@@ -6401,8 +6400,9 @@
             const gid = grupoAgregarParticipanteConfirmarBtn.getAttribute('data-grupo-agregar-participante-confirmar');
             const nombre = state.participanteDraft.nombre.trim();
             if (nombre) {
-                agregarParticipanteSinCuenta(gid, nombre, 'peach').then(function () {
+                agregarParticipanteSinCuenta(gid, nombre, 'peach').then(function (p) {
                     state.agregandoParticipante = false;
+                    toast(p ? p.nombre + ' se agregó al grupo' : 'No se pudo agregar — revisa tu conexión');
                     renderGruposView();
                 });
             }
