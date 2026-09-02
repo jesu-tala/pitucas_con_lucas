@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plata Clara — Opciones de diseño</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=EB+Garamond:ital,wght@0,500;1,500&display=swap">
+<style>
+  :root{
+    --bg:#F5F3EF;
+    --surface:#FFFFFF;
+    --border:#E4E0D8;
+    --text:#1C1A1E;
+    --text-secondary:#83808A;
+    --text-tertiary:#AFACB6;
+    --font:'Poppins', system-ui, sans-serif;
+    --font-editorial:'EB Garamond', Georgia, serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);}
+  h1,h2,h3,p{margin:0;}
+  .wrap{max-width:980px;margin:0 auto;padding:48px 24px 90px;}
+  .intro{max-width:640px;margin-bottom:56px;}
+  .intro .kicker{font-family:var(--font-editorial);font-style:italic;color:#6E3F87;font-size:19px;margin-bottom:6px;}
+  .intro h1{font-size:28px;font-weight:700;letter-spacing:-0.01em;margin-bottom:10px;}
+  .intro p{font-size:14.5px;color:var(--text-secondary);line-height:1.6;}
+
+  section{margin-bottom:64px;}
+  .section-head{margin-bottom:24px;max-width:680px;}
+  .section-head .eyebrow{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);margin-bottom:6px;}
+  .section-head h2{font-size:20px;font-weight:700;letter-spacing:-0.01em;margin-bottom:6px;}
+  .section-head p{font-size:13.5px;color:var(--text-secondary);line-height:1.55;}
+
+  .option-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;}
+  .option-card{
+    background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:20px;
+    display:flex;flex-direction:column;gap:14px;
+  }
+  .option-label{display:flex;align-items:center;gap:10px;}
+  .option-letter{
+    width:26px;height:26px;border-radius:50%;background:var(--text);color:#fff;font-size:12px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  }
+  .option-title{font-size:14.5px;font-weight:700;}
+  .option-desc{font-size:12px;color:var(--text-secondary);line-height:1.5;margin:-4px 0 2px 36px;}
+
+  /* mini phone-ish mockup shell */
+  .mock{
+    border-radius:14px;padding:16px;background:var(--mock-bg);border:1px solid var(--mock-border);
+  }
+  .mock-swatches{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+  .mock-swatch{width:20px;height:20px;border-radius:6px;flex-shrink:0;}
+
+  .mock-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+  .mock-stat{border-radius:12px;padding:10px 11px;}
+  .mock-stat .lbl{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;opacity:.65;margin-bottom:4px;}
+  .mock-stat .val{font-size:15px;font-variant-numeric:tabular-nums;}
+
+  .mock-tx{display:flex;align-items:center;gap:10px;padding:8px 4px;}
+  .mock-tx .avatar{width:32px;height:32px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+  .mock-tx .avatar svg{width:15px;height:15px;}
+  .mock-tx .info{flex:1;min-width:0;}
+  .mock-tx .name{font-size:12.5px;font-weight:600;}
+  .mock-tx .cat{font-size:10.5px;margin-top:1px;}
+  .mock-tx .amt{font-size:13px;font-variant-numeric:tabular-nums;}
+
+  .mock-donut{display:flex;align-items:center;gap:14px;}
+  .mock-donut svg{flex-shrink:0;}
+  .mock-legend{display:flex;flex-direction:column;gap:4px;font-size:10.5px;}
+  .mock-legend .row{display:flex;align-items:center;gap:6px;}
+  .mock-legend .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+
+  /* weight comparison */
+  .weight-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
+  .weight-card .amt-big{font-variant-numeric:tabular-nums;letter-spacing:-0.01em;}
+  .weight-card .amt-small{font-variant-numeric:tabular-nums;color:var(--text-secondary);}
+  .weight-tag{font-size:11px;color:var(--text-secondary);background:#F0EDE7;padding:3px 9px;border-radius:20px;margin-top:8px;}
+
+  .footer-note{max-width:640px;font-size:13px;color:var(--text-secondary);line-height:1.6;border-top:1px solid var(--border);padding-top:24px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="intro">
+    <div class="kicker">Plata Clara</div>
+    <h1>Opciones de diseño para elegir</h1>
+    <p>Cuatro direcciones de color (tres sin pastel, una pastel pero más suave), tres pesos de número, y cuatro formas de mostrar las tarjetas de Ingresos/Gastos/Inversiones y las filas de Transacciones. Mira cada una y dime qué letra o número te gusta más de cada sección — no hace falta que sea la misma línea en las tres.</p>
+  </div>
+
+  <section id="colores">
+    <div class="section-head">
+      <div class="eyebrow">1 · Paleta de colores</div>
+      <h2>Cuatro direcciones</h2>
+      <p>Cada opción se ve aplicada a un mini gráfico de dona, las tarjetas de resumen y una fila de transacción, para que se sienta como se vería de verdad, no sólo como colores sueltos.</p>
+    </div>
+    <div class="option-grid">
+
+      <!-- OPTION A -->
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">A</span><span class="option-title">Editorial financiero</span></div>
+        <div class="option-desc">Tonos joya profundos y algo desaturados — plum, bosque, óxido. Serio y con carácter, como una fintech con gusto editorial.</div>
+        <div class="mock" style="--mock-bg:#FAF8F5;--mock-border:#EAE5DC;">
+          <div class="mock-swatches">
+            <div class="mock-swatch" style="background:#4A3B6B"></div>
+            <div class="mock-swatch" style="background:#2F6D4F"></div>
+            <div class="mock-swatch" style="background:#B5482E"></div>
+            <div class="mock-swatch" style="background:#A6822C"></div>
+            <div class="mock-swatch" style="background:#3A6B8A"></div>
+            <div class="mock-swatch" style="background:#8C3A4B"></div>
+            <div class="mock-swatch" style="background:#5C6B34"></div>
+            <div class="mock-swatch" style="background:#5B6472"></div>
+          </div>
+          <div class="mock-donut" style="margin-bottom:14px;">
+            <svg width="72" height="72" viewBox="0 0 72 72">
+              <circle cx="36" cy="36" r="28" fill="none" stroke="#EAE5DC" stroke-width="10"/>
+              <path d="M 36 8 A 28 28 0 0 1 62.2 44.5" fill="none" stroke="#2F6D4F" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 62.2 44.5 A 28 28 0 0 1 44.6 63.2" fill="none" stroke="#B5482E" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 44.6 63.2 A 28 28 0 0 1 15 52" fill="none" stroke="#A6822C" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 15 52 A 28 28 0 0 1 36 8" fill="none" stroke="#3A6B8A" stroke-width="10" stroke-linecap="round"/>
+            </svg>
+            <div class="mock-legend">
+              <div class="row"><span class="dot" style="background:#2F6D4F"></span>Hogar</div>
+              <div class="row"><span class="dot" style="background:#B5482E"></span>Transporte</div>
+              <div class="row"><span class="dot" style="background:#A6822C"></span>Delivery</div>
+              <div class="row"><span class="dot" style="background:#3A6B8A"></span>Salud</div>
+            </div>
+          </div>
+          <div class="mock-stat-grid">
+            <div class="mock-stat" style="background:#E9F1EC;color:#215A3F;"><div class="lbl">Ingresos</div><div class="val" style="font-weight:600;">$1.430.000</div></div>
+            <div class="mock-stat" style="background:#F7E8E3;color:#8F3A24;"><div class="lbl">Gastos</div><div class="val" style="font-weight:600;">$679.024</div></div>
+          </div>
+          <div class="mock-tx" style="border-top:1px solid #EAE5DC;">
+            <div class="avatar" style="background:#3A6B8A;color:#fff;">🚗</div>
+            <div class="info"><div class="name">Copec Providencia</div><div class="cat" style="color:#3A6B8A;">Transporte</div></div>
+            <div class="amt" style="font-weight:600;">$18.000</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPTION B -->
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">B</span><span class="option-title">Cálido contemporáneo</span></div>
+        <div class="option-desc">Terracota + verde azulado, con mostaza de acento. Más cercano y con energía, sin perder seriedad.</div>
+        <div class="mock" style="--mock-bg:#FAF8F5;--mock-border:#EAE5DC;">
+          <div class="mock-swatches">
+            <div class="mock-swatch" style="background:#C1663B"></div>
+            <div class="mock-swatch" style="background:#2C6E6B"></div>
+            <div class="mock-swatch" style="background:#B8862E"></div>
+            <div class="mock-swatch" style="background:#4C6785"></div>
+            <div class="mock-swatch" style="background:#8B3F52"></div>
+            <div class="mock-swatch" style="background:#6B7A3D"></div>
+            <div class="mock-swatch" style="background:#6B4C7A"></div>
+            <div class="mock-swatch" style="background:#7A7267"></div>
+          </div>
+          <div class="mock-donut" style="margin-bottom:14px;">
+            <svg width="72" height="72" viewBox="0 0 72 72">
+              <circle cx="36" cy="36" r="28" fill="none" stroke="#EAE5DC" stroke-width="10"/>
+              <path d="M 36 8 A 28 28 0 0 1 62.2 44.5" fill="none" stroke="#B8862E" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 62.2 44.5 A 28 28 0 0 1 44.6 63.2" fill="none" stroke="#C1663B" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 44.6 63.2 A 28 28 0 0 1 15 52" fill="none" stroke="#B8862E" stroke-width="10" stroke-linecap="round" opacity="0"/>
+              <path d="M 15 52 A 28 28 0 0 1 36 8" fill="none" stroke="#4C6785" stroke-width="10" stroke-linecap="round"/>
+            </svg>
+            <div class="mock-legend">
+              <div class="row"><span class="dot" style="background:#B8862E"></span>Hogar</div>
+              <div class="row"><span class="dot" style="background:#C1663B"></span>Transporte</div>
+              <div class="row"><span class="dot" style="background:#4C6785"></span>Salud</div>
+            </div>
+          </div>
+          <div class="mock-stat-grid">
+            <div class="mock-stat" style="background:#E4EFEE;color:#1E4E4C;"><div class="lbl">Ingresos</div><div class="val" style="font-weight:600;">$1.430.000</div></div>
+            <div class="mock-stat" style="background:#F6E7DE;color:#8C4A29;"><div class="lbl">Gastos</div><div class="val" style="font-weight:600;">$679.024</div></div>
+          </div>
+          <div class="mock-tx" style="border-top:1px solid #EAE5DC;">
+            <div class="avatar" style="background:#C1663B;color:#fff;">🚗</div>
+            <div class="info"><div class="name">Copec Providencia</div><div class="cat" style="color:#C1663B;">Transporte</div></div>
+            <div class="amt" style="font-weight:600;">$18.000</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPTION C -->
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">C</span><span class="option-title">Monocromo + un acento</span></div>
+        <div class="option-desc">Casi todo en negro/gris/blanco; un solo azul cobalto para lo interactivo. Las categorías se distinguen con tonos apagados, no con fondos de color fuerte.</div>
+        <div class="mock" style="--mock-bg:#FAF8F5;--mock-border:#EAE5DC;">
+          <div class="mock-swatches">
+            <div class="mock-swatch" style="background:#2E5AAC"></div>
+            <div class="mock-swatch" style="background:#4A4A52"></div>
+            <div class="mock-swatch" style="background:#5B6472"></div>
+            <div class="mock-swatch" style="background:#8C3A4B"></div>
+            <div class="mock-swatch" style="background:#2F6D4F"></div>
+            <div class="mock-swatch" style="background:#A6822C"></div>
+            <div class="mock-swatch" style="background:#4A3B6B"></div>
+            <div class="mock-swatch" style="background:#7A7267"></div>
+          </div>
+          <div class="mock-donut" style="margin-bottom:14px;">
+            <svg width="72" height="72" viewBox="0 0 72 72">
+              <circle cx="36" cy="36" r="28" fill="none" stroke="#EAE5DC" stroke-width="10"/>
+              <path d="M 36 8 A 28 28 0 0 1 62.2 44.5" fill="none" stroke="#4A4A52" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 62.2 44.5 A 28 28 0 0 1 44.6 63.2" fill="none" stroke="#5B6472" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 44.6 63.2 A 28 28 0 0 1 15 52" fill="none" stroke="#8C3A4B" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 15 52 A 28 28 0 0 1 36 8" fill="none" stroke="#A6822C" stroke-width="10" stroke-linecap="round"/>
+            </svg>
+            <div class="mock-legend">
+              <div class="row"><span class="dot" style="background:#4A4A52"></span>Hogar</div>
+              <div class="row"><span class="dot" style="background:#5B6472"></span>Transporte</div>
+              <div class="row"><span class="dot" style="background:#8C3A4B"></span>Delivery</div>
+              <div class="row"><span class="dot" style="background:#A6822C"></span>Salud</div>
+            </div>
+          </div>
+          <div class="mock-stat-grid">
+            <div class="mock-stat" style="background:#F3F2F0;color:#1C1A1E;border:1px solid #E4E0D8;"><div class="lbl" style="opacity:.55;">● Ingresos</div><div class="val" style="font-weight:600;">$1.430.000</div></div>
+            <div class="mock-stat" style="background:#F3F2F0;color:#1C1A1E;border:1px solid #E4E0D8;"><div class="lbl" style="opacity:.55;">● Gastos</div><div class="val" style="font-weight:600;">$679.024</div></div>
+          </div>
+          <div class="mock-tx" style="border-top:1px solid #EAE5DC;">
+            <div class="avatar" style="background:#F3F2F0;color:#5B6472;border:1px solid #E4E0D8;">🚗</div>
+            <div class="info"><div class="name">Copec Providencia</div><div class="cat" style="color:#5B6472;">Transporte</div></div>
+            <div class="amt" style="font-weight:600;">$18.000</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPTION D -->
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">D</span><span class="option-title">Pastel, versión suave</span></div>
+        <div class="option-desc">Pastel de nuevo, pero más "polvoso" y desaturado que la vez pasada — nada de tonos caramelo brillantes. Piensa en lino teñido, no en dulces.</div>
+        <div class="mock" style="--mock-bg:#FAF8F5;--mock-border:#EAE5DC;">
+          <div class="mock-swatches">
+            <div class="mock-swatch" style="background:#C9A0B3"></div>
+            <div class="mock-swatch" style="background:#A8BFA0"></div>
+            <div class="mock-swatch" style="background:#E3B98D"></div>
+            <div class="mock-swatch" style="background:#9DB4C7"></div>
+            <div class="mock-swatch" style="background:#D9A8B0"></div>
+            <div class="mock-swatch" style="background:#D9C48D"></div>
+            <div class="mock-swatch" style="background:#B0BF8F"></div>
+            <div class="mock-swatch" style="background:#C9BFB2"></div>
+          </div>
+          <div class="mock-donut" style="margin-bottom:14px;">
+            <svg width="72" height="72" viewBox="0 0 72 72">
+              <circle cx="36" cy="36" r="28" fill="none" stroke="#EAE5DC" stroke-width="10"/>
+              <path d="M 36 8 A 28 28 0 0 1 62.2 44.5" fill="none" stroke="#D9C48D" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 62.2 44.5 A 28 28 0 0 1 44.6 63.2" fill="none" stroke="#9DB4C7" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 44.6 63.2 A 28 28 0 0 1 15 52" fill="none" stroke="#E3B98D" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 15 52 A 28 28 0 0 1 36 8" fill="none" stroke="#A8BFA0" stroke-width="10" stroke-linecap="round"/>
+            </svg>
+            <div class="mock-legend">
+              <div class="row"><span class="dot" style="background:#D9C48D"></span>Hogar</div>
+              <div class="row"><span class="dot" style="background:#9DB4C7"></span>Transporte</div>
+              <div class="row"><span class="dot" style="background:#E3B98D"></span>Delivery</div>
+              <div class="row"><span class="dot" style="background:#A8BFA0"></span>Salud</div>
+            </div>
+          </div>
+          <div class="mock-stat-grid">
+            <div class="mock-stat" style="background:#EDF1EA;color:#4E6B4A;"><div class="lbl">Ingresos</div><div class="val" style="font-weight:600;">$1.430.000</div></div>
+            <div class="mock-stat" style="background:#F5E8E0;color:#9C6A46;"><div class="lbl">Gastos</div><div class="val" style="font-weight:600;">$679.024</div></div>
+          </div>
+          <div class="mock-tx" style="border-top:1px solid #EAE5DC;">
+            <div class="avatar" style="background:#9DB4C7;color:#2E4457;">🚗</div>
+            <div class="info"><div class="name">Copec Providencia</div><div class="cat" style="color:#5E7A90;">Transporte</div></div>
+            <div class="amt" style="font-weight:600;">$18.000</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="peso">
+    <div class="section-head">
+      <div class="eyebrow">2 · Peso de los números</div>
+      <h2>Ni muy grueso, ni muy liviano</h2>
+      <p>El mismo número, en tres pesos distintos. Se aplicaría igual en las tarjetas de resumen y en los montos de Transacciones.</p>
+    </div>
+    <div class="option-grid">
+      <div class="weight-card">
+        <div class="amt-big" style="font-size:26px;font-weight:500;">$1.430.000</div>
+        <div class="amt-small" style="font-size:14px;font-weight:500;">$18.000 · Copec Providencia</div>
+        <span class="weight-tag">1 — Liviano (500)</span>
+      </div>
+      <div class="weight-card">
+        <div class="amt-big" style="font-size:26px;font-weight:600;">$1.430.000</div>
+        <div class="amt-small" style="font-size:14px;font-weight:600;">$18.000 · Copec Providencia</div>
+        <span class="weight-tag">2 — Equilibrado (600) · recomendado</span>
+      </div>
+      <div class="weight-card">
+        <div class="amt-big" style="font-size:26px;font-weight:700;">$1.430.000</div>
+        <div class="amt-small" style="font-size:14px;font-weight:700;">$18.000 · Copec Providencia</div>
+        <span class="weight-tag">3 — Marcado (700)</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="tarjetas">
+    <div class="section-head">
+      <div class="eyebrow">3 · Tarjetas de resumen</div>
+      <h2>Ingresos / Gastos / Inversiones / Balance</h2>
+      <p>Cuatro formas de mostrar estas tarjetas, usando un color de ejemplo (el tono final depende de la paleta que elijas arriba). Los números aquí están en el peso "equilibrado" de la sección 2.</p>
+    </div>
+    <div class="option-grid">
+
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">1</span><span class="option-title">Fondo tintado suave</span></div>
+        <div class="option-desc">Como está hoy, pero con un tinte más discreto (no un bloque de color sólido).</div>
+        <div class="mock-stat-grid" style="margin:0;">
+          <div class="mock-stat" style="background:#EDF3EF;color:#215A3F;"><div class="lbl" style="opacity:.7;">Ingresos</div><div class="val" style="font-weight:600;">$1.430.000</div></div>
+          <div class="mock-stat" style="background:#F8ECE6;color:#8F3A24;"><div class="lbl" style="opacity:.7;">Gastos</div><div class="val" style="font-weight:600;">$679.024</div></div>
+        </div>
+      </div>
+
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">2</span><span class="option-title">Borde de color</span></div>
+        <div class="option-desc">Tarjeta blanca, borde de 2px del color de la categoría, número en tinta oscura neutra.</div>
+        <div class="mock-stat-grid" style="margin:0;">
+          <div class="mock-stat" style="background:#fff;color:#1C1A1E;border:2px solid #2F6D4F;"><div class="lbl" style="color:#2F6D4F;">Ingresos</div><div class="val" style="font-weight:600;">$1.430.000</div></div>
+          <div class="mock-stat" style="background:#fff;color:#1C1A1E;border:2px solid #B5482E;"><div class="lbl" style="color:#B5482E;">Gastos</div><div class="val" style="font-weight:600;">$679.024</div></div>
+        </div>
+      </div>
+
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">3</span><span class="option-title">Punto de color + número neutro</span></div>
+        <div class="option-desc">Tarjeta neutra igual para todas; sólo un puntito de color y el label indican qué es cada una.</div>
+        <div class="mock-stat-grid" style="margin:0;">
+          <div class="mock-stat" style="background:#F3F2F0;color:#1C1A1E;border:1px solid #E4E0D8;"><div class="lbl"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#2F6D4F;margin-right:5px;"></span>Ingresos</div><div class="val" style="font-weight:600;">$1.430.000</div></div>
+          <div class="mock-stat" style="background:#F3F2F0;color:#1C1A1E;border:1px solid #E4E0D8;"><div class="lbl"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#B5482E;margin-right:5px;"></span>Gastos</div><div class="val" style="font-weight:600;">$679.024</div></div>
+        </div>
+      </div>
+
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">4</span><span class="option-title">Ícono de color, tarjeta blanca</span></div>
+        <div class="option-desc">Sin ningún tinte de fondo — sólo un ícono pequeño de color junto al label.</div>
+        <div class="mock-stat-grid" style="margin:0;">
+          <div class="mock-stat" style="background:#fff;color:#1C1A1E;border:1px solid #E4E0D8;"><div class="lbl">↑ Ingresos</div><div class="val" style="font-weight:600;">$1.430.000</div></div>
+          <div class="mock-stat" style="background:#fff;color:#1C1A1E;border:1px solid #E4E0D8;"><div class="lbl">↓ Gastos</div><div class="val" style="font-weight:600;">$679.024</div></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="transacciones">
+    <div class="section-head">
+      <div class="eyebrow">4 · Filas de transacciones</div>
+      <h2>El ícono de categoría en la lista</h2>
+      <p>Cómo se ve el círculo de cada transacción en Transacciones.</p>
+    </div>
+    <div class="option-grid">
+
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">1</span><span class="option-title">Círculo relleno de color</span></div>
+        <div class="option-desc">Como está hoy — fondo de color sólido detrás del ícono.</div>
+        <div class="mock-tx" style="padding:8px 0;">
+          <div class="avatar" style="background:#3A6B8A;color:#fff;">🚗</div>
+          <div class="info"><div class="name">Copec Providencia</div><div class="cat" style="color:var(--text-secondary);">Transporte</div></div>
+          <div class="amt" style="font-weight:600;">$18.000</div>
+        </div>
+      </div>
+
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">2</span><span class="option-title">Ícono neutro, anillo de color</span></div>
+        <div class="option-desc">Fondo gris/blanco parejo para todos, con un anillo delgado del color de la categoría.</div>
+        <div class="mock-tx" style="padding:8px 0;">
+          <div class="avatar" style="background:#F3F2F0;color:#5B6472;border:2px solid #3A6B8A;">🚗</div>
+          <div class="info"><div class="name">Copec Providencia</div><div class="cat" style="color:var(--text-secondary);">Transporte</div></div>
+          <div class="amt" style="font-weight:600;">$18.000</div>
+        </div>
+      </div>
+
+      <div class="option-card">
+        <div class="option-label"><span class="option-letter">3</span><span class="option-title">Ícono neutro, texto de color</span></div>
+        <div class="option-desc">El círculo es siempre neutro; el nombre de la categoría abajo lleva el color.</div>
+        <div class="mock-tx" style="padding:8px 0;">
+          <div class="avatar" style="background:#F3F2F0;color:#5B6472;border:1px solid #E4E0D8;">🚗</div>
+          <div class="info"><div class="name">Copec Providencia</div><div class="cat" style="color:#3A6B8A;font-weight:600;">Transporte</div></div>
+          <div class="amt" style="font-weight:600;">$18.000</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="footer-note">
+    Dime, por sección, qué letra o número prefieres (por ejemplo: "colores B, peso 2, tarjetas 3, transacciones 1") y lo aplico a toda la app. También puedes pedir una mezcla que no esté exactamente aquí — esto es sólo para acotar el rango.
+  </div>
+
+</div>
+</body>
+</html>

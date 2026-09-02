@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "lib": ["ES2019", "DOM"],
+    "outDir": "dist",
+    "strict": false,
+    "noImplicitAny": false,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "removeComments": false,
+    "sourceMap": false,
+    "noEmitOnError": true,
+    "newLine": "lf"
+  },
+  "include": ["app.ts"]
+}

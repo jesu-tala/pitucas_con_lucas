@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dbg_*.png
+test-results/
+playwright-report/
+dumped_body.html

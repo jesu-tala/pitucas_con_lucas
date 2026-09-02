@@ -1,0 +1,1205 @@
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FFFCF9">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pitucas sin lucas">
+<link rel="manifest" href="manifest.json">
+<!-- Safari (iOS/macOS) no siempre lee los iconos del manifest.json -- históricamente necesita
+     este link explícito para el ícono de "Agregar a pantalla de inicio" y para el favicon de la
+     pestaña. Sin esto, iOS muestra un ícono gris/genérico aunque los PNG estén bien subidos. -->
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<title>Pitucas sin lucas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600&display=swap">
+<style>
+  :root{
+    color-scheme:light dark;
+    --bg:#FFFCF9;
+    --stage-bg:#F3EEE7;
+    --surface:#FFFFFF;
+    --surface-sunken:#F7F1E9;
+    --border:#EDE3D6;
+    --text:#2A2A32;
+    --text-secondary:#898994;
+    --text-tertiary:#B6B2BC;
+    --accent:#8E7EE7;
+    --accent-ink:#8E7EE7;
+    --accent-soft:#E6E2F8;
+    --shadow:0 10px 30px -12px rgba(28,26,30,0.16);
+    --shadow-sm:0 2px 10px -4px rgba(28,26,30,0.12);
+
+    --income-fill:#B8E0D2; --income-ink:#297056;
+    --expense-fill:#F8B195; --expense-ink:#A63A30;
+    --invest-fill:#AEC6CF; --invest-ink:#3F54A6;
+
+    --cat-lavender-fill:#D8C4E8; --cat-lavender-ink:#6B3FA0;
+    --cat-mint-fill:#B8E0D2; --cat-mint-ink:#1E6F52;
+    --cat-peach-fill:#FFDAB9; --cat-peach-ink:#A1591E;
+    --cat-sky-fill:#BDE0FE; --cat-sky-ink:#205C87;
+    --cat-pink-fill:#FFD1DC; --cat-pink-ink:#B23A5C;
+    --cat-butter-fill:#FFF3B0; --cat-butter-ink:#8A6A12;
+    --cat-sage-fill:#C7D9B7; --cat-sage-ink:#4C6B27;
+    --cat-neutral-fill:#EDE0D4; --cat-neutral-ink:#6B5D4F;
+
+    --focus-ring:#6E3F87;
+    --radius-card:18px;
+    --radius-chip:999px;
+    /* Una sola familia para todo el texto de la app (antes: Poppins + EB Garamond para el
+       acento editorial en cursiva). --font-editorial se mantiene como variable (varios estilos
+       lo usan para el toque en cursiva del wordmark/títulos) pero ahora apunta a la misma
+       familia, así "todo el texto usa una sola familia" se cumple también ahí. */
+    --font-display:'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-editorial:'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#19171C;
+      --stage-bg:#100F13;
+      --surface:#221F27;
+      --surface-sunken:#2B2731;
+      --border:#3A3542;
+      --text:#F5F1F7;
+      --text-secondary:#ABA6B3;
+      --text-tertiary:#736E7D;
+      --accent:#C9A6DB;
+      --accent-ink:#E3C9F0;
+      --accent-soft:#3B2E48;
+      --shadow:0 10px 30px -12px rgba(0,0,0,0.5);
+      --shadow-sm:0 2px 10px -4px rgba(0,0,0,0.4);
+
+      --income-fill:#2F6E52;   --income-ink:#A6E4C7;
+      --expense-fill:#8C4A34;  --expense-ink:#F5C3AE;
+      --invest-fill:#3E5C6B;   --invest-ink:#C3DCE6;
+
+      --cat-lavender-fill:#5A4276;  --cat-lavender-ink:#E2CEF2;
+      --cat-mint-fill:#2E6B52;      --cat-mint-ink:#B4E8D2;
+      --cat-peach-fill:#875A2E;     --cat-peach-ink:#FBDCB8;
+      --cat-sky-fill:#2E5A80;       --cat-sky-ink:#C3E2FB;
+      --cat-pink-fill:#7C3E51;      --cat-pink-ink:#FBCFDA;
+      --cat-butter-fill:#7A5E1E;    --cat-butter-ink:#F7E7AC;
+      --cat-sage-fill:#4C5C2E;      --cat-sage-ink:#D6E6BC;
+      --cat-neutral-fill:#463F35;   --cat-neutral-ink:#E4D9C9;
+    }
+  }
+  :root[data-theme="light"]{ color-scheme:light; }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#19171C;
+    --stage-bg:#100F13;
+    --surface:#221F27;
+    --surface-sunken:#2B2731;
+    --border:#3A3542;
+    --text:#F5F1F7;
+    --text-secondary:#ABA6B3;
+    --text-tertiary:#736E7D;
+    --accent:#C9A6DB;
+    --accent-ink:#E3C9F0;
+    --accent-soft:#3B2E48;
+    --shadow:0 10px 30px -12px rgba(0,0,0,0.5);
+    --shadow-sm:0 2px 10px -4px rgba(0,0,0,0.4);
+
+    --income-fill:#2F6E52;   --income-ink:#A6E4C7;
+    --expense-fill:#8C4A34;  --expense-ink:#F5C3AE;
+    --invest-fill:#3E5C6B;   --invest-ink:#C3DCE6;
+
+    --cat-lavender-fill:#5A4276;  --cat-lavender-ink:#E2CEF2;
+    --cat-mint-fill:#2E6B52;      --cat-mint-ink:#B4E8D2;
+    --cat-peach-fill:#875A2E;     --cat-peach-ink:#FBDCB8;
+    --cat-sky-fill:#2E5A80;       --cat-sky-ink:#C3E2FB;
+    --cat-pink-fill:#7C3E51;      --cat-pink-ink:#FBCFDA;
+    --cat-butter-fill:#7A5E1E;    --cat-butter-ink:#F7E7AC;
+    --cat-sage-fill:#4C5C2E;      --cat-sage-ink:#D6E6BC;
+    --cat-neutral-fill:#463F35;   --cat-neutral-ink:#E4D9C9;
+  }
+
+  *,*::before,*::after{box-sizing:border-box;}
+  body{margin:0;background:var(--stage-bg);color:var(--text);font-family:var(--font-display);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
+  h1,h2,h3,h4,p{margin:0;}
+  button{font-family:inherit;background:none;border:none;color:inherit;-webkit-appearance:none;appearance:none;}
+  input,select{font-family:inherit;color-scheme:light dark;}
+  .tabular{font-variant-numeric:tabular-nums;}
+
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:0.001ms !important;animation-iteration-count:1 !important;transition-duration:0.001ms !important;}
+  }
+
+  :focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;border-radius:6px;}
+
+  /* ---------- stage & phone shell ---------- */
+  .stage{
+    min-height:100vh;
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    padding:28px 16px 60px;
+  }
+  .stage-inner{width:100%;max-width:430px;display:flex;flex-direction:column;gap:14px;}
+  .stage-caption{
+    text-align:center;font-size:12.5px;color:var(--text-secondary);
+    letter-spacing:.02em;
+  }
+  .phone{
+    background:var(--bg);
+    border-radius:32px;
+    box-shadow:var(--shadow);
+    border:1px solid var(--border);
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+    height:844px;
+    max-height:calc(100vh - 90px);
+    position:relative;
+  }
+  /* En un celular de verdad no hace sentido dibujar un marco de teléfono chico flotando
+     en medio de la pantalla (eso era solo para poder mirar la maqueta cómodamente desde un
+     computador) — acá ocupa el alto y ancho reales de la pantalla, sin bordes ni sombra,
+     para que se sienta como una app y no como una página de escritorio encogida. */
+  @media (max-width:480px){
+    /* Safari en iOS deja "rebotar" la página completa (rubber-band) al arrastrar cerca de los
+       bordes, aunque no haya nada que hacer scroll — eso hace que todo el marco de la app
+       (incluida la barra de abajo) se mueva un poco para arriba/abajo y quede descuadrado un
+       instante. El scroll real ya vive adentro de .view-scroll, así que el body/html de
+       afuera no necesita (ni debe) poder moverse: lo fijamos para que ese rebote no exista. */
+    html{ height:100%; overscroll-behavior:none; }
+    body{ height:100%; height:100dvh; overflow:hidden; overscroll-behavior:none; }
+    .stage{ padding:0; align-items:stretch; min-height:100vh; min-height:100dvh; }
+    .stage-inner{ max-width:none; gap:0; }
+    .stage-caption{ display:none; }
+    .phone{
+      /* 100vh/100dvh en .phone dependía de que .stage/.stage-inner (flex, sin altura fija
+         propia, solo min-height) le pasaran la altura real completa — en algunos navegadores
+         móviles esa cadena no termina de cuadrar y quedaba un resto de espacio (del color de
+         fondo de .body) debajo de la barra inferior, como si la app no llegara hasta el borde
+         real de la pantalla. position:fixed + inset:0 fija el marco directo contra el viewport
+         visible del navegador, sin depender de que ningún ancestro le "pase" el alto. */
+      border-radius:0; box-shadow:none; border:none;
+      /* top+left+right fijos, pero el alto se fija explícito (100dvh, con --app-height de
+         respaldo puesto por JS) en vez de completarlo con "bottom:0" — un alto explícito no
+         depende de que el navegador vuelva a medir el borde inferior del viewport, que es
+         justo lo que a veces se atrasa en el primer dibujo de una PWA instalada. */
+      position:fixed; top:0; left:0; right:0; max-height:none;
+      height:100dvh; height:var(--app-height, 100dvh);
+    }
+    /* Safari en iOS hace zoom automático al tocar cualquier campo de texto/select cuyo
+       tamaño de letra sea menor a 16px — y a veces no vuelve a alejarse solo después,
+       dejando la app "pegada" en zoom hasta que la usuaria hace un pellizco manual para
+       volver a acomodarla. Varios campos acá son más chicos que eso por diseño (para que
+       no se vean gigantes en reposo), así que se agrandan SOLO mientras están enfocados
+       (con el teclado abierto), lo justo para que el navegador no necesite hacer zoom.
+       Se restauran a su tamaño normal apenas se les quita el foco. */
+    input:focus, select:focus, textarea:focus{ font-size:16px !important; }
+  }
+  .app-header{
+    /* env(safe-area-inset-top) es 0 en la mayoría de los casos (navegador normal), pero en un
+       iPhone con notch/Dynamic Island, instalado a la pantalla de inicio (modo standalone),
+       es la altura real de la barra de estado (hora, batería) — sin esto, ese contenido queda
+       flotando encima del "Transacciones"/"Menú" en vez de dejarle espacio arriba. */
+    padding:calc(20px + env(safe-area-inset-top,0px)) 20px 12px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    flex-shrink:0;
+  }
+  .app-header .brand{
+    font-family:var(--font-editorial);font-style:italic;font-size:16px;font-weight:600;color:var(--accent-ink);letter-spacing:.01em;
+  }
+  .app-header h1{font-size:24px;font-weight:700;letter-spacing:-0.01em;}
+  .view-scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:4px 16px 24px;}
+  .view-scroll::-webkit-scrollbar{width:0;height:0;}
+
+  .tabbar{
+    display:flex;
+    border-top:1px solid var(--border);
+    background:var(--surface);
+    flex-shrink:0;
+    padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));
+  }
+  .tab{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+    background:none;border:none;color:var(--text-tertiary);padding:8px 4px 6px;
+    border-radius:14px;cursor:pointer;font-size:11.5px;font-weight:600;
+    transition:color .15s ease;
+  }
+  .tab svg{width:22px;height:22px;}
+  .tab.active{color:var(--accent);}
+  .tab:hover{color:var(--accent-ink);}
+
+  /* ---------- generic bits ---------- */
+  .section-title{font-size:15px;font-weight:600;margin:22px 0 10px;letter-spacing:-0.01em;}
+  .section-title:first-child{margin-top:6px;}
+  .muted{color:var(--text-secondary);}
+
+  .search-row{display:flex;align-items:center;gap:8px;margin:6px 0 10px;}
+  .search-field{position:relative;flex:1;min-width:0;display:flex;align-items:center;}
+  .search-field .search-icon{
+    position:absolute;left:12px;width:16px;height:16px;color:var(--text-tertiary);pointer-events:none;
+  }
+  .search-input{
+    width:100%;padding:10px 34px 10px 34px;border-radius:var(--radius-chip);border:1px solid var(--border);
+    background:var(--surface-sunken);color:var(--text);font-size:13.5px;font-weight:600;min-width:0;
+  }
+  .search-input::placeholder{color:var(--text-tertiary);font-weight:500;}
+  .search-clear{
+    position:absolute;right:6px;flex-shrink:0;width:24px;height:24px;border-radius:50%;background:var(--surface);color:var(--text-secondary);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  .search-clear svg{width:11px;height:11px;}
+  .filter-open-btn{
+    position:relative;flex-shrink:0;width:38px;height:38px;border-radius:12px;border:1px solid var(--border);
+    background:var(--surface);color:var(--text-secondary);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  .filter-open-btn svg{width:17px;height:17px;}
+  .filter-open-btn.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);}
+  .filter-badge{
+    position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 3px;border-radius:8px;
+    background:var(--accent);color:#fff;font-size:9.5px;font-weight:800;display:flex;align-items:center;justify-content:center;
+  }
+  .filter-date-row{display:flex;gap:10px;}
+  .filter-date-row input[type=date]{
+    width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--surface-sunken);
+    color:var(--text);font-size:13px;font-weight:600;
+  }
+
+  .chip-row{display:flex;gap:8px;overflow-x:auto;padding:6px 0 12px;}
+  .chip{
+    flex-shrink:0;border-radius:var(--radius-chip);border:1px solid var(--border);
+    background:var(--surface);color:var(--text-secondary);font-size:13px;font-weight:600;
+    padding:7px 14px;cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease;
+  }
+  .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .chip.filter-active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);display:flex;align-items:center;gap:6px;}
+  .chip.filter-active button{background:none;border:none;color:inherit;cursor:pointer;padding:0;display:flex;}
+  .chip.filter-active svg{width:14px;height:14px;}
+
+  .card{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-sm);border:1px solid var(--border);}
+
+  .day-group{margin-bottom:18px;}
+  .day-label{font-size:12px;font-weight:500;color:var(--text-secondary);margin:0 2px 8px;}
+  /* Las transacciones de un mismo día van "encapsuladas" en una sola tarjeta (nuestro .card de
+     siempre: fondo, borde, radio y sombra) con un separador entre filas, en vez de tarjetas
+     sueltas con espacio entre cada una. */
+  .tx-list{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-sm);border:1px solid var(--border);overflow:hidden;}
+  .tx-item{
+    display:flex;align-items:center;gap:12px;padding:11px 12px;cursor:pointer;
+    text-align:left;width:100%;border:none;border-bottom:1px solid var(--border);
+  }
+  .tx-item:last-child{border-bottom:none;}
+  .tx-item:hover{background:var(--surface-sunken);}
+  .tx-item:active{transform:scale(0.99);}
+  .tx-avatar{
+    width:40px;height:40px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:var(--fill);color:var(--ink);
+  }
+  .tx-avatar svg{width:19px;height:19px;}
+  /* Algunos emojis (ej. 🏠) vienen "dibujados" más grandes dentro de su propio cuadro de
+     caracter que otros (ej. 🛒, 🚕) — es una inconsistencia del set de emojis nativo, no de
+     nuestro CSS. Un tamaño más chico que el del ícono SVG de al lado le da un margen dentro
+     del círculo para que esa diferencia se note mucho menos. */
+  .tx-avatar .emoji-icon{font-size:17px;line-height:1;}
+  .tx-info{flex:1;min-width:0;}
+  /* Ícono de categoría como emoji suelto (en vez de un SVG del set ICONS) — ver catIconMarkup().
+     line-height:1 evita que el emoji quede descentrado verticalmente dentro del círculo. El
+     tamaño base sirve para los chips de texto (cat-chip, cat-picker-chip); los círculos más
+     grandes (tx-avatar, menu-item-card-icon, budget-cat-icon, platform-icon) lo agrandan aparte. */
+  .emoji-icon{font-size:14px;line-height:1;display:inline-block;}
+  .rule-card-catchip .emoji-icon{font-size:12px;}
+  /* display:block es necesario para que el truncado con "..." realmente funcione -- un <span>
+     (inline) no respeta overflow/text-overflow, así que un comercio con nombre largo se
+     dibujaba a su ancho completo y quedaba literalmente encima del monto de al lado. */
+  .tx-name{display:block;font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .tx-sub{font-size:12.5px;color:var(--text-secondary);margin-top:2px;display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .tx-sub .lock-badge{width:11px;height:11px;flex-shrink:0;color:var(--text-tertiary);}
+  .tx-name.tachado{text-decoration:line-through;color:var(--text-tertiary);}
+  .tx-right{text-align:right;flex-shrink:0;}
+  .tx-amount{font-size:15px;font-weight:500;}
+  .tx-amount.pos{color:var(--income-ink);}
+  .tx-amount.neg{color:var(--text);}
+  .tx-amount.muted-amt{color:var(--text-tertiary);text-decoration:line-through;text-decoration-thickness:1px;}
+  .tx-right-sub{font-size:10px;color:var(--text-tertiary);margin-top:3px;display:flex;align-items:center;justify-content:flex-end;gap:3px;}
+  .tx-right-sub .medio-tag-icon{font-size:11px;line-height:1;}
+  .tx-state{font-size:10.5px;font-weight:700;padding:1.5px 7px;border-radius:var(--radius-chip);display:inline-block;flex-shrink:0;}
+  .state-porcobrar{background:var(--invest-fill);color:var(--invest-ink);}
+  .state-reembolso{background:var(--cat-mint-fill);color:var(--cat-mint-ink);}
+  .state-pendiente{background:var(--cat-butter-fill);color:var(--cat-butter-ink);}
+  .state-noesgasto{background:var(--surface-sunken);color:var(--text-tertiary);}
+  .state-cobrado-inline{background:var(--income-fill);color:var(--income-ink);}
+
+  .empty-state{padding:40px 16px;text-align:center;color:var(--text-secondary);font-size:13.5px;}
+  .empty-state svg{width:34px;height:34px;color:var(--text-tertiary);margin-bottom:10px;}
+
+  /* ---------- balance view ---------- */
+  .month-switcher{
+    display:flex;align-items:center;justify-content:center;gap:14px;padding:6px 0 18px;
+  }
+  .month-switcher .m-label{font-family:var(--font-editorial);font-style:italic;font-size:19px;font-weight:600;min-width:140px;text-align:center;}
+  .month-switcher button{
+    width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--surface);
+    color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  .month-switcher button:disabled{opacity:.35;cursor:default;}
+  .month-switcher svg{width:16px;height:16px;}
+
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;}
+  .stat-tile{padding:14px 14px 13px;border-radius:var(--radius-card);}
+  .stat-tile .stat-label{font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em;}
+  .stat-tile .stat-value{font-size:19px;font-weight:500;margin-top:5px;letter-spacing:-0.01em;}
+  .stat-ingresos{background:color-mix(in srgb, var(--income-fill) 16%, var(--surface));}
+  .stat-gastos{background:color-mix(in srgb, var(--expense-fill) 16%, var(--surface));}
+  .stat-inversiones{background:color-mix(in srgb, var(--invest-fill) 16%, var(--surface));}
+  .stat-balance{background:var(--surface);border:1px solid var(--border);}
+  .stat-ingresos .stat-value{color:var(--income-ink);}
+  .stat-gastos .stat-value{color:var(--expense-ink);}
+  .stat-inversiones .stat-value{color:var(--invest-ink);}
+  /* Versión más chica de .stat-grid/.stat-tile, para la card de "Total invertido" en Inversiones
+     — la usuaria las quería más pequeñas y discretas que las de Balance (que sí se quedan igual). */
+  .stat-grid-compact{gap:8px;}
+  .stat-grid-compact .stat-tile{padding:10px 10px 9px;}
+  .stat-grid-compact .stat-tile .stat-label{font-size:10px;}
+  .stat-grid-compact .stat-tile .stat-value{font-size:15px;margin-top:3px;}
+
+  .donut-card{padding:16px 16px 10px;margin-bottom:16px;}
+  .donut-card-title{font-size:14.5px;font-weight:700;margin-bottom:4px;}
+  .donut-card-sub{font-size:12px;color:var(--text-secondary);margin-bottom:6px;}
+  /* La dona va centrada arriba y la lista de categorías abajo, a lo ancho de la tarjeta
+     (antes iban lado a lado) — así hay espacio para mostrar el emoji de cada categoría
+     junto al nombre, y la lista se lee como un ranking, no como una leyenda apretada. */
+  .donut-row{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0 4px;}
+  .donut-svg-wrap{position:relative;width:172px;height:172px;margin:0 auto;}
+  .donut-svg-wrap .donut-center{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    pointer-events:none;text-align:center;
+  }
+  .donut-center .dc-total{font-size:19px;font-weight:600;letter-spacing:-0.01em;}
+  .donut-center .dc-label{font-size:11px;color:var(--text-secondary);font-weight:600;margin-top:2px;}
+  .donut-legend{width:100%;display:flex;flex-direction:column;gap:0;min-width:0;margin-top:8px;}
+  .legend-row{
+    display:flex;align-items:center;gap:10px;padding:10px 8px;border-radius:12px;cursor:pointer;
+    border:none;background:none;width:100%;text-align:left;
+  }
+  .legend-row:hover{background:var(--surface-sunken);}
+  .legend-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;background:var(--fill);}
+  .legend-icon{display:flex;align-items:center;flex-shrink:0;}
+  .legend-icon svg{width:15px;height:15px;}
+  .legend-icon .emoji-icon{font-size:16px;}
+  .legend-name{font-size:14.5px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .legend-value{font-size:14.5px;font-weight:700;flex-shrink:0;}
+  .legend-pct{font-size:13px;color:var(--text-secondary);flex-shrink:0;width:40px;text-align:right;}
+  .arc-seg{cursor:pointer;transition:opacity .15s ease;}
+  .arc-seg:hover{opacity:.75;}
+
+  .placeholder-card{padding:22px 18px;text-align:center;}
+  .placeholder-card svg{width:30px;height:30px;color:var(--accent);margin-bottom:10px;}
+  .placeholder-card h3{font-size:15px;font-weight:700;margin-bottom:6px;}
+  .placeholder-card p{font-size:13px;color:var(--text-secondary);line-height:1.5;}
+
+  .sueldo-suggestion{background:var(--accent-soft);border:1px solid var(--accent);padding:14px;margin-bottom:14px;}
+  .sueldo-suggestion .sueldo-suggestion-title{font-size:13.5px;font-weight:700;color:var(--accent-ink);margin-bottom:3px;}
+  .sueldo-suggestion .sueldo-suggestion-sub{font-size:12.5px;color:var(--text-secondary);}
+  .sueldo-suggestion .sueldo-suggestion-actions{display:flex;gap:8px;margin-top:12px;}
+  .sueldo-suggestion .sueldo-suggestion-actions .chip{background:var(--surface);}
+  .sueldo-suggestion .sueldo-suggestion-actions .save-tx-btn{flex:1;padding:10px;}
+  .roadmap-list{list-style:none;padding:0;margin:14px 0 0;display:flex;flex-direction:column;gap:8px;text-align:left;}
+  .roadmap-list li{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-secondary);padding:9px 10px;background:var(--surface-sunken);border-radius:12px;}
+  .roadmap-list svg{width:16px;height:16px;flex-shrink:0;color:var(--text-tertiary);}
+
+  /* ---------- menú ---------- */
+  .menu-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;}
+  .menu-list-item{
+    display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px;
+    background:var(--surface);border:1px solid var(--border);border-radius:14px;cursor:pointer;font-family:inherit;
+  }
+  .menu-list-item .menu-item-icon{
+    width:32px;height:32px;border-radius:10px;background:var(--surface-sunken);color:var(--text-secondary);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  }
+  .menu-list-item .menu-item-icon svg{width:16px;height:16px;}
+  .menu-list-item .menu-item-label{flex:1;font-size:13.5px;font-weight:600;color:var(--text);line-height:1.35;}
+  .menu-list-item .menu-item-sub{display:block;font-size:11.5px;font-weight:400;color:var(--text-secondary);margin-top:2px;}
+  .menu-list-item .menu-item-chev{color:var(--text-tertiary);flex-shrink:0;}
+  .menu-list-item .menu-item-chev svg{width:14px;height:14px;transform:rotate(180deg);}
+  .menu-list-item .switch{pointer-events:none;}
+  .menu-list-divider{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-tertiary);margin:18px 4px 2px;}
+  .menu-list-divider:first-child{margin-top:2px;}
+
+  .menu-screen-head{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+  .menu-back-btn{
+    width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:var(--surface);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text);flex-shrink:0;
+  }
+  .menu-back-btn svg{width:15px;height:15px;}
+  .menu-screen-title{font-size:18px;font-weight:700;letter-spacing:-0.01em;}
+
+  .menu-item-card{padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;}
+  .menu-item-card .menu-item-card-icon{
+    width:36px;height:36px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:var(--fill);color:var(--ink);
+  }
+  .menu-item-card .menu-item-card-icon svg{width:17px;height:17px;}
+  .menu-item-card .menu-item-card-icon .emoji-icon{font-size:18px;}
+  .menu-item-card .menu-item-card-body{flex:1;min-width:0;}
+  .menu-item-card .menu-item-card-name{font-size:14px;font-weight:600;}
+  .menu-item-card .menu-item-card-sub{font-size:12px;color:var(--text-secondary);margin-top:2px;}
+  .menu-item-card .menu-item-card-actions{display:flex;gap:6px;flex-shrink:0;}
+
+  .icon-picker{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:6px;}
+  .icon-picker button{
+    aspect-ratio:1;border-radius:10px;border:1.5px solid var(--border);background:var(--surface);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-secondary);
+  }
+  .icon-picker button svg{width:16px;height:16px;}
+  .icon-picker button.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);}
+  .emoji-icon-picker button{font-size:19px;}
+  .color-picker{display:flex;flex-wrap:wrap;gap:9px;margin-top:6px;}
+  .color-picker button{width:32px;height:32px;border-radius:50%;border:2px solid transparent;cursor:pointer;background:var(--sw);}
+  .color-picker button.active{border-color:var(--text);}
+
+  .rule-card{padding:14px 16px;margin-bottom:10px;}
+  .rule-card-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+  .rule-card-comercio{font-size:14px;font-weight:600;flex:1;min-width:0;}
+  .rule-card-count{font-size:11px;color:var(--text-secondary);background:var(--surface-sunken);padding:3px 8px;border-radius:999px;flex-shrink:0;}
+  .rule-card-detail{font-size:12.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .rule-card-detail svg{width:14px;height:14px;flex-shrink:0;}
+  .rule-card-catchip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-weight:600;font-size:11.5px;background:var(--fill);color:var(--ink);}
+  .rule-card-catchip svg{width:12px;height:12px;flex-shrink:0;}
+
+  .file-drop-card{padding:20px 16px;text-align:center;border:1.5px dashed var(--border);background:var(--surface-sunken);box-shadow:none;}
+  .file-drop-card svg{width:26px;height:26px;color:var(--text-tertiary);margin-bottom:8px;}
+  .file-drop-card p{font-size:12.5px;color:var(--text-secondary);line-height:1.5;margin-bottom:12px;}
+  .file-format-hint{font-size:11.5px;color:var(--text-tertiary);margin-top:10px;line-height:1.5;}
+  .file-format-hint code{background:var(--surface-sunken);padding:1px 5px;border-radius:5px;font-family:monospace;}
+
+  .demo-mode-banner{
+    display:flex;align-items:center;gap:6px;background:var(--cat-butter-fill);color:var(--cat-butter-ink);
+    font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.02em;
+  }
+  .demo-mode-banner svg{width:11px;height:11px;}
+  .demo-mode-banner[hidden]{display:none;}
+
+  .subtabs{display:flex;gap:6px;padding:2px 0 16px;}
+  .subtab{
+    flex:1;text-align:center;padding:8px 4px;border-radius:12px;border:none;background:var(--surface-sunken);
+    color:var(--text-secondary);font-size:12.5px;font-weight:700;cursor:grab;touch-action:none;user-select:none;
+  }
+  .subtab.active{background:var(--accent);color:#fff;}
+  .subtab.dragging{opacity:.55;cursor:grabbing;box-shadow:var(--shadow-sm);transform:scale(1.04);}
+
+  .fab-add{
+    position:absolute;right:18px;width:52px;height:52px;border-radius:50%;
+    /* la barra inferior (.tabbar) le suma su propio env(safe-area-inset-bottom) cuando hay
+       una franja segura abajo (el "home indicator" de un iPhone sin botón físico) — si el
+       + no suma lo mismo, la barra le gana en altura y el botón queda tapado detrás de ella. */
+    bottom:calc(78px + env(safe-area-inset-bottom,0px));
+    background:var(--accent);color:#fff;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;
+    cursor:pointer;z-index:15;transition:transform .15s ease;
+  }
+  .fab-add:hover{transform:scale(1.05);}
+  .fab-add svg{width:24px;height:24px;}
+  .fab-add[hidden]{display:none;}
+
+  .draft-field{margin-bottom:14px;}
+  .draft-label{font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em;margin-bottom:7px;display:block;}
+  .draft-input{
+    width:100%;padding:11px 13px;border-radius:12px;border:1px solid var(--border);background:var(--surface-sunken);
+    color:var(--text);font-size:14px;font-weight:600;
+  }
+  .draft-input.amount{font-size:20px;font-weight:500;}
+  /* El placeholder de Nota ("Agregar notas personales") es solo una sugerencia, no debe
+     competir visualmente con texto real ya escrito — más clarito que el gris por defecto del
+     navegador, en línea con --text-tertiary que ya usamos para texto secundario sutil. */
+  .nota-input::placeholder{color:var(--text-tertiary);font-weight:500;}
+  .draft-select{
+    width:100%;padding:11px 13px;border-radius:12px;border:1px solid var(--border);background:var(--surface-sunken);
+    color:var(--text);font-size:14px;font-weight:600;
+  }
+  /* Editar Monto/Fecha/Hora de una transacción ya existente (antes solo se veían fijos en el
+     encabezado del detalle) — el input guarda el número tal cual y al lado se ve el mismo monto
+     ya formateado, en vivo, mientras escribes. */
+  .edit-amount-row{display:flex;align-items:center;gap:10px;}
+  .edit-amount-row .draft-input{flex:1;min-width:0;}
+  .edit-amount-echo{font-size:19px;font-weight:700;white-space:nowrap;flex-shrink:0;letter-spacing:-0.01em;}
+  .edit-field-pair{display:flex;gap:10px;}
+  .edit-field-col{flex:1;min-width:0;}
+  .edit-day-hint{font-size:12.5px;margin:-6px 0 2px;}
+  .new-medio-form{
+    background:var(--surface-sunken);border:1px solid var(--border);border-radius:14px;padding:14px;margin-top:2px;
+  }
+  .new-medio-form .draft-label{margin-bottom:6px;}
+  .new-medio-form .draft-input{background:var(--surface);}
+  .save-tx-btn{
+    width:100%;padding:14px;border-radius:14px;border:none;background:var(--accent);color:#fff;
+    font-size:14.5px;font-weight:700;cursor:pointer;margin-top:6px;
+  }
+  .save-tx-btn:disabled{opacity:.45;cursor:default;}
+  .field-error{font-size:11.5px;color:var(--expense-ink);margin-top:6px;}
+  /* Barra de acciones al fondo del detalle de una transacción ya existente: borrar (rojo, chico,
+     a la izquierda) y Listo (grande, a la derecha — "Listo" no guarda nada nuevo, los campos ya
+     se van guardando solos, pero visualmente pesa como la acción principal de la fila). */
+  .sheet-bottom-actions{display:flex;gap:10px;align-items:stretch;margin-top:18px;}
+  .sheet-delete-btn{
+    flex-shrink:0;width:52px;border-radius:14px;border:none;cursor:pointer;
+    background:var(--cat-pink-fill);color:var(--expense-ink);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .sheet-delete-btn svg{width:19px;height:19px;}
+  .sheet-done-btn{
+    flex:1;display:flex;align-items:center;justify-content:center;padding:14px;border-radius:14px;
+    border:none;background:var(--accent);color:#fff;font-size:14.5px;font-weight:700;cursor:pointer;
+  }
+  .sheet-done-btn svg{width:16px;height:16px;margin-right:6px;}
+  .sheet-delete-confirm{margin-top:18px;}
+
+  /* ---------- bottom sheet ---------- */
+  .sheet-overlay{
+    position:absolute;inset:0;background:rgba(20,18,28,0.42);opacity:0;pointer-events:none;
+    transition:opacity .22s ease;z-index:20;
+  }
+  .sheet-overlay.open{opacity:1;pointer-events:auto;}
+  .sheet{
+    position:absolute;left:0;right:0;bottom:0;max-height:88%;
+    background:var(--bg);border-radius:24px 24px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,0.2);
+    transform:translateY(100%);transition:transform .26s cubic-bezier(.32,.72,0,1);
+    display:flex;flex-direction:column;z-index:21;
+  }
+  .sheet-overlay.open .sheet{transform:translateY(0);}
+  .sheet-handle{display:flex;justify-content:center;padding:9px 0 2px;flex-shrink:0;}
+  .sheet-handle span{width:36px;height:4px;border-radius:3px;background:var(--border);}
+  .sheet-close{
+    position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:50%;border:none;
+    background:var(--surface-sunken);color:var(--text-secondary);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  .sheet-close svg{width:16px;height:16px;}
+  .sheet-scroll{overflow-y:auto;padding:8px 20px 28px;}
+  .sheet-top{text-align:center;padding:10px 30px 18px;}
+  .sheet-top .merchant{font-family:var(--font-editorial);font-style:italic;font-size:20px;font-weight:600;}
+  .sheet-top .meta{font-size:12.5px;color:var(--text-secondary);margin-top:3px;}
+  .sheet-amount{font-size:30px;font-weight:500;margin-top:10px;letter-spacing:-0.01em;}
+  .sheet-amount.pos{color:var(--income-ink);}
+  .sheet-block{margin-top:20px;}
+  .sheet-block-title{font-size:12.5px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em;margin-bottom:9px;}
+
+  .cat-chip{
+    display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:var(--radius-chip);
+    background:var(--fill);color:var(--ink);font-size:13px;font-weight:700;border:none;cursor:pointer;
+  }
+  .cat-chip-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+  .cat-chip.ghost{background:var(--surface-sunken);color:var(--text-secondary);}
+  .cat-chip svg{width:14px;height:14px;flex-shrink:0;}
+
+  .segmented{display:flex;background:var(--surface-sunken);border-radius:12px;padding:3px;gap:2px;}
+  .segmented button{
+    flex:1;border:none;background:none;color:var(--text-secondary);font-size:13px;font-weight:700;
+    padding:8px 6px;border-radius:9px;cursor:pointer;transition:background .15s ease,color .15s ease;
+  }
+  .segmented button.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow-sm);}
+
+  /* La fila del candado ahora vive dentro de un .sheet-block.card (ver renderSheetContent),
+     así que ella misma no pinta fondo/borde propio — solo el layout interno. Cuando la regla
+     ya está activa, la tarjeta que la envuelve se tiñe (mismo patrón que .action-btn.selected). */
+  .lock-row{
+    display:flex;align-items:center;gap:12px;
+  }
+  .lock-row .lock-icon{width:34px;height:34px;border-radius:10px;background:var(--accent-soft);color:var(--accent-ink);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .lock-row .lock-icon svg{width:17px;height:17px;}
+  .lock-row .lock-text{flex:1;font-size:12.5px;line-height:1.4;color:var(--text);}
+  .lock-row .lock-text b{font-weight:700;}
+  .lock-card.active-rule{background:var(--accent-soft);border-color:var(--accent);}
+  .lock-card.active-rule .lock-icon{background:var(--surface);}
+  .lock-card.active-rule .lock-text{color:var(--accent-ink);}
+  .switch{
+    width:42px;height:25px;border-radius:14px;background:var(--border);position:relative;flex-shrink:0;
+    border:none;cursor:pointer;transition:background .15s ease;
+  }
+  .switch::after{
+    content:"";position:absolute;top:3px;left:3px;width:19px;height:19px;border-radius:50%;background:#fff;
+    box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .15s ease;
+  }
+  .switch.on{background:var(--accent);}
+  .switch.on::after{transform:translateX(17px);}
+
+  .quick-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .action-btn{
+    display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:14px;border:1px solid var(--border);
+    background:var(--surface);font-size:13.5px;font-weight:700;color:var(--text);cursor:pointer;text-align:left;
+  }
+  .action-btn svg{width:18px;height:18px;flex-shrink:0;color:var(--text-secondary);}
+  .action-btn.selected{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);}
+  .action-btn.selected svg{color:var(--accent-ink);}
+
+  .split-toggle-link{
+    display:block;background:none;border:none;color:var(--accent-ink);font-size:13px;font-weight:700;cursor:pointer;padding:4px 0;
+    text-decoration:underline;text-underline-offset:2px;
+  }
+  .split-block{background:var(--surface-sunken);border-radius:16px;padding:14px;margin-top:10px;}
+  /* Filas de categoría de la hoja de detalle: viven directo sobre la tarjeta blanca (sin el
+     fondo hundido de .split-block), así que el select/input necesitan su propio contraste. */
+  .cat-rows .split-row select, .cat-rows .split-row input[type=text], .cat-rows .split-row .num-wrap{
+    background:var(--surface-sunken);
+  }
+  /* Antes de las filas siempre-editables, cada categoría se veía con su emoji propio (como en
+     el resto de la app: tx-avatar, la lista de categorías del Menú, etc.) — el rediseño lo
+     había dejado en solo un puntito de color plano, perdiendo esa identidad visual. Mismo
+     patrón que tx-avatar (círculo de color + catIconMarkup) pero más chico, para que quepa
+     junto al select en una sola fila. */
+  .cat-rows .split-row .cat-row-icon{
+    width:26px;height:26px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:var(--fill);color:var(--ink);
+  }
+  .cat-rows .split-row .cat-row-icon svg{width:13px;height:13px;}
+  .cat-rows .split-row .cat-row-icon .emoji-icon{font-size:12px;}
+  .split-mode-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .mini-toggle{display:flex;background:var(--surface);border-radius:9px;padding:2px;border:1px solid var(--border);}
+  .mini-toggle button{border:none;background:none;font-size:11.5px;font-weight:700;color:var(--text-secondary);padding:5px 10px;border-radius:7px;cursor:pointer;}
+  .mini-toggle button.active{background:var(--accent);color:#fff;}
+  .split-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .split-row select{
+    flex:1;min-width:0;padding:9px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);
+    color:var(--text);font-size:13px;font-weight:600;
+  }
+  .split-row input[type=text]{
+    flex:1;min-width:0;padding:9px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);
+    color:var(--text);font-size:13px;font-weight:600;
+  }
+  .split-row .num-wrap{display:flex;align-items:center;width:88px;flex-shrink:0;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:0 8px;}
+  .split-row .num-wrap input{
+    width:100%;border:none;background:none;text-align:right;font-size:13px;font-weight:700;color:var(--text);padding:9px 0;
+  }
+  .split-row .num-wrap span{font-size:12px;color:var(--text-tertiary);margin-left:2px;}
+  .split-row .rm-btn{width:30px;height:30px;flex-shrink:0;border:none;background:none;color:var(--text-tertiary);cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:8px;}
+  .split-row .rm-btn:hover{background:var(--border);}
+  .split-row .rm-btn svg{width:15px;height:15px;}
+  .split-add{
+    display:flex;align-items:center;gap:6px;background:none;border:1px dashed var(--border);color:var(--accent-ink);
+    font-size:12.5px;font-weight:700;padding:8px 12px;border-radius:10px;cursor:pointer;width:100%;justify-content:center;margin-top:2px;
+  }
+  .split-add svg{width:14px;height:14px;}
+  .split-remaining{
+    display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);
+    font-size:13px;font-weight:700;
+  }
+  .split-remaining .ok{color:var(--income-ink);}
+  .split-remaining .bad{color:var(--expense-ink);}
+  .contact-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+  .contact-chip{border:1px solid var(--border);background:var(--surface);color:var(--text-secondary);font-size:12px;font-weight:700;padding:5px 11px;border-radius:var(--radius-chip);cursor:pointer;}
+
+  .state-cobrado{background:var(--income-fill);color:var(--income-ink);}
+  .chk-pagado{
+    width:26px;height:26px;flex-shrink:0;border-radius:50%;border:1.5px solid var(--border);background:var(--surface);
+    color:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  .chk-pagado svg{width:14px;height:14px;}
+  .chk-pagado.checked{background:var(--income-fill);border-color:var(--income-fill);color:var(--income-ink);}
+  .split-row.paid .persona-label,.split-row.paid .persona-amt{text-decoration:line-through;color:var(--text-tertiary);}
+  .cobro-banner-done{
+    display:flex;align-items:center;gap:8px;background:var(--income-fill);color:var(--income-ink);
+    font-size:12.5px;font-weight:700;padding:9px 12px;border-radius:12px;margin-bottom:10px;
+  }
+  .cobro-banner-done svg{width:16px;height:16px;flex-shrink:0;}
+  .pend-tipo-tag{
+    align-self:flex-start;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+    color:var(--cat-peach-ink);background:var(--cat-peach-fill);padding:1px 7px;border-radius:999px;
+    text-decoration:none;display:inline-block;margin-bottom:2px;
+  }
+  .persona-amt .pend-esperado{display:block;font-size:10px;font-weight:500;color:var(--text-tertiary);text-decoration:none;}
+  .link-btn{
+    width:30px;height:30px;flex-shrink:0;border:1px solid var(--border);background:var(--surface);color:var(--text-secondary);
+    border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  }
+  .link-btn svg{width:14px;height:14px;}
+  .link-btn:hover{background:var(--surface-sunken);}
+  .link-pick-row{
+    display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:12px 14px;margin-bottom:8px;
+    border:1px solid var(--border);border-radius:14px;background:var(--surface);cursor:pointer;font-family:inherit;
+  }
+  .link-pick-row:hover{background:var(--surface-sunken);}
+  .link-pick-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+  .link-pick-name{font-size:13.5px;font-weight:600;color:var(--text);}
+  .link-pick-sub{font-size:11.5px;color:var(--text-secondary);}
+  .link-pick-amt{font-size:13px;font-weight:700;flex-shrink:0;white-space:nowrap;}
+  .reembolso-card{
+    display:flex;align-items:center;gap:12px;padding:14px 16px;margin-bottom:16px;
+    background:var(--cat-mint-fill);border:1px solid var(--cat-mint-fill);
+  }
+  .reembolso-icon{color:var(--cat-mint-ink);flex-shrink:0;display:flex;}
+  .reembolso-icon svg{width:22px;height:22px;}
+  .reembolso-label{font-size:12px;font-weight:600;color:var(--cat-mint-ink);}
+  .reembolso-value{font-size:18px;font-weight:800;color:var(--cat-mint-ink);}
+
+  /* ---------- dividir boleta (simulado) ---------- */
+  .boleta-entry-link{
+    display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin:10px 0 14px;
+    padding:10px 12px;border:1px dashed var(--border);border-radius:12px;background:none;
+    color:var(--accent-ink);font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;
+  }
+  .boleta-entry-link svg{width:15px;height:15px;}
+  .boleta-capture-row{display:flex;gap:10px;margin-top:16px;}
+  .boleta-capture-btn{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 10px;
+    border:1.5px dashed var(--border);border-radius:16px;background:var(--surface-sunken);color:var(--text);
+    font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;
+  }
+  .boleta-capture-btn svg{width:24px;height:24px;color:var(--accent-ink);}
+  .boleta-processing{display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px 10px;color:var(--text-secondary);font-size:13px;font-weight:600;}
+  .boleta-spinner{width:30px;height:30px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent);animation:boleta-spin .8s linear infinite;}
+  @keyframes boleta-spin{to{transform:rotate(360deg);}}
+  .boleta-item-block{padding:14px 16px;margin-bottom:10px;}
+  .boleta-item-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
+  .boleta-item-name{font-size:13.5px;font-weight:700;}
+  .boleta-item-amt{font-size:13.5px;font-weight:700;}
+  .boleta-person-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .boleta-person-chip{
+    border:1px solid var(--border);background:var(--surface);color:var(--text-secondary);font-size:12px;font-weight:700;
+    padding:6px 12px;border-radius:var(--radius-chip);cursor:pointer;
+  }
+  .boleta-person-chip.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);}
+  .boleta-add-item-row{display:flex;gap:8px;margin-bottom:8px;}
+  .boleta-totals-card{padding:14px 16px;margin-top:4px;}
+  .boleta-total-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:13px;}
+  .boleta-total-row:not(:last-child){border-bottom:1px solid var(--border);}
+  .boleta-total-row .name{font-weight:600;}
+  .boleta-total-row .amt{font-weight:700;}
+  .boleta-total-row .amt-group{display:flex;flex-direction:column;align-items:flex-end;gap:1px;}
+  .boleta-amt-sin{font-size:10.5px;font-weight:500;}
+  .boleta-propina-card{padding:12px 14px;margin-top:10px;display:flex;flex-direction:column;gap:10px;}
+  .boleta-tip-chips{display:flex;gap:8px;}
+  .boleta-tip-chip{
+    flex:1;border:1px solid var(--border);background:var(--surface);color:var(--text-secondary);
+    font-size:12.5px;font-weight:700;padding:8px 0;border-radius:var(--radius-chip);cursor:pointer;font-family:inherit;
+  }
+  .boleta-tip-chip.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);}
+  .boleta-preview-banner{
+    display:flex;align-items:center;gap:8px;background:var(--cat-sky-fill);color:var(--cat-sky-ink);
+    font-size:11.5px;font-weight:700;padding:8px 12px;border-radius:10px;margin:10px 0;
+  }
+  .boleta-preview-banner>svg{width:16px;height:16px;flex-shrink:0;}
+
+  /* ---------- fijo / variable / inversión gauge ---------- */
+  .meta-card{padding:16px 16px 14px;margin-bottom:16px;}
+  .meta-row{margin-top:16px;}
+  .meta-row:first-of-type{margin-top:10px;}
+  .meta-row-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px;}
+  .meta-row-name{font-size:13px;font-weight:700;}
+  .meta-row-figs{font-size:12.5px;}
+  .meta-row-pct{font-weight:500;}
+  .meta-row-amt{color:var(--text-secondary);margin-left:5px;}
+  .meta-track-wrap{position:relative;padding-top:10px;}
+  .meta-track{position:relative;height:10px;border-radius:6px;overflow:visible;}
+  .meta-marker{
+    position:absolute;top:-3px;width:3px;height:16px;border-radius:2px;background:var(--text);
+    box-shadow:0 0 0 2px var(--surface);transform:translateX(-1.5px);
+  }
+  .meta-goal-marker{
+    position:absolute;top:0;transform:translateX(-50%);
+    font-size:8.5px;font-weight:700;line-height:1;color:var(--text-tertiary);white-space:nowrap;
+  }
+  .meta-goal-marker::after{
+    content:'';position:absolute;left:50%;top:100%;transform:translateX(-50%);
+    width:0;height:0;margin-top:1px;
+    border-left:3px solid transparent;border-right:3px solid transparent;border-top:4px solid var(--text-tertiary);
+  }
+  .meta-status{font-size:11.5px;font-weight:700;margin-top:6px;display:inline-block;padding:2px 9px;border-radius:var(--radius-chip);}
+  .meta-status.good{background:var(--income-fill);color:var(--income-ink);}
+  .meta-status.ok{background:var(--cat-butter-fill);color:var(--cat-butter-ink);}
+  .meta-status.bad{background:var(--expense-fill);color:var(--expense-ink);}
+  .meta-caption{font-size:11.5px;color:var(--text-tertiary);margin-top:14px;line-height:1.5;padding-top:12px;border-top:1px solid var(--border);}
+  .meta-caption.warn{color:var(--expense-ink);border-top:none;padding-top:0;margin-top:8px;font-weight:600;}
+
+  /* ---------- presupuesto (fase 2) ---------- */
+  .budget-total-card{padding:18px;margin-bottom:16px;}
+  .budget-total-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .budget-total-label{font-size:13.5px;font-weight:600;color:var(--text-secondary);}
+  .budget-total-note{font-size:11.5px;margin:-4px 0 10px;line-height:1.4;}
+  .datos-transferencia-figs{margin-top:8px;font-size:13px;color:var(--text-secondary);display:flex;flex-direction:column;gap:3px;}
+  .datos-transferencia-figs div:first-child{font-weight:600;color:var(--text);}
+  .budget-total-figs{margin-bottom:10px;}
+  .budget-total-figs .gastado{font-size:20px;font-weight:500;}
+  .budget-total-figs .of-text{font-size:13px;color:var(--text-secondary);}
+  .budget-total-remaining{font-size:12px;margin-top:8px;}
+  .budget-cats-calce{font-size:11px;color:var(--text-tertiary);margin-top:6px;padding-top:8px;border-top:1px solid var(--border);}
+  .budget-cats-calce.ok{color:var(--income-ink);}
+  .budget-cats-calce.warn{color:var(--expense-ink);}
+  .budget-cats-calce svg{width:11px;height:11px;vertical-align:-1px;margin-right:2px;}
+
+  .metas-gasto-card{padding:18px;margin-bottom:16px;}
+  .metas-gasto-figs{display:flex;gap:14px;margin:4px 0 2px;}
+  .metas-gasto-fig{font-size:11.5px;color:var(--text-secondary);display:flex;flex-direction:column;gap:2px;}
+  .metas-gasto-fig b{font-size:16px;color:var(--text);}
+  .metas-gasto-fig-abs{font-size:10.5px;color:var(--text-tertiary);}
+  .metas-gasto-inputs{display:flex;flex-direction:column;gap:10px;margin-top:8px;}
+  .metas-gasto-input-row{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-secondary);}
+  .metas-gasto-input-row span{width:60px;flex-shrink:0;}
+  .metas-gasto-input-row input{flex:1;min-width:0;}
+  .metas-gasto-inversion-note{font-size:11.5px;margin-top:8px;}
+
+  .budget-track{position:relative;height:10px;border-radius:6px;background:var(--surface-sunken);overflow:hidden;}
+  .budget-fill{height:100%;border-radius:6px;transition:width .2s ease;}
+
+  .budget-cat-card{padding:16px;margin-bottom:12px;}
+  .budget-cat-card.empty{display:flex;align-items:center;gap:12px;padding:12px 14px;}
+  .budget-cat-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .budget-cat-card.empty .budget-cat-head{display:contents;}
+  .budget-cat-icon{
+    width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:var(--fill);color:var(--ink);
+  }
+  .budget-cat-icon svg{width:16px;height:16px;}
+  .budget-cat-icon .emoji-icon{font-size:16px;}
+  .budget-cat-name{font-size:14px;font-weight:600;flex:1;min-width:0;}
+  .budget-edit-btn{
+    width:28px;height:28px;border-radius:50%;background:var(--surface-sunken);color:var(--text-secondary);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;
+  }
+  .budget-edit-btn svg{width:13px;height:13px;}
+  .budget-add-link{background:none;border:none;color:var(--accent-ink);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;}
+  .budget-cat-figs{margin-bottom:8px;display:flex;align-items:baseline;gap:8px;}
+  .budget-cat-figs .gastado{font-size:16px;font-weight:500;}
+  .budget-cat-figs .of-text{font-size:12.5px;color:var(--text-secondary);}
+  .budget-pct{font-size:12.5px;color:var(--text-secondary);margin-left:auto;flex-shrink:0;}
+  .budget-context{font-size:11.5px;margin-top:10px;}
+  .budget-ver-mas{
+    display:block;background:none;border:none;color:var(--accent-ink);font-size:12.5px;font-weight:600;
+    cursor:pointer;margin-top:10px;padding:0;
+  }
+  .alert-chip-row{display:flex;gap:8px;margin-top:8px;}
+  .alert-chip{
+    flex:1;padding:8px 6px;border-radius:10px;border:1px solid var(--border);background:var(--surface-sunken);
+    color:var(--text-secondary);font-size:12.5px;font-weight:700;cursor:pointer;
+  }
+  .alert-chip.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);}
+  .budget-delete-link{
+    display:block;width:100%;text-align:center;background:none;border:none;color:var(--expense-ink);
+    font-size:12.5px;font-weight:600;cursor:pointer;margin-top:12px;padding:4px 0;
+  }
+
+  /* ---------- evolución (fase 3) ---------- */
+  .evo-card{padding:16px;margin-bottom:16px;}
+  .evo-legend-row{display:flex;gap:14px;margin-bottom:8px;flex-wrap:wrap;}
+  .evo-legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);font-weight:600;}
+  .evo-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .evo-caption{font-size:11px;text-align:center;margin:8px 0 12px;}
+  .evo-detail-month{font-size:12.5px;font-weight:700;margin-bottom:10px;}
+  .evo-detail-row{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;}
+  .evo-detail-item{display:flex;flex-direction:column;gap:2px;}
+  .evo-detail-label{font-size:11px;color:var(--text-secondary);}
+  .evo-detail-value{font-size:15px;font-weight:500;}
+
+  .meta-goal-card{padding:16px;margin-bottom:12px;}
+  .meta-goal-ctx{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;margin-bottom:10px;}
+  .meta-goal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;}
+  .meta-goal-name{font-size:14.5px;font-weight:700;flex:1;min-width:0;}
+  .plazo-chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:var(--radius-chip);flex-shrink:0;}
+  .meta-racha-badge{
+    display:flex;align-items:center;gap:2px;font-size:12.5px;font-weight:700;flex-shrink:0;
+    background:var(--cat-butter-fill);color:var(--cat-butter-ink);padding:3px 9px;border-radius:var(--radius-chip);
+  }
+  .meta-goal-figs{margin-bottom:8px;display:flex;align-items:baseline;gap:8px;}
+  .meta-goal-figs .gastado{font-size:17px;font-weight:500;}
+  .meta-goal-figs .of-text{font-size:12.5px;color:var(--text-secondary);}
+  .meta-goal-spark-row{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:12px;}
+  .meta-goal-spark{flex-shrink:0;line-height:0;}
+  .meta-goal-aporte{font-size:11px;text-align:right;line-height:1.5;}
+  .meta-check-row{display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;}
+  .meta-check-chip{
+    display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;padding:7px 2px;border-radius:10px;
+    border:1px solid var(--border);background:var(--surface-sunken);color:var(--text-tertiary);cursor:pointer;
+  }
+  .meta-check-chip .mcc-icon{width:12px;height:12px;}
+  .meta-check-chip .mcc-icon svg{width:100%;height:100%;display:block;}
+  .meta-check-chip .mcc-label{font-size:9.5px;font-weight:700;}
+  .meta-check-chip.done{background:var(--income-fill);border-color:var(--income-fill);color:var(--income-ink);}
+  .meta-racha{font-size:12px;font-weight:600;margin-top:12px;color:var(--text-secondary);}
+  .meta-total-checks-label{font-size:11.5px;margin:14px 0 6px;}
+  .meta-total-checks-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;}
+  .meta-total-check-cell{
+    display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;border-radius:9px;
+    border:1px solid var(--border);background:var(--surface-sunken);color:var(--text-tertiary);cursor:pointer;
+  }
+  .meta-total-check-cell .mcc-icon{width:11px;height:11px;}
+  .meta-total-check-cell .mcc-icon svg{width:100%;height:100%;display:block;}
+  .meta-total-check-cell .mcc-label{font-size:9px;font-weight:700;}
+  .meta-total-check-cell.done{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  /* ---------- inversiones (fase 4) ---------- */
+  .evo-line-sample{width:14px;height:2.5px;border-radius:2px;display:inline-block;}
+  .evo-line-sample.dashed{background:none;border-top:2.5px dashed;height:0;}
+
+  .platform-total-card{padding:18px;margin-bottom:16px;}
+  .platform-total-label{font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;}
+  .platform-total-value{font-size:24px;font-weight:500;margin-bottom:8px;}
+  .platform-total-sub{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--text-secondary);}
+  .platform-total-sub .pos{color:var(--income-ink);font-weight:700;}
+  .platform-total-sub .neg{color:var(--expense-ink);font-weight:700;}
+
+  .platform-card{padding:16px;margin-bottom:12px;}
+  .platform-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+  .platform-icon{
+    width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:var(--fill);color:var(--ink);
+  }
+  .platform-icon svg{width:16px;height:16px;}
+  .platform-icon .emoji-icon{font-size:16px;}
+  .platform-name{font-size:14px;font-weight:600;flex:1;min-width:0;}
+  .platform-figs{display:flex;gap:18px;margin-bottom:10px;}
+  .platform-fig{display:flex;flex-direction:column;gap:2px;}
+  .platform-fig-label{font-size:11px;color:var(--text-secondary);}
+  .platform-fig-value{font-size:16px;font-weight:500;}
+  .platform-fig-value.muted{color:var(--text-secondary);font-weight:500;font-size:15px;}
+  .platform-diff-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
+  .platform-diff{font-size:12.5px;font-weight:700;}
+  .platform-diff.pos{color:var(--income-ink);}
+  .platform-diff.neg{color:var(--expense-ink);}
+  .platform-update-tag{font-size:11px;color:var(--text-tertiary);margin-bottom:10px;}
+  .platform-update-tag.stale{color:var(--cat-butter-ink);font-weight:600;}
+  .platform-hint{font-size:11.5px;line-height:1.5;margin-top:8px;}
+  /* Antes quedaba pegada justo debajo de la barra de progreso de la meta, compitiendo con ella —
+     ahora tiene su propio espacio arriba y se ve como el detalle chico que es (letra más chica,
+     tono apagado), no como otra fila de datos igual de importante que el progreso. */
+  .platform-comision-row{display:flex;align-items:center;justify-content:space-between;font-size:10.5px;margin-top:10px;margin-bottom:10px;padding:5px 8px;background:var(--surface-sunken);border-radius:8px;color:var(--text-tertiary);}
+  .platform-comision-row b{color:var(--text-secondary);font-weight:700;}
+  .platform-total-goal-block{margin-top:14px;padding-top:14px;border-top:1px dashed var(--border);}
+  .platform-total-goal-block .of-text{font-size:14px;font-weight:400;color:var(--text-secondary);}
+  /* Antes esta tarjeta se veía como un bloque grande y verde (fondo sage), con dos párrafos
+     largos explicando el supuesto de retorno — la usuaria pidió algo bien sutil: sin color de
+     fondo llamativo, mismo contenido pero mucho más breve y en letra más chica. */
+  .proyeccion-card{padding:14px 16px;margin-bottom:16px;}
+  .proyeccion-head{display:flex;align-items:center;gap:7px;margin-bottom:7px;}
+  .proyeccion-icon{width:22px;height:22px;border-radius:7px;background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0;}
+  .proyeccion-icon svg{width:13px;height:13px;}
+  .proyeccion-title{font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em;}
+  .proyeccion-value{font-size:19px;font-weight:500;color:var(--text);letter-spacing:-0.01em;}
+  .proyeccion-sub{font-size:11px;color:var(--text-tertiary);margin-bottom:8px;}
+  .proyeccion-text{font-size:12px;line-height:1.45;color:var(--text-secondary);}
+  .proyeccion-caption{font-size:11px;margin-top:6px;color:var(--text-tertiary);}
+  .proy-inline-input{width:34px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;text-align:center;font-size:12px;font-weight:700;background:var(--surface-sunken);color:var(--text);outline:0;font-variant-numeric:tabular-nums;font-family:inherit;margin:0 1px;}
+  /* Más ancho que los de %: guarda un monto en pesos (el aporte mensual), no un par de dígitos. */
+  .proy-aporte-input{width:70px;}
+  .proy-aporte-input::placeholder{color:var(--text-tertiary);font-weight:600;}
+
+  /* Agrupa cada plataforma con las metas que vive en ella, para que se lean como una
+     sola unidad ("dónde está la plata" + "para qué es") en vez de dos listas separadas.
+     Ahora es un acordeón: colapsada solo se ve nombre + hace cuánto se actualizó + valor total
+     + flecha (sin gráficos ni cifras de más) — tocarla despliega el detalle (comisión, botones,
+     y las metas de esa plataforma) debajo, en vez de mostrar todo siempre abierto. */
+  .platform-group{margin-bottom:16px;overflow:hidden;}
+  .platform-head-toggle{
+    width:100%;display:flex;align-items:center;gap:10px;padding:16px;text-align:left;cursor:pointer;
+    background:none;border:none;font-family:inherit;color:inherit;
+  }
+  .platform-head-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+  .platform-head-body .platform-name{display:block;}
+  .platform-head-body .platform-update-tag{margin-bottom:0;}
+  .platform-head-value{font-size:15px;font-weight:600;flex-shrink:0;}
+  .platform-chev{flex-shrink:0;color:var(--text-tertiary);display:flex;}
+  .platform-chev svg{width:15px;height:15px;transition:transform .15s ease;}
+  .platform-chev.open svg{transform:rotate(90deg);}
+  .platform-body{padding:14px 16px 16px;border-top:1px solid var(--border);}
+  .platform-actions-row{display:flex;align-items:center;justify-content:space-between;margin-top:2px;}
+  /* Separador simple entre los datos propios de la plataforma y sus metas (antes era una caja
+     con fondo/borde propio; adentro del acordeón ya no hace falta ese segundo recuadro). */
+  .platform-goal-nest{margin-top:14px;padding-top:14px;border-top:1px dashed var(--border);}
+  .platform-goal-nest .meta-goal-card{box-shadow:none;margin-bottom:8px;}
+  .platform-goal-nest .meta-goal-card:last-of-type{margin-bottom:0;}
+  .platform-goal-nest .empty-nest{font-size:12px;color:var(--text-tertiary);padding:6px 4px 10px;}
+  .platform-add-meta-link{padding:6px 4px 2px;font-size:12.5px;}
+  .platform-meta-summary{padding:10px 6px 14px;margin-bottom:2px;border-bottom:1px dashed var(--border);}
+  .platform-meta-summary-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;}
+  .platform-meta-summary-head span:first-child{font-size:11.5px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em;}
+  .platform-meta-summary-figs{font-size:15px;font-weight:500;margin-bottom:8px;display:flex;align-items:baseline;gap:8px;}
+  .platform-meta-summary-figs .of-text{font-size:12px;font-weight:400;color:var(--text-secondary);}
+
+  /* ---------- planificador de sueldo ---------- */
+  .plan-base-card{padding:16px;margin-bottom:14px;}
+  .plan-base-input-row{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;}
+  .plan-base-field{flex:1;min-width:150px;}
+  .plan-base-input{display:flex;align-items:center;border:1.5px solid var(--cat-sage-ink);border-radius:10px;background:var(--surface);overflow:hidden;max-width:210px;}
+  .plan-base-input span{padding:0 3px 0 12px;color:var(--cat-sage-ink);font-weight:700;font-size:16px;}
+  .plan-base-input input{border:0;outline:0;padding:10px 12px 10px 3px;font-size:16px;font-weight:600;width:130px;color:var(--text);background:transparent;font-variant-numeric:tabular-nums;font-family:inherit;}
+  .plan-total-pill{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:var(--radius-chip);font-size:12px;font-weight:700;background:var(--income-fill);color:var(--income-ink);white-space:nowrap;}
+  .plan-total-pill.warn{background:var(--expense-fill);color:var(--expense-ink);}
+  .plan-total-pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0;}
+  .plan-unassigned{font-size:11px;color:var(--text-secondary);margin-top:6px;text-align:right;}
+  .plan-base-hint{font-size:11.5px;margin-top:10px;line-height:1.4;}
+  .plan-empty-hint{font-size:12.5px;padding:10px 0;}
+
+  .plan-bar{height:24px;border-radius:8px;overflow:hidden;display:flex;background:var(--surface-sunken);margin-bottom:10px;}
+  .plan-bar span{height:100%;}
+  .plan-legend{display:flex;flex-wrap:wrap;gap:11px 16px;margin-bottom:16px;font-size:11.5px;color:var(--text-secondary);}
+  .plan-legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
+
+  .plan-cols{display:flex;flex-direction:column;gap:14px;margin-bottom:14px;}
+  .plan-block{padding:16px;}
+  .plan-block-head{font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;display:flex;align-items:center;gap:8px;margin-bottom:3px;}
+  .plan-block-head .tag{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+  .plan-block-cap{font-size:12px;color:var(--text-secondary);margin-bottom:10px;}
+  .plan-row{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--border);}
+  .plan-row:first-of-type{border-top:0;}
+  .plan-row .plan-name{font-size:13.5px;font-weight:600;min-width:0;}
+  .plan-row .plan-name small{display:block;font-size:11px;color:var(--text-secondary);font-weight:400;margin-top:1px;}
+  .plan-pctbox{display:flex;align-items:center;border:1px solid var(--border);border-radius:8px;background:var(--surface);flex-shrink:0;}
+  .plan-pctbox input{width:34px;border:0;outline:0;text-align:right;padding:6px 2px 6px 6px;font-size:13px;font-weight:600;color:var(--text);background:transparent;font-variant-numeric:tabular-nums;font-family:inherit;}
+  .plan-pctbox span{padding:0 7px 0 1px;color:var(--text-secondary);font-size:12px;}
+  .plan-row .plan-amt{font-size:13.5px;font-weight:600;text-align:right;min-width:82px;flex-shrink:0;}
+  .plan-subtotal{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:10px;border-top:2px solid var(--text);font-weight:700;font-size:12.5px;}
+  .plan-subtotal .plan-subtotal-amt{font-size:15px;}
+
+
+  /* Antes vivía pegado al planificador, alineado a la derecha — la usuaria lo quería centrado
+     y al final de todo (después del simulador), como cierre de la pestaña completa. */
+  .plan-disclaimer{font-size:10.5px;color:var(--text-tertiary);max-width:34ch;text-align:center;line-height:1.4;margin:6px auto 4px;}
+
+  /* ---------- categoría sin clasificar ---------- */
+  .cat-picker-grid{
+    display:flex;flex-wrap:nowrap;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;
+    padding:2px 2px 8px;margin:0 -2px;-webkit-overflow-scrolling:touch;
+  }
+  .cat-picker-grid::-webkit-scrollbar{height:0;}
+  .cat-picker-chip{
+    display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:var(--radius-chip);
+    background:var(--surface-sunken);color:var(--text);font-size:12.5px;font-weight:700;border:1px solid var(--border);cursor:pointer;
+    flex-shrink:0;white-space:nowrap;scroll-snap-align:start;
+  }
+  .cat-picker-chip svg{width:14px;height:14px;color:var(--text-secondary);flex-shrink:0;}
+  .cat-picker-hint{font-size:12.5px;color:var(--text-secondary);margin-bottom:10px;line-height:1.45;}
+
+  /* ---------- cuotas ---------- */
+  .cuota-row{
+    display:flex;align-items:center;gap:12px;background:var(--surface-sunken);border-radius:14px;padding:12px 14px;
+  }
+  .cuota-row .cuota-icon{width:34px;height:34px;border-radius:10px;background:var(--accent-soft);color:var(--accent-ink);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .cuota-row .cuota-icon svg{width:17px;height:17px;}
+  .cuota-row .cuota-text{flex:1;font-size:12.5px;line-height:1.4;color:var(--text);}
+  .cuota-stepper-wrap{margin-top:10px;background:var(--surface-sunken);border-radius:14px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;}
+  .cuota-stepper-wrap .cs-label{font-size:12.5px;color:var(--text-secondary);}
+  .stepper{display:flex;align-items:center;gap:10px;}
+  .stepper button{
+    width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:var(--surface);
+    color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  }
+  .stepper button svg{width:14px;height:14px;}
+  .stepper .count{font-size:14px;font-weight:800;min-width:20px;text-align:center;}
+  .cuota-note{
+    display:flex;align-items:flex-start;gap:10px;background:var(--accent-soft);color:var(--accent-ink);
+    border-radius:14px;padding:12px 14px;font-size:12.5px;line-height:1.45;
+  }
+  .cuota-note svg{width:16px;height:16px;flex-shrink:0;margin-top:1px;}
+  .cuota-badge{display:inline-flex;align-items:center;gap:4px;color:var(--text-tertiary);}
+  .cuota-badge svg{width:11px;height:11px;flex-shrink:0;}
+
+  .toast-stack{position:absolute;left:16px;right:16px;bottom:88px;z-index:40;display:flex;flex-direction:column;gap:8px;pointer-events:none;}
+  .toast{
+    background:var(--text);color:var(--bg);font-size:13px;font-weight:600;padding:11px 16px;border-radius:12px;
+    box-shadow:var(--shadow);opacity:0;transform:translateY(8px);transition:opacity .2s ease,transform .2s ease;
+    display:flex;align-items:center;gap:8px;
+  }
+  .toast.show{opacity:1;transform:translateY(0);}
+  .toast svg{width:16px;height:16px;flex-shrink:0;color:var(--income-fill);}
+
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+
+  .sync-indicator{
+    display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;
+    padding:3px 8px;border-radius:999px;background:var(--surface-sunken);color:var(--text-tertiary);
+    letter-spacing:.02em;transition:opacity .3s ease;
+  }
+  .sync-indicator[hidden]{display:none;}
+  .sync-indicator.error{background:var(--cat-pink-fill);color:var(--expense-ink);}
+
+  /* ---------- auth gate (login / crear cuenta) ---------- */
+  .auth-gate{
+    position:absolute;inset:0;z-index:60;background:var(--bg);
+    display:flex;flex-direction:column;justify-content:center;padding:38px 26px;overflow-y:auto;
+  }
+  .auth-gate[hidden]{display:none;}
+  .auth-brand{text-align:center;margin-bottom:28px;}
+  .auth-brand-icon{
+    width:54px;height:54px;border-radius:18px;background:var(--accent-soft);color:var(--accent-ink);
+    display:flex;align-items:center;justify-content:center;margin:0 auto 14px;
+  }
+  .auth-brand-icon svg{width:24px;height:24px;}
+  .auth-brand h2{font-family:var(--font-editorial);font-style:italic;font-weight:600;font-size:24px;margin:0;}
+  .auth-brand p{font-size:12.5px;color:var(--text-secondary);margin-top:6px;line-height:1.4;}
+  .auth-tabs{display:flex;background:var(--surface-sunken);border-radius:14px;padding:4px;margin-bottom:22px;gap:4px;}
+  .auth-tab{flex:1;padding:10px;border:none;background:transparent;border-radius:11px;font-size:13px;font-weight:700;color:var(--text-secondary);cursor:pointer;}
+  .auth-tab.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow-sm);}
+  .auth-hint{font-size:12px;color:var(--text-secondary);text-align:center;margin-top:16px;line-height:1.5;}
+  .auth-hint.success{color:var(--income-ink);}
+  .auth-hint[hidden]{display:none;}
+  .auth-checking{display:flex;flex-direction:column;align-items:center;gap:12px;padding:10px 0 4px;color:var(--text-secondary);font-size:12.5px;}
+  .auth-checking[hidden]{display:none;}
+  .auth-spinner{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--surface-sunken);border-top-color:var(--accent-ink);animation:auth-spin .8s linear infinite;}
+  @keyframes auth-spin{to{transform:rotate(360deg);}}
+  @media (prefers-reduced-motion: reduce){ .auth-spinner{animation:none;} }
+  .auth-content[hidden]{display:none;}
+</style>
+
+<div class="stage">
+  <div class="stage-inner">
+    <p class="stage-caption">Maqueta interactiva &mdash; Fase 1: Transacciones + Balance</p>
+    <div class="phone" id="phone">
+      <div class="auth-gate" id="auth-gate">
+        <div class="auth-brand">
+          <div class="auth-brand-icon" id="auth-brand-icon"></div>
+          <h2>Pitucas sin lucas</h2>
+          <p>Tu plata, tus datos — solo tú puedes verlos.</p>
+        </div>
+        <div class="auth-checking" id="auth-checking">
+          <span class="auth-spinner" aria-hidden="true"></span>
+          <p>Cargando…</p>
+        </div>
+        <div class="auth-content" id="auth-content" hidden>
+          <div class="auth-tabs">
+            <button type="button" class="auth-tab active" data-auth-tab="login">Iniciar sesión</button>
+            <button type="button" class="auth-tab" data-auth-tab="signup">Crear cuenta</button>
+          </div>
+          <form class="auth-form" id="auth-form" autocomplete="on">
+            <div class="draft-field">
+              <label class="draft-label" for="auth-email">Correo</label>
+              <input class="draft-input" type="email" id="auth-email" autocomplete="email" required>
+            </div>
+            <div class="draft-field">
+              <label class="draft-label" for="auth-password">Contraseña</label>
+              <input class="draft-input" type="password" id="auth-password" autocomplete="current-password" required minlength="6">
+            </div>
+            <div class="field-error" id="auth-error" hidden></div>
+            <button class="save-tx-btn" id="auth-submit-btn" type="submit">Iniciar sesión</button>
+          </form>
+          <div class="auth-hint" id="auth-hint" hidden></div>
+        </div>
+      </div>
+      <header class="app-header">
+        <span class="brand">Pitucas sin lucas</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <h1 id="header-title">Transacciones</h1>
+          <span class="sync-indicator" id="sync-indicator" hidden></span>
+          <span class="demo-mode-banner" id="demo-banner" hidden></span>
+        </div>
+      </header>
+      <main class="view-scroll" id="view-root"></main>
+      <button class="fab-add" id="fab-add" aria-label="Agregar transacción"></button>
+      <nav class="tabbar" id="tabbar"></nav>
+      <div class="sheet-overlay" id="sheet-overlay">
+        <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title-el">
+          <div class="sheet-handle"><span></span></div>
+          <button class="sheet-close" id="sheet-close-btn" aria-label="Cerrar"></button>
+          <div class="sheet-scroll" id="sheet-content"></div>
+        </div>
+      </div>
+      <div class="toast-stack" id="toast-stack"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Para leer el PDF de la cartola/estado de cuenta directo en el navegador (nunca sale de
+     tu teléfono hacia ningún servidor nuestro — se procesa acá mismo). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+// El código de la app vive ahora en app.ts (TypeScript) -- este bloque se genera solo,
+// no se edita acá directamente. `python3 rebuild.py` compila app.ts con tsc y pega el
+// resultado en este mismo lugar para armar index.html / test.html / etc.
+</script>
