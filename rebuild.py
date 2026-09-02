@@ -2,7 +2,7 @@ import re
 import subprocess
 import sys
 
-SRC = 'plata-clara.html'
+SRC = 'src/plata-clara.html'
 
 # ---- 1) Compilar app.ts (TypeScript) a dist/app.js con tsc ----
 # noEmitOnError:true en tsconfig.json hace que esto falle fuerte (dist/app.js no se toca) si hay
@@ -94,21 +94,23 @@ def build(prefix_html, js_body, suffix_html, pdfjs_local=False):
     return p + '<script>\n' + js_body + '\n</script>' + suffix_html
 
 # index.html / test.html: identical to source (CDN pdf.js), no debug block.
+# Todo lo generado va a public/ -- es exactamente lo que se sube a Cloudflare Pages (ver
+# sección 8 de DOCUMENTACION.md), junto con sw.js, manifest.json, icons/, pdf.min.js/pdf.worker.min.js.
 out_index = build(prefix, inline_js, suffix, pdfjs_local=False)
-with open('index.html', 'w', encoding='utf-8') as f:
+with open('public/index.html', 'w', encoding='utf-8') as f:
     f.write(out_index)
-with open('test.html', 'w', encoding='utf-8') as f:
+with open('public/test.html', 'w', encoding='utf-8') as f:
     f.write(out_index)
 
 # test_debug.html: local pdf.js + debug block injected.
 out_debug = build(prefix, inline_js_debug, suffix, pdfjs_local=True)
-with open('test_debug.html', 'w', encoding='utf-8') as f:
+with open('public/test_debug.html', 'w', encoding='utf-8') as f:
     f.write(out_debug)
 
 # extracted.js / extracted_debug.js: just the JS bodies, for node --check.
-with open('extracted.js', 'w', encoding='utf-8') as f:
+with open('public/extracted.js', 'w', encoding='utf-8') as f:
     f.write(inline_js)
-with open('extracted_debug.js', 'w', encoding='utf-8') as f:
+with open('public/extracted_debug.js', 'w', encoding='utf-8') as f:
     f.write(inline_js_debug)
 
 print("OK — archivos regenerados (app.ts -> tsc -> dist/app.js -> index.html/test.html/etc).")

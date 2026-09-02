@@ -2,9 +2,11 @@
   "name": "finanzas-app",
   "version": "1.0.0",
   "description": "",
-  "main": "extracted.js",
+  "main": "public/extracted.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "python3 rebuild.py",
+    "preview": "python3 rebuild_preview.py",
+    "test": "node tests/run_all_tests.js"
   },
   "keywords": [],
   "author": "",

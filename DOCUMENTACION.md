@@ -2,12 +2,27 @@
 
 App de finanzas personales (Chile, pesos CLP), originalmente para uso individual y ahora
 también con gastos compartidos entre grupos (pareja, familia, roomies). El código fuente vive
-en `app.ts` (TypeScript), compilado con `tsc` e insertado en el HTML de `plata-clara.html`
-(ver sección 2 y 6) — pensado para que cualquier sesión de Claude (o cualquier desarrollador)
-pueda retomarla, entenderla y seguir extendiéndola sin tener que releer miles de líneas desde
-cero.
+en `src/app.ts` (TypeScript), compilado con `tsc` e insertado en el HTML de
+`src/plata-clara.html` (ver sección 2 y 6) — pensado para que cualquier sesión de Claude (o
+cualquier desarrollador) pueda retomarla, entenderla y seguir extendiéndola sin tener que
+releer miles de líneas desde cero.
 
 Última actualización de este documento: septiembre 2026.
+
+Estructura del repo:
+
+```
+src/            código fuente: app.ts (TypeScript) + plata-clara.html (HTML/CSS de la vitrina)
+public/         lo que genera rebuild.py (index.html, test.html, test_debug.html, extracted*.js)
+                más lo que ya iba tal cual (sw.js, manifest.json, icons/, pdf.min.js, pdf.worker.min.js)
+                -- este directorio completo es lo que se sube a Cloudflare Pages (ver sección 8)
+backend/        supabase/ (esquema SQL), cloudflare-worker/ (push notifications), apps-script/
+                (importador de correo) -- cada uno se despliega por su cuenta, no por Cloudflare Pages
+tests/          suite de Playwright: lib/test_kit.js, run_all_tests.js, shot_*.js, audit_*.js,
+                smoke_test.js, fixtures/ (PDFs y datos de ejemplo)
+preview/        preview.html generado por rebuild_preview.py, nunca se sube a producción
+dist/           salida de tsc (dist/app.js), generado, no se versiona (.gitignore)
+```
 
 ## 1. Qué es la app
 
@@ -30,14 +45,14 @@ Cuatro pestañas principales:
 
 ## 2. Arquitectura
 
-El código fuente es `app.ts` (TypeScript). `rebuild.py` lo compila con `tsc` (usa
+El código fuente es `src/app.ts` (TypeScript). `rebuild.py` lo compila con `tsc` (usa
 `tsconfig.json`, con `noEmitOnError:true`: cualquier error de tipos aborta el rebuild sin tocar
-nada) a `dist/app.js`, y ese JS compilado se inserta dentro de `plata-clara.html` — que ya no
-lleva el `<script>` de la app escrito a mano, solo el HTML/CSS de la "vitrina" (el marco de
+nada) a `dist/app.js`, y ese JS compilado se inserta dentro de `src/plata-clara.html` — que ya
+no lleva el `<script>` de la app escrito a mano, solo el HTML/CSS de la "vitrina" (el marco de
 teléfono, los estilos) más un placeholder que dice "esto se genera solo" — para producir
-`index.html`, `test.html`, `test_debug.html`, etc. (ver sección 6 para el detalle completo del
-pipeline). **Nunca se edita `dist/app.js` ni el `<script>` de `plata-clara.html` a mano — el
-único archivo que se edita es `app.ts`.**
+`public/index.html`, `public/test.html`, `public/test_debug.html`, etc. (ver sección 6 para el
+detalle completo del pipeline). **Nunca se edita `dist/app.js` ni el `<script>` de
+`src/plata-clara.html` a mano — el único archivo que se edita es `src/app.ts`.**
 
 Es una IIFE (sin frameworks de UI, sin virtual DOM) que:
 
@@ -308,67 +323,69 @@ nunca un parche incremental.
 
 ## 6. Pipeline de build (todo corre localmente, sin bundlers)
 
-Dos fuentes: **`app.ts`** (todo el código de la app, en TypeScript) y **`plata-clara.html`**
-(el HTML/CSS de la vitrina — marco de teléfono, estilos, el `<script>` final es solo un
-placeholder). `rebuild.py` hace, en orden:
+Dos fuentes: **`src/app.ts`** (todo el código de la app, en TypeScript) y
+**`src/plata-clara.html`** (el HTML/CSS de la vitrina — marco de teléfono, estilos, el
+`<script>` final es solo un placeholder). `rebuild.py` hace, en orden:
 
-1. Compila `app.ts` con `tsc -p tsconfig.json` a `dist/app.js`. `tsconfig.json` tiene
+1. Compila `src/app.ts` con `tsc -p tsconfig.json` a `dist/app.js`. `tsconfig.json` tiene
    `noEmitOnError:true`: **cualquier** error de tipos aborta acá mismo, sin tocar ningún archivo
    de salida — un typo de categoría, un campo que falta en una transacción, una función llamada
    con el argumento equivocado, todo se atrapa antes de llegar siquiera a correr los tests.
-2. Lee `plata-clara.html`, ubica el `<script>` final (por regex, sin asumir indentación fija —
-   `tsc` reformatea el código) y lo reemplaza por el contenido recién compilado de
+2. Lee `src/plata-clara.html`, ubica el `<script>` final (por regex, sin asumir indentación
+   fija — `tsc` reformatea el código) y lo reemplaza por el contenido recién compilado de
    `dist/app.js`.
 3. Inserta el bloque `window.__debug` justo después de una línea ancla
    (`regenerateCuotasFor('t31');`), exponiendo las variables/funciones internas que los tests
    necesitan tocar directamente (`TX`, `state`, `render`, `todayISO`, `metaInversionPct`,
    `pendientesGlobales`, `GRUPOS`, `GASTOS_COMPARTIDOS`, `saldoGrupo`, etc. — la lista crece
    cada vez que un test nuevo necesita algo que no estaba expuesto) — pero solo en las variantes
-   de test, no en `index.html`.
-4. Genera los distintos archivos de salida:
+   de test, no en `public/index.html`.
+4. Genera los distintos archivos de salida, todos dentro de `public/`:
 
 | Archivo | Para qué | Diferencia con la fuente |
 |---|---|---|
-| `index.html` | **Producción** (lo que se sube a Cloudflare Pages) | El JS recién compilado, sin nada de depuración |
-| `test.html` | Mismo contenido que `index.html` | Usado por algunos tests que no necesitan `window.__debug` |
-| `test_debug.html` | Toda la suite de Playwright corre contra este archivo | pdf.js local (no CDN) + bloque `window.__debug` inyectado |
-| `extracted.js` / `extracted_debug.js` | Solo el JS, para `node --check` (verificar sintaxis rápido) | — |
+| `public/index.html` | **Producción** (lo que se sube a Cloudflare Pages) | El JS recién compilado, sin nada de depuración |
+| `public/test.html` | Mismo contenido que `index.html` | Usado por algunos tests que no necesitan `window.__debug` |
+| `public/test_debug.html` | Toda la suite de Playwright corre contra este archivo | pdf.js local (no CDN) + bloque `window.__debug` inyectado |
+| `public/extracted.js` / `public/extracted_debug.js` | Solo el JS, para `node --check` (verificar sintaxis rápido) | — |
 
-**Nunca se edita `dist/app.js` a mano ni el `<script>` dentro de `plata-clara.html`** — son
+**Nunca se edita `dist/app.js` a mano ni el `<script>` dentro de `src/plata-clara.html`** — son
 generados, se pisan enteros en cada `rebuild.py`. El único archivo fuente que se edita es
-`app.ts`.
+`src/app.ts`.
 
-`rebuild_preview.py` genera `preview/preview.html`: el mismo archivo pero con el `auth-gate`
-oculto desde el propio marcado (`hidden` en el HTML, no algo que un script oculte después) para
-poder ver la app con datos de ejemplo sin depender de una sesión real de Supabase — el visor de
-Artifacts de Claude bloquea las llamadas de red reales, así que "Cerrar sesión" en esta vista
-previa simplemente recarga la página en vez de intentar un logout real (que dejaría el
-auth-gate visible para siempre, sin forma de volver a entrar). **Este archivo nunca se sube a
-producción.**
+`rebuild_preview.py` genera `preview/preview.html` a partir de `public/index.html`: el mismo
+archivo pero con el `auth-gate` oculto desde el propio marcado (`hidden` en el HTML, no algo
+que un script oculte después) para poder ver la app con datos de ejemplo sin depender de una
+sesión real de Supabase — el visor de Artifacts de Claude bloquea las llamadas de red reales,
+así que "Cerrar sesión" en esta vista previa simplemente recarga la página en vez de intentar
+un logout real (que dejaría el auth-gate visible para siempre, sin forma de volver a entrar).
+**Este archivo nunca se sube a producción.**
 
-Comando típico después de editar `app.ts` (o el CSS/HTML de `plata-clara.html`):
+Comando típico después de editar `src/app.ts` (o el CSS/HTML de `src/plata-clara.html`):
 
 ```bash
-npx tsc -p tsconfig.json     # chequeo rápido de tipos, sin generar nada más (opcional, rebuild.py ya lo hace)
-python3 rebuild.py           # compila app.ts y regenera index.html/test.html/test_debug.html/extracted*.js
-python3 rebuild_preview.py   # regenera preview/preview.html (para mostrarla en el chat)
-node run_all_tests.js        # corre toda la batería de regresión
+npx tsc -p tsconfig.json         # chequeo rápido de tipos, sin generar nada más (opcional, rebuild.py ya lo hace)
+python3 rebuild.py               # compila src/app.ts y regenera public/index.html, public/test.html, public/test_debug.html, public/extracted*.js
+python3 rebuild_preview.py       # regenera preview/preview.html (para mostrarla en el chat)
+node tests/run_all_tests.js      # corre toda la batería de regresión
 ```
 
 ## 7. Testing
 
-Playwright, sin ningún framework de test runner externo — cada archivo es un script Node
-independiente.
+Todo vive en `tests/`. Playwright, sin ningún framework de test runner externo — cada archivo
+es un script Node independiente.
 
-- **`lib/test_kit.js`**: helper compartido. `openApp()` abre `test_debug.html` en Chromium,
-  oculta el auth-gate, espera 300ms; `check(label, condicion, extra?)` registra un
+- **`tests/lib/test_kit.js`**: helper compartido. `openApp()` abre `public/test_debug.html` en
+  Chromium, oculta el auth-gate, espera 300ms; `check(label, condicion, extra?)` registra un
   pass/fail; `finish({context, browser, errors})` cierra el browser, agrega el check
   automático "sin errores de JS/consola", e imprime una línea `##SUMMARY##` en JSON que
   `run_all_tests.js` parsea.
-- **`run_all_tests.js`**: corre, en un solo proceso, todos los archivos que matchean
-  `/^shot_.*\.js$/` más `smoke_test.js` y `/^audit_.*\.js$/`. Archivos `shot17_x.js`,
-  `shot2.js`, etc. (sin guion bajo pegado a "shot") **no** son parte de la suite mantenida —
-  son restos de iteraciones viejas, no hace falta arreglarlos ni borrarlos.
+- **`tests/run_all_tests.js`**: corre, en un solo proceso, todos los archivos que matchean
+  `/^shot_.*\.js$/` más `smoke_test.js` y `/^audit_.*\.js$/`, todos dentro de `tests/`. Los
+  scripts numerados (`shot17_x.js`, `shot2.js`, etc., sin guion bajo pegado a "shot") y los
+  `debug_*.js` sueltos que existían de iteraciones viejas se borraron en la reorganización de
+  septiembre 2026 — no eran parte de la suite mantenida, `run_all_tests.js` nunca los corría.
+  Los PDFs y datos de ejemplo que usan los tests viven en `tests/fixtures/`.
 - **`audit_consistency.js`**: no es un test de una sola cosa — recalcula "la verdad" (sumas de
   ingresos/gastos/inversiones por mes, totales de plataformas, etc.) directamente desde `TX` y
   compara contra lo que la UI muestra en cada vista, para atrapar discrepancias entre vistas
@@ -396,17 +413,21 @@ independiente.
 ## 8. Qué archivos subir a Cloudflare Pages
 
 Cloudflare Pages sirve **archivos estáticos tal cual** — no hay ningún paso de build en el
-servidor. Hay que subir, todos juntos y en la raíz del sitio (respetando la carpeta `icons/`):
+servidor. Se sube el contenido de `public/` completo, tal cual, a la raíz del sitio:
 
 ```
-index.html
-manifest.json
-icons/icon-192.png
-icons/icon-512.png
-icons/icon-512-maskable.png
+public/index.html
+public/manifest.json
+public/sw.js
+public/icons/icon-192.png
+public/icons/icon-512.png
+public/icons/icon-512-maskable.png
 ```
 
-- `index.html` es el único que cambia cada vez que se edita la app — es el que hay que
+(`public/test.html`, `public/test_debug.html`, `public/extracted*.js` y `public/pdf.min.js` /
+`public/pdf.worker.min.js` son solo para desarrollo/tests locales — no hace falta subirlos.)
+
+- `public/index.html` es el único que cambia cada vez que se edita la app — es el que hay que
   resubir después de cada `python3 rebuild.py`.
 - `manifest.json` y los 3 íconos solo cambian si se retoca el manifest de PWA (nombre, colores,
   ícono) — no hace falta resubirlos en cada deploy normal, pero si `index.html` alguna vez

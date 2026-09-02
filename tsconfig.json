@@ -3,6 +3,7 @@
     "target": "ES2019",
     "lib": ["ES2019", "DOM"],
     "outDir": "dist",
+    "rootDir": "src",
     "strict": false,
     "noImplicitAny": false,
     "checkJs": false,
@@ -12,5 +13,5 @@
     "noEmitOnError": true,
     "newLine": "lf"
   },
-  "include": ["app.ts"]
+  "include": ["src/app.ts"]
 }

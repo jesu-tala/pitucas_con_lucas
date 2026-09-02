@@ -5,7 +5,7 @@ import re
 # código de la app vive en app.ts, plata-clara.html solo tiene el "cascarón" HTML/CSS y un
 # placeholder donde antes iba el script inline. Por eso este script se corre SIEMPRE
 # después de `python3 rebuild.py` en el mismo directorio.
-SRC = 'index.html'
+SRC = 'public/index.html'
 with open(SRC, encoding='utf-8') as f:
     src = f.read()
 
