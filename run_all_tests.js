@@ -18,10 +18,12 @@ const TIMEOUT_MS = 60000;
 
 function discoverTestFiles() {
   const all = fs.readdirSync(DIR);
-  const shotFiles = all.filter(f => /^shot_.*\.js$/.test(f)).sort();
-  const named = ['smoke_test.js', 'audit_consistency.js', 'audit_historial.js'];
-  const set = new Set(shotFiles);
-  named.forEach(f => { if (fs.existsSync(path.join(DIR, f))) set.add(f); });
+  // shot_*.js y audit_*.js por patrón (no una lista fija) -- así un archivo audit_ nuevo entra
+  // solo a la suite, tal como ya dice DOCUMENTACION.md, sin tener que tocar este runner cada vez.
+  const shotFiles = all.filter(f => /^shot_.*\.js$/.test(f));
+  const auditFiles = all.filter(f => /^audit_.*\.js$/.test(f));
+  const set = new Set([...shotFiles, ...auditFiles]);
+  if (fs.existsSync(path.join(DIR, 'smoke_test.js'))) set.add('smoke_test.js');
   return Array.from(set).sort();
 }
 

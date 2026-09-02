@@ -1,8 +1,11 @@
 # Pitucas sin lucas — Documentación técnica
 
-App de finanzas personales para uso individual (Chile, pesos CLP). Un solo archivo HTML/JS,
-sin build, pensado para que cualquier sesión de Claude (o cualquier desarrollador) pueda
-retomarla, entenderla y seguir extendiéndola sin tener que releer 7000+ líneas desde cero.
+App de finanzas personales (Chile, pesos CLP), originalmente para uso individual y ahora
+también con gastos compartidos entre grupos (pareja, familia, roomies). El código fuente vive
+en `app.ts` (TypeScript), compilado con `tsc` e insertado en el HTML de `plata-clara.html`
+(ver sección 2 y 6) — pensado para que cualquier sesión de Claude (o cualquier desarrollador)
+pueda retomarla, entenderla y seguir extendiéndola sin tener que releer miles de líneas desde
+cero.
 
 Última actualización de este documento: septiembre 2026.
 
@@ -13,19 +16,30 @@ de escritorio) para llevar transacciones, presupuesto, balance mensual e inversi
 cuenta real (login con Supabase) y también un "Modo demo" que enmascara todos los montos con
 `$••••••` para poder mostrar la pantalla sin exponer cifras reales.
 
-Tres pestañas principales:
+Cuatro pestañas principales:
 
 - **Transacciones** — lista de movimientos, con filtros (Todas / Entradas / Por cobrar /
   Pendientes) y filtros avanzados (categoría, medio de pago, rango de fechas).
 - **Resumen** — cuatro sub-pestañas: Balance, Presupuesto, Evolución, Inversiones.
+- **Grupos** — gastos compartidos estilo Tricount: crear/unirse a un grupo (pareja, familia,
+  roomies, un viaje), ver quién le debe a quién, y compartir un gasto propio con el grupo desde
+  el detalle de cualquier transacción (ver sección 4).
 - **Menú** — cuenta, categorías, medios de pago, reglas automáticas, exportar/respaldar,
   importar cartola (CSV o PDF), modo demo, y "Asesoría financiera con Claude" (placeholder,
   todavía no implementado).
 
 ## 2. Arquitectura
 
-Un único archivo fuente: `plata-clara.html`. Es una IIFE de JavaScript vanilla (sin
-frameworks, sin build step) que:
+El código fuente es `app.ts` (TypeScript). `rebuild.py` lo compila con `tsc` (usa
+`tsconfig.json`, con `noEmitOnError:true`: cualquier error de tipos aborta el rebuild sin tocar
+nada) a `dist/app.js`, y ese JS compilado se inserta dentro de `plata-clara.html` — que ya no
+lleva el `<script>` de la app escrito a mano, solo el HTML/CSS de la "vitrina" (el marco de
+teléfono, los estilos) más un placeholder que dice "esto se genera solo" — para producir
+`index.html`, `test.html`, `test_debug.html`, etc. (ver sección 6 para el detalle completo del
+pipeline). **Nunca se edita `dist/app.js` ni el `<script>` de `plata-clara.html` a mano — el
+único archivo que se edita es `app.ts`.**
+
+Es una IIFE (sin frameworks de UI, sin virtual DOM) que:
 
 - Guarda todo el estado de la app en un objeto `state` (tab activo, filtros, qué sheet está
   abierto, borradores en edición, etc.) más un conjunto de variables de datos (`TX`, `CATS`,
@@ -41,9 +55,9 @@ frameworks, sin build step) que:
   (`phone.addEventListener('click'|'change'|'input'|'focusout'|..., …)`), leyendo atributos
   `data-*` de los elementos para decidir qué hacer. No hay listeners individuales por fila.
 
-No hay ningún paso de build para producción: `plata-clara.html` **es** el código, y
-`rebuild.py` simplemente lo copia/deriva a los distintos archivos que hacen falta (ver
-sección 6).
+El único paso de build es local (compilar TypeScript con `tsc`) — no hay bundler, no hay
+`npm run dev`, y en el servidor de hosting (Cloudflare Pages) no corre nada: se sube el
+`index.html` ya generado, tal cual (ver sección 6 y 8).
 
 ## 3. Modelo de datos
 
@@ -97,6 +111,64 @@ Supabase (ver sección 5) o a un respaldo JSON descargable (Menú → Respaldo e
   filtros, drag-and-drop de sub-tabs, etc.) — nunca se persiste tal cual, solo los datos de
   arriba.
 
+### Gastos compartidos (grupos)
+
+A diferencia de todo lo anterior, estas variables **no** viven en `app_state` (que es privado
+por hogar) ni se serializan en `buildFullStateBlob()`: un grupo puede juntar participantes de
+distintas cuentas/hogares, así que viven en tablas propias de Supabase y se sincronizan aparte
+(`cargarGastosCompartidos()` + realtime, ver sección 5). Son `let` a nivel de módulo, igual que
+`TX`/`CATS`, pero su única fuente de verdad es Supabase — nunca se editan "a mano" salvo en
+tests (`window.__debug`).
+
+- **`GRUPOS`**: `{id, nombre, icono, creado_por, invite_code, created_at}`.
+- **`GRUPO_PARTICIPANTES`**: `{id, grupo_id, user_id, nombre, color}` — `user_id` es `null`
+  cuando el participante no tiene cuenta propia (alguien sin la app, administrado por otro
+  miembro del grupo, ej. "Pancho" pagando en efectivo).
+- **`GASTOS_COMPARTIDOS`**: `{id, grupo_id, descripcion, categoria_origen, monto, fecha,
+  pagado_por, registrado_por, division_tipo:'iguales'|'montos'|'pct', tx_origen_id, reparto:
+  [GastoReparto]}`. `categoria_origen` es el **nombre** de la categoría de quien registró (no
+  un id: cada usuaria tiene su propia taxonomía de categorías) — es lo que alimenta el mapeo
+  aprendido, ver más abajo.
+- **`SALDOS_PAGADOS`**: `{id, grupo_id, de_participante, a_participante, monto, fecha}` — un
+  registro puramente contable de "ya nos pusimos al día". **Nunca crea una transacción real**:
+  la plata que de verdad se transfiere debe llegar sola por cartola/correo del banco y subirse
+  por los flujos normales de importación de la app (decisión explícita de la usuaria: nada de
+  transacciones forzadas al saldar cuentas).
+- **`MAPEO_CATEGORIAS`**: `{id, user_id, de_participante, categoria_ajena, categoria_propia}` —
+  el mapeo aprendido "la categoría que anotó tal persona → mi categoría", **escopado por
+  participante de origen** (`de_participante`), no solo por nombre de categoría: así "Otros" de
+  tu pareja y "Otros" de tu roomie pueden mapear cada uno a una categoría tuya distinta. Nunca
+  se auto-crea una categoría nueva a partir de esto.
+
+**"Mi parte" de un gasto que registró otra persona nunca se persiste** en ningún lado propio:
+`sincronizarGastosCompartidos()` la recalcula por completo cada vez (al cargar sesión y en cada
+evento realtime) desde `GASTOS_COMPARTIDOS`/`MAPEO_CATEGORIAS`, y la agrega a `TX` **en
+memoria** como una transacción con `compartidoAjeno:true` (id `'compartido-'+gastoId`). Por eso
+`buildFullStateBlob()` filtra `TX.filter(t=>!t.compartidoAjeno)` antes de guardar — si se
+guardara, quedaría duplicada o desincronizada apenas la otra persona editara o borrara el gasto
+original. Reglas del motor (`saldoGrupo`, `transferenciasSugeridas`, ambas funciones puras
+cubiertas por `audit_gastos_compartidos.js`):
+
+- Si **pagué yo**, mi propia transacción real ya lleva las partes de los demás en `porCobrar`
+  (mismo mecanismo que "Por cobrar a alguien" de toda la vida) — no genera ninguna entrada
+  derivada para mí.
+- Si **pagó otra persona pero yo la registré** (ej. pagó en efectivo alguien sin cuenta), mi
+  transacción "ancla" pasa a `estado:'no_es_gasto'` (un recibo puro, no cuenta en mi
+  presupuesto) y mi propia parte me llega igual que a cualquier otro participante, vía la
+  entrada derivada.
+- Si **pagó y registró otra persona**, toda mi parte llega solo como entrada derivada. Sin un
+  mapeo aprendido todavía, queda `estado:'pendiente'` con `categoriaOrigenSugerida` (la
+  categoría que puso quien registró, mostrada como sugerencia en el detalle) — clasificarla a
+  mano (`clasificarGastoCompartidoAjeno`) aprende el mapeo para que el próximo gasto de esa
+  misma persona con esa misma categoría de origen se clasifique solo.
+- El balance por participante es `pagado - correspondido +/- saldos_pagados`, neteado a la
+  mínima cantidad de transferencias sugeridas con un algoritmo greedy deudor/acreedor
+  (`transferenciasSugeridas`).
+
+No implementado todavía (a propósito, fuera de alcance de esta primera pasada): categorías
+propias de grupo (se prefiere el mapeo aprendido salvo que se quede corto) y metas de inversión
+en común.
+
 ## 4. Vistas y funcionalidades por pestaña
 
 ### Transacciones
@@ -119,8 +191,38 @@ Dentro del detalle de una transacción:
   categorizado (sueldo, freelance, etc.) nunca la muestra.
 - **Acciones rápidas** (solo gastos): confirmar / por cobrar a alguien / reembolso pendiente /
   no es gasto.
+- **Compartir con un grupo** (solo gastos propios, no en una entrada `compartidoAjeno`):
+  cerrado por defecto ("Elegir un grupo"); al abrirlo, elegir grupo, quién pagó (segmented) y
+  entre quiénes se divide (checkboxes, partes iguales con vista previa en vivo del reparto y
+  chequeo de que suma el total exacto) — "Compartir" llama `compartirTransaccionExistente`.
+  Una vez compartida, la sección pasa a una tarjeta de solo lectura ("ya se compartió con
+  &lt;grupo&gt;"); para cambiar el reparto hay que hacerlo desde la vista del grupo. **Alcance
+  de esta primera pasada: solo partes iguales** — "montos"/"%" (reparto personalizado) queda
+  para una próxima pasada, el esquema/backend ya los soporta (`division_tipo`).
+  Una entrada `compartidoAjeno` (mi parte de un gasto que registró otra persona) reutiliza el
+  mismo flujo de clasificación de siempre (`needsClassifying` → `catPickerGrid`) cuando todavía
+  no tiene categoría, mostrando además la sugerencia de la categoría de origen; tocar una
+  categoría llama `clasificarGastoCompartidoAjeno` en vez del flujo normal, que además de
+  clasificar esta transacción aprende el mapeo para la próxima vez (ver sección 3).
 - **Nota** libre.
 - Eliminar (con confirmación) y "Listo" al fondo.
+
+### Grupos
+Gastos compartidos estilo Tricount. Sin ningún grupo creado: pantalla vacía con botones "Crear
+un grupo" / "Unirme con un código". Con grupos: lista de tarjetas (una por grupo) con un
+resumen del saldo propio.
+
+Detalle de un grupo (`renderGrupoDetalle`):
+- **Tarjeta de balance propio** (coloreada según el signo: te deben / debes).
+- **Desglose por persona**: avatar + nombre + saldo de cada participante, con un botón "Saldar"
+  cuando corresponde — llama `registrarSaldoPagado`, que **solo** escribe un registro contable
+  (`saldos_pagados`) y nunca crea ninguna transacción (ver sección 3, es una decisión explícita
+  y no negociable).
+- **Feed de gastos del grupo**, reutilizando la estética de fila de Transacciones (`.tx-item`).
+- **Agregar un gasto** (dentro del grupo) y **agregar un participante sin cuenta propia** (solo
+  nombre + color, para alguien que no usa la app).
+- Invitar a alguien más al grupo comparte el `invite_code` (uuid); unirse pide ese código + el
+  nombre con el que se quiere aparecer (`unirseAGrupo`, RPC `unirse_a_grupo` en Supabase).
 
 ### Resumen → Balance
 Donut de gasto por categoría del mes + card "Fijo · Variable · Inversión" con barras de
@@ -187,23 +289,54 @@ el hogar y carga (o crea, si es cuenta nueva, `emptyAppStateBlob()`) su `app_sta
 **Nunca** se guarda ni se pide la contraseña de un PDF de cartola en ningún otro lugar que un
 prompt puntual en el momento de abrirlo.
 
+### Gastos compartidos: tablas propias (`schema_gastos_compartidos.sql`)
+
+Agregado a lo anterior, **fuera** de `app_state` (ver sección 3 para el porqué): `grupos`,
+`grupo_participantes`, `gastos_compartidos`, `gasto_reparto`, `saldos_pagados`,
+`mapeo_categorias`. RLS con el mismo patrón que `household_members`/`is_household_member()`:
+una función `is_grupo_member(gid)` `security definer` evita la referencia circular en las
+políticas, y un trigger `handle_new_grupo()` agrega automáticamente a quien crea el grupo como
+primer participante (mismo problema de "huevo y gallina" que `handle_new_user()`). Unirse a un
+grupo usa una RPC `security definer` (`unirse_a_grupo(p_invite_code, p_nombre)`, mismo patrón
+que `importar_transaccion()`) porque quien se une todavía no es miembro y no puede pasar por la
+política normal de insert.
+
+Sincronización en vivo: canal `postgres_changes` de Supabase Realtime suscrito a las 5 tablas
+(`suscribirseAGruposEnVivo`) — cualquier cambio (propio o de otro participante) dispara un
+refetch completo y recalcula todo (`cargarGastosCompartidos` → `sincronizarGastosCompartidos`),
+nunca un parche incremental.
+
 ## 6. Pipeline de build (todo corre localmente, sin bundlers)
 
-`plata-clara.html` es la única fuente de verdad. `rebuild.py` la lee, separa el `<script>`
-inline del resto del HTML, y genera:
+Dos fuentes: **`app.ts`** (todo el código de la app, en TypeScript) y **`plata-clara.html`**
+(el HTML/CSS de la vitrina — marco de teléfono, estilos, el `<script>` final es solo un
+placeholder). `rebuild.py` hace, en orden:
+
+1. Compila `app.ts` con `tsc -p tsconfig.json` a `dist/app.js`. `tsconfig.json` tiene
+   `noEmitOnError:true`: **cualquier** error de tipos aborta acá mismo, sin tocar ningún archivo
+   de salida — un typo de categoría, un campo que falta en una transacción, una función llamada
+   con el argumento equivocado, todo se atrapa antes de llegar siquiera a correr los tests.
+2. Lee `plata-clara.html`, ubica el `<script>` final (por regex, sin asumir indentación fija —
+   `tsc` reformatea el código) y lo reemplaza por el contenido recién compilado de
+   `dist/app.js`.
+3. Inserta el bloque `window.__debug` justo después de una línea ancla
+   (`regenerateCuotasFor('t31');`), exponiendo las variables/funciones internas que los tests
+   necesitan tocar directamente (`TX`, `state`, `render`, `todayISO`, `metaInversionPct`,
+   `pendientesGlobales`, `GRUPOS`, `GASTOS_COMPARTIDOS`, `saldoGrupo`, etc. — la lista crece
+   cada vez que un test nuevo necesita algo que no estaba expuesto) — pero solo en las variantes
+   de test, no en `index.html`.
+4. Genera los distintos archivos de salida:
 
 | Archivo | Para qué | Diferencia con la fuente |
 |---|---|---|
-| `index.html` | **Producción** (lo que se sube a Cloudflare Pages) | Idéntico a la fuente, sin nada de depuración |
+| `index.html` | **Producción** (lo que se sube a Cloudflare Pages) | El JS recién compilado, sin nada de depuración |
 | `test.html` | Mismo contenido que `index.html` | Usado por algunos tests que no necesitan `window.__debug` |
 | `test_debug.html` | Toda la suite de Playwright corre contra este archivo | pdf.js local (no CDN) + bloque `window.__debug` inyectado |
 | `extracted.js` / `extracted_debug.js` | Solo el JS, para `node --check` (verificar sintaxis rápido) | — |
 
-El bloque `window.__debug` se inyecta justo después de una línea ancla
-(`regenerateCuotasFor('t31');`) y expone las variables/funciones internas que los tests
-necesitan tocar directamente (`TX`, `state`, `render`, `todayISO`, `metaInversionPct`,
-`pendientesGlobales`, etc. — la lista crece cada vez que un test nuevo necesita algo que no
-estaba expuesto).
+**Nunca se edita `dist/app.js` a mano ni el `<script>` dentro de `plata-clara.html`** — son
+generados, se pisan enteros en cada `rebuild.py`. El único archivo fuente que se edita es
+`app.ts`.
 
 `rebuild_preview.py` genera `preview/preview.html`: el mismo archivo pero con el `auth-gate`
 oculto desde el propio marcado (`hidden` en el HTML, no algo que un script oculte después) para
@@ -213,10 +346,11 @@ previa simplemente recarga la página en vez de intentar un logout real (que dej
 auth-gate visible para siempre, sin forma de volver a entrar). **Este archivo nunca se sube a
 producción.**
 
-Comando típico después de editar `plata-clara.html`:
+Comando típico después de editar `app.ts` (o el CSS/HTML de `plata-clara.html`):
 
 ```bash
-python3 rebuild.py           # regenera index.html/test.html/test_debug.html/extracted*.js
+npx tsc -p tsconfig.json     # chequeo rápido de tipos, sin generar nada más (opcional, rebuild.py ya lo hace)
+python3 rebuild.py           # compila app.ts y regenera index.html/test.html/test_debug.html/extracted*.js
 python3 rebuild_preview.py   # regenera preview/preview.html (para mostrarla en el chat)
 node run_all_tests.js        # corre toda la batería de regresión
 ```
@@ -239,6 +373,20 @@ independiente.
   ingresos/gastos/inversiones por mes, totales de plataformas, etc.) directamente desde `TX` y
   compara contra lo que la UI muestra en cada vista, para atrapar discrepancias entre vistas
   (ej. Balance vs. Evolución vs. Inversiones) que un test puntual no vería.
+- **`audit_gastos_compartidos.js`**: mismo patrón que `audit_consistency.js` pero para el motor
+  de balances de grupos — fixture de 3 participantes (uno sin cuenta) inyectada directo por
+  `window.__debug` (`GRUPOS`/`GRUPO_PARTICIPANTES`/`GASTOS_COMPARTIDOS`/`SALDOS_PAGADOS`), y
+  compara a mano `saldoGrupo`/`transferenciasSugeridas`/`sincronizarGastosCompartidos` contra
+  lo esperado, incluyendo que el mapeo aprendido "pegue" solo en un resync y que no haya doble
+  conteo en `monthTotals`.
+- **`shot_compartir_grupo.js`** / **`shot_clasificar_ajeno.js`**: la parte de UI de gastos
+  compartidos (abrir/cerrar el form de "Compartir con un grupo", recalculo en vivo del reparto,
+  clasificar la entrada derivada de un gasto ajeno y ver que el mapeo aprendido se aplique solo
+  a un gasto nuevo). Como la escritura real a Supabase (`compartirTransaccionExistente`,
+  `crearGrupo`, `unirseAGrupo`, etc.) depende de `sb` (bloqueado por la política de red del
+  sandbox de test), estos tests inyectan el estado de grupos directo por `window.__debug` —
+  igual que `audit_gastos_compartidos.js` — y verifican la UI sobre ese estado, no el viaje de
+  ida y vuelta a la base de datos.
 - Convención: **todo bug fix o cambio de comportamiento agrega/actualiza un test** que bloquee
   que vuelva a pasar — nunca se corrige "a mano" sin dejar cobertura.
 - Un test que NO necesita abrir el navegador (por ejemplo, comparar `manifest.json` contra
@@ -293,15 +441,18 @@ icons/icon-512-maskable.png
 - **Rachas**: 🔥 + contador cuando hay meses seguidos cumplidos hasta hoy (mismo patrón para
   metas individuales, el combinado de una plataforma, y el objetivo total).
 - Nunca copiar código de referencia que la usuaria comparta tal cual — usarlo solo de guía e
-  implementar con los patrones propios de la app (vanilla JS, sin React/TS/Tailwind).
+  implementar con los patrones propios de la app (vanilla JS/TS, sin React/Tailwind).
 
 ## 10. Decisiones de producto acumuladas (para no perder el criterio ya acordado)
 
 - Prioridad #1: **robustez** — que un cambio no rompa otra parte de la app; por eso la
   disciplina de agregar un test por cada fix.
-- Se evaluó migrar a TypeScript/React/Tailwind/Vite y se descartó por ahora: se prefiere
-  mantener el archivo único + expandir la batería de Playwright.
-- Roadmap declarado (no implementado todavía): uso compartido entre pareja/roomies/familia
-  (gastos divididos, metas de inversión en común) y, más adelante, algo tipo Tricount (gastos
-  de grupo con cálculo de quién le debe a quién) — a evaluar si conviene dejar la puerta abierta
-  desde el modelo de datos actual.
+- Se migró el código a TypeScript (`app.ts`, compilado con `tsc`, ver sección 2 y 6) para tener
+  chequeo de tipos en un archivo que ya venía creciendo mucho — **sin** adoptar React, Tailwind
+  ni ningún bundler: se mantiene la arquitectura de un solo archivo + render por concatenación
+  de strings + `window.__debug`, solo que ahora el JS se escribe tipado y se compila antes de
+  insertarse en el HTML.
+- Gastos compartidos estilo Tricount (uso entre pareja/roomies/familia, cálculo de quién le
+  debe a quién) ya está implementado (ver secciones 3, 4 y 5). Roadmap declarado, no
+  implementado todavía: categorías propias de grupo (se prefiere el mapeo aprendido salvo que
+  se quede corto) y metas de inversión en común.

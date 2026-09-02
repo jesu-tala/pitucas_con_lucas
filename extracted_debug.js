@@ -309,6 +309,17 @@
     // Ahora que TX y METAS_INVERSION ya existen, se puede calcular el default real
     // (ingresos − gastos del mes actual, y el % por meta que cubre su aporte mensual meta).
     let PLANIFICADOR = getPlanificadorDefaults();
+    /* ---- Gastos compartidos: datos sincronizados desde Supabase, NUNCA desde app_state ----
+       A diferencia de TX/CATS/MEDIOS/etc. (que viven en app_state, privado por hogar), esto se
+       lee/escribe directo en las tablas de supabase/schema_gastos_compartidos.sql -- un grupo
+       puede juntar participantes de cuentas/hogares distintos, así que no puede vivir en un
+       blob que es privado de un solo hogar. En modo demo (o antes de que cargue la sesión real)
+       quedan arreglos vacíos; sincronizarGastosCompartidos() los llena después de auth. */
+    let GRUPOS = [];
+    let GRUPO_PARTICIPANTES = [];
+    let GASTOS_COMPARTIDOS = [];
+    let SALDOS_PAGADOS = [];
+    let MAPEO_CATEGORIAS = [];
     const MONTHS = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08'];
     const MONTH_LABEL = { '2026-04': 'Abril 2026', '2026-05': 'Mayo 2026', '2026-06': 'Junio 2026', '2026-07': 'Julio 2026', '2026-08': 'Agosto 2026' };
     const MESES_LARGO = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -438,8 +449,21 @@
         // ---- Cobros y reembolsos pendientes (vincular un depósito a un pendiente, o viceversa) ----
         linkFlow: null, // null | {mode:'fromPendiente', gastoTxId, idx} | {mode:'fromIngreso', ingresoTxId}
         // ---- Dividir boleta (simulado: sin OCR ni link real) ----
-        boleta: null // null cuando el asistente está cerrado, o {step, gastoTxId, comercio, items, asign} —
+        boleta: null, // null cuando el asistente está cerrado, o {step, gastoTxId, comercio, items, asign} —
         // siempre asociado a una transacción ya existente marcada "por cobrar"
+        // ---- Gastos compartidos ----
+        espacio: 'personal', // 'personal' | grupoId — qué espacio se está mirando ahora mismo
+        grupoAbiertoId: null, // grupoId cuya vista de detalle está abierta, o null (lista de grupos)
+        creandoGrupo: false, // true mientras se muestra el formulario "Crear grupo"
+        grupoDraft: { nombre: '', icono: '👥' },
+        uniendoAGrupo: false, // true mientras se muestra el formulario "Unirme con un código"
+        joinDraft: { inviteCode: '', nombre: '' },
+        agregandoParticipante: false, // true mientras se muestra "Agregar persona" (sin cuenta) dentro de un grupo
+        participanteDraft: { nombre: '' },
+        saldarConId: null, // participanteId con quien se está por registrar "Saldar cuentas", o null
+        // "Compartir con un grupo" dentro del detalle/creación de una transacción de gasto:
+        compartirDraft: null, // null, o {grupoId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
+        confirmDeleteGrupoId: null
     };
     let subtabDrag = null; // bookkeeping transitorio del drag (no es parte de state: no se pinta directo)
     let suppressNextSubtabClick = false;
@@ -685,6 +709,80 @@
     function tienePorCobrarTipo(t, tipo) {
         return (t.porCobrar || []).some(p => p.tipo === tipo);
     }
+    /* ===================== GASTOS COMPARTIDOS: motor de balances =====================
+       Funciones puras — no tocan Supabase ni el DOM, solo GRUPO_PARTICIPANTES/GASTOS_COMPARTIDOS/
+       SALDOS_PAGADOS ya cargados en memoria. Por eso son fáciles de cubrir con un test que
+       recalcule "la verdad" desde cero (mismo espíritu que audit_consistency.js) y las compare. */
+    function participantesDeGrupo(grupoId) {
+        return GRUPO_PARTICIPANTES.filter(p => p.grupo_id === grupoId);
+    }
+    function gastosDeGrupo(grupoId) {
+        return GASTOS_COMPARTIDOS.filter(g => g.grupo_id === grupoId);
+    }
+    function repartoDeGasto(g) {
+        return g.reparto || [];
+    }
+    // pagado = todo lo que este participante pagó (fue pagado_por) en gastos del grupo.
+    // correspondido = su parte del reparto de TODOS los gastos del grupo (haya pagado él o no).
+    // saldo = pagado - correspondido - saldos ya registrados a su favor/en contra — positivo
+    // significa "le deben esta plata", negativo "debe esta plata".
+    function saldoGrupo(grupoId) {
+        const participantes = participantesDeGrupo(grupoId);
+        const gastos = gastosDeGrupo(grupoId);
+        const saldos = SALDOS_PAGADOS.filter(s => s.grupo_id === grupoId);
+        return participantes.map(p => {
+            const pagado = gastos.filter(g => g.pagado_por === p.id).reduce((s, g) => s + g.monto, 0);
+            const correspondido = gastos.reduce((s, g) => {
+                const item = repartoDeGasto(g).find(r => r.participante_id === p.id);
+                return s + (item ? item.monto : 0);
+            }, 0);
+            const pagadoAOtros = saldos.filter(s => s.de_participante === p.id).reduce((s, x) => s + x.monto, 0);
+            const recibidoDeOtros = saldos.filter(s => s.a_participante === p.id).reduce((s, x) => s + x.monto, 0);
+            // Saldar cuentas: si YO le pago a alguien, mi "correspondido pendiente" baja (mi deuda se
+            // achica) — por eso pagadoAOtros SUMA a mi saldo (menos negativo) y recibidoDeOtros RESTA
+            // (lo que me pagaron ya no cuenta como "me deben").
+            const saldo = pagado - correspondido + pagadoAOtros - recibidoDeOtros;
+            return { participanteId: p.id, nombre: p.nombre, color: p.color, pagado, correspondido, saldo };
+        });
+    }
+    // Neteo mínimo: en vez de "todos le deben un poco a todos", arma la lista más corta posible
+    // de transferencias que deja a todo el mundo en $0 — algoritmo greedy clásico (empareja al
+    // que más debe con al que más le deben, uno a la vez).
+    function transferenciasSugeridas(grupoId) {
+        const saldos = saldoGrupo(grupoId).map(s => ({ id: s.participanteId, saldo: Math.round(s.saldo) }));
+        const deudores = saldos.filter(s => s.saldo < 0).map(s => ({ id: s.id, monto: -s.saldo })).sort((a, b) => b.monto - a.monto);
+        const acreedores = saldos.filter(s => s.saldo > 0).map(s => ({ id: s.id, monto: s.saldo })).sort((a, b) => b.monto - a.monto);
+        const out = [];
+        let i = 0, j = 0;
+        while (i < deudores.length && j < acreedores.length) {
+            const d = deudores[i], a = acreedores[j];
+            const monto = Math.min(d.monto, a.monto);
+            if (monto > 0)
+                out.push({ de: d.id, a: a.id, monto });
+            d.monto -= monto;
+            a.monto -= monto;
+            if (d.monto <= 0)
+                i++;
+            if (a.monto <= 0)
+                j++;
+        }
+        return out;
+    }
+    // Reparte un monto total entre N participantes de forma exacta (nunca $1 de diferencia por
+    // redondeo): todos reciben el mismo piso, y el resto (siempre < N) se reparte de a $1 entre
+    // los primeros participantes de la lista — mismo criterio que ya usa la app para cuotas.
+    function repartirIguales(monto, participanteIds) {
+        const n = participanteIds.length;
+        const out = {};
+        if (n === 0)
+            return out;
+        const piso = Math.floor(monto / n);
+        let resto = Math.round(monto) - piso * n;
+        participanteIds.forEach((id, idx) => {
+            out[id] = piso + (idx < resto ? 1 : 0);
+        });
+        return out;
+    }
     /* ----- expresiones tipo Tricount: "22000-5000", "64000/2", etc. ----- */
     function safeEvalExpr(raw) {
         const cleaned = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
@@ -810,6 +908,7 @@
         const tabs = [
             { id: 'transacciones', label: 'Transacciones', icon: 'transacciones' },
             { id: 'resumen', label: 'Resumen', icon: 'resumen' },
+            { id: 'grupos', label: 'Grupos', icon: 'users' },
             { id: 'menu', label: 'Menú', icon: 'menu' }
         ];
         document.getElementById('tabbar').innerHTML = tabs.map(t => '<button class="tab ' + (state.tab === t.id ? 'active' : '') + '" data-tab="' + t.id + '">' + ICONS[t.icon] + '<span>' + t.label + '</span></button>').join('');
@@ -3477,6 +3576,311 @@
             console.error('Pitucas sin lucas — error agregando transacciones importadas:', err);
         }
     }
+    /* ---------- Gastos compartidos: sincronización con Supabase ----------
+       Estas tablas NUNCA viajan en app_state (ver supabase/schema_gastos_compartidos.sql) — se
+       leen/escriben directo, y "mi parte" de un gasto que registró otra persona se recalcula acá
+       mismo cada vez (sincronizarGastosCompartidos), nunca se persiste. */
+    function ensureMedioGrupoCompartido() {
+        const id = 'grupo_compartido';
+        if (!MEDIOS[id]) {
+            MEDIOS[id] = { nombre: 'Gasto de grupo', corto: 'Grupo', icon: 'users' };
+        }
+        return id;
+    }
+    // El participante (con cuenta) que corresponde a este user_id dentro de este grupo, o null
+    // si ese usuario no es miembro (no debería pasar si las tablas están consistentes, pero un
+    // gasto de un grupo del que ya no soy miembro no debe romper la app).
+    function participanteIdDeUsuario(grupoId, userId) {
+        const p = GRUPO_PARTICIPANTES.find(x => x.grupo_id === grupoId && x.user_id === userId);
+        return p ? p.id : null;
+    }
+    // Recalcula, desde GASTOS_COMPARTIDOS/GRUPO_PARTICIPANTES/MAPEO_CATEGORIAS ya cargados en
+    // memoria, las entradas "mi parte" (compartidoAjeno) de gastos que pagó y registró alguien
+    // más del grupo. Pura respecto a la red: no llama a Supabase, solo lee/escribe TX — por eso
+    // se puede probar con datos de prueba inyectados directo (ver audit_gastos_compartidos.js).
+    // Se llama después de cargarGastosCompartidos() y de nuevo cada vez que llega un cambio en
+    // vivo (realtime) — nunca hace falta llamarla "para deshacer" algo: siempre parte borrando
+    // las entradas viejas y las vuelve a construir todas desde cero.
+    function sincronizarGastosCompartidos() {
+        // Muta TX en el lugar (splice), nunca lo reasigna -- TX se expone en window.__debug (y en
+        // cualquier otro lugar que haya guardado una referencia al arreglo) como el arreglo mismo,
+        // no como una copia recalculada cada vez; reasignarlo acá dejaría esas referencias viejas
+        // apuntando a un arreglo que ya no es el real.
+        for (let i = TX.length - 1; i >= 0; i--) {
+            if (TX[i].compartidoAjeno)
+                TX.splice(i, 1);
+        }
+        if (!currentUser)
+            return;
+        GASTOS_COMPARTIDOS.forEach(g => {
+            const miParticipanteId = participanteIdDeUsuario(g.grupo_id, currentUser.id);
+            if (!miParticipanteId)
+                return; // ya no soy miembro de ese grupo
+            if (g.pagado_por === miParticipanteId)
+                return; // pagué yo: mi parte ya está en MI transacción real (porCobrar)
+            const miReparto = (g.reparto || []).find(r => r.participante_id === miParticipanteId);
+            if (!miReparto || miReparto.monto <= 0)
+                return; // no me toca nada de este gasto
+            const registradorParticipanteId = participanteIdDeUsuario(g.grupo_id, g.registrado_por);
+            const mapeo = registradorParticipanteId ? MAPEO_CATEGORIAS.find(m => m.user_id === currentUser.id && m.de_participante === registradorParticipanteId && m.categoria_ajena === g.categoria_origen) : null;
+            const pagador = GRUPO_PARTICIPANTES.find(p => p.id === g.pagado_por);
+            const grupo = GRUPOS.find(gr => gr.id === g.grupo_id);
+            const tx = {
+                id: 'compartido-' + g.id,
+                fecha: g.fecha, hora: '12:00',
+                comercio: g.descripcion,
+                monto: Math.round(miReparto.monto),
+                medio: ensureMedioGrupoCompartido(),
+                tipo: 'gasto', recurrencia: 'variable',
+                estado: mapeo ? 'confirmado' : 'pendiente',
+                categorias: mapeo ? [{ cat: mapeo.categoria_propia, monto: Math.round(miReparto.monto) }] : [],
+                porCobrar: [], reglaAuto: false,
+                nota: 'Tu parte de "' + g.descripcion + '"' + (pagador ? ' — pagó ' + pagador.nombre : '') + (grupo ? ' · grupo ' + grupo.nombre : ''),
+                grupoId: g.grupo_id, gastoCompartidoId: g.id, compartidoAjeno: true,
+                categoriaOrigenSugerida: mapeo ? null : (g.categoria_origen || null)
+            };
+            TX.push(tx);
+            ensureMonthExists(tx.fecha.slice(0, 7));
+        });
+    }
+    // Clasificar a mano una entrada compartidoAjeno sin categoría — además de ponerle la
+    // categoría a ESTA transacción, aprende el mapeo para que los próximos gastos de la MISMA
+    // persona con esa MISMA categoría de origen se clasifiquen solos la próxima vez que se
+    // recalculen (sincronizarGastosCompartidos). No crea categorías nuevas nunca.
+    async function clasificarGastoCompartidoAjeno(txId, catId) {
+        const tx = getTx(txId);
+        if (!tx || !tx.compartidoAjeno || !tx.gastoCompartidoId)
+            return false;
+        const g = GASTOS_COMPARTIDOS.find(x => x.id === tx.gastoCompartidoId);
+        tx.categorias = [{ cat: catId, monto: tx.monto }];
+        tx.estado = 'confirmado';
+        tx.categoriaOrigenSugerida = null;
+        if (g && currentUser) {
+            const registradorParticipanteId = participanteIdDeUsuario(g.grupo_id, g.registrado_por);
+            if (registradorParticipanteId && g.categoria_origen) {
+                // El mapeo local se actualiza SIEMPRE (de eso depende que sincronizarGastosCompartidos
+                // clasifique solos los próximos gastos, sin depender de que la escritura remota logre
+                // conectarse) — sb solo decide si además se intenta guardar en Supabase para la próxima
+                // sesión; si falla o no hay conexión, el mapeo de esta sesión sigue funcionando igual.
+                MAPEO_CATEGORIAS = MAPEO_CATEGORIAS.filter(m => !(m.user_id === currentUser.id && m.de_participante === registradorParticipanteId && m.categoria_ajena === g.categoria_origen));
+                const nuevo = { user_id: currentUser.id, de_participante: registradorParticipanteId, categoria_ajena: g.categoria_origen, categoria_propia: catId };
+                MAPEO_CATEGORIAS.push(nuevo);
+                if (sb) {
+                    try {
+                        await sb.from('mapeo_categorias').upsert(nuevo, { onConflict: 'user_id,de_participante,categoria_ajena' });
+                    }
+                    catch (err) {
+                        console.error('Pitucas sin lucas — error guardando el mapeo de categorías:', err);
+                    }
+                }
+            }
+        }
+        return true;
+    }
+    // Trae todo lo de gastos compartidos de una vez (grupos donde soy miembro, sus participantes,
+    // sus gastos + reparto, los saldos ya registrados, y mi propio mapeo de categorías) y recalcula
+    // "mi parte". Se llama después de cargar la sesión y de nuevo cuando llega un cambio en vivo.
+    async function cargarGastosCompartidos() {
+        if (!sb || !currentUser)
+            return;
+        try {
+            const [{ data: grupos, error: eG }, { data: saldos, error: eS }, { data: mapeo, error: eM }] = await Promise.all([
+                sb.from('grupos').select('*'),
+                sb.from('saldos_pagados').select('*'),
+                sb.from('mapeo_categorias').select('*').eq('user_id', currentUser.id)
+            ]);
+            if (eG)
+                throw eG;
+            if (eS)
+                throw eS;
+            if (eM)
+                throw eM;
+            GRUPOS = grupos || [];
+            SALDOS_PAGADOS = saldos || [];
+            MAPEO_CATEGORIAS = mapeo || [];
+            const grupoIds = GRUPOS.map(g => g.id);
+            if (!grupoIds.length) {
+                GRUPO_PARTICIPANTES = [];
+                GASTOS_COMPARTIDOS = [];
+                sincronizarGastosCompartidos();
+                return;
+            }
+            const { data: participantes, error: eP } = await sb.from('grupo_participantes').select('*').in('grupo_id', grupoIds);
+            if (eP)
+                throw eP;
+            GRUPO_PARTICIPANTES = participantes || [];
+            const { data: gastos, error: eGA } = await sb.from('gastos_compartidos').select('*, gasto_reparto(*)').in('grupo_id', grupoIds).order('fecha', { ascending: false });
+            if (eGA)
+                throw eGA;
+            GASTOS_COMPARTIDOS = (gastos || []).map(g => Object.assign({}, g, { reparto: g.gasto_reparto || [] }));
+            sincronizarGastosCompartidos();
+            render();
+        }
+        catch (err) {
+            console.error('Pitucas sin lucas — error cargando gastos compartidos:', err);
+        }
+    }
+    // Realtime: cualquier cambio hecho por CUALQUIER miembro de un grupo (crear/editar/borrar un
+    // gasto, agregar un participante, saldar cuentas) recarga y recalcula para todos los demás,
+    // sin que tengan que salir y volver a entrar a la app.
+    let gruposRealtimeChannel = null;
+    function suscribirseAGruposEnVivo() {
+        if (!sb || gruposRealtimeChannel)
+            return;
+        gruposRealtimeChannel = sb.channel('gastos-compartidos')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'grupos' }, cargarGastosCompartidos)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'grupo_participantes' }, cargarGastosCompartidos)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'gastos_compartidos' }, cargarGastosCompartidos)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'gasto_reparto' }, cargarGastosCompartidos)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'saldos_pagados' }, cargarGastosCompartidos)
+            .subscribe();
+    }
+    async function crearGrupo(nombre, icono) {
+        if (!sb || !currentUser)
+            return null;
+        const { data, error } = await sb.from('grupos').insert({ nombre, icono: icono || '👥', creado_por: currentUser.id }).select().single();
+        if (error) {
+            console.error('Pitucas sin lucas — error creando grupo:', error);
+            return null;
+        }
+        await cargarGastosCompartidos();
+        return data;
+    }
+    async function unirseAGrupo(inviteCode, nombre) {
+        if (!sb)
+            return false;
+        const { error } = await sb.rpc('unirse_a_grupo', { p_invite_code: inviteCode, p_nombre: nombre });
+        if (error) {
+            console.error('Pitucas sin lucas — error uniéndose al grupo:', error);
+            return false;
+        }
+        await cargarGastosCompartidos();
+        return true;
+    }
+    async function agregarParticipanteSinCuenta(grupoId, nombre, color) {
+        if (!sb)
+            return null;
+        const { data, error } = await sb.from('grupo_participantes').insert({ grupo_id: grupoId, nombre, color: color || 'mint' }).select().single();
+        if (error) {
+            console.error('Pitucas sin lucas — error agregando participante:', error);
+            return null;
+        }
+        await cargarGastosCompartidos();
+        return data;
+    }
+    // Crea el gasto compartido + su reparto, y arma localmente la transacción de quien registra
+    // (tx_origen): si pagó ella, es una transacción normal con porCobrar netiando la parte de
+    // los demás (igual que un split de amigos de siempre); si pagó otra persona, es solo un
+    // recibo (estado 'no_es_gasto') que no afecta su presupuesto — su propia parte, si le toca,
+    // le llega igual que a cualquiera vía sincronizarGastosCompartidos.
+    async function crearGastoCompartido(opts) {
+        // opts: {grupoId, descripcion, categoriaOrigen, monto, fecha, pagadoPorId, divisionTipo, reparto: {participanteId: monto}, medio}
+        if (!sb || !currentUser)
+            return null;
+        const soyYoQuienPago = participanteIdDeUsuario(opts.grupoId, currentUser.id) === opts.pagadoPorId;
+        const miParticipanteId = participanteIdDeUsuario(opts.grupoId, currentUser.id);
+        const miParte = miParticipanteId != null ? (opts.reparto[miParticipanteId] || 0) : 0;
+        const otrosSplits = Object.keys(opts.reparto).filter(pid => pid !== miParticipanteId).map(pid => ({ persona: (GRUPO_PARTICIPANTES.find(p => p.id === pid) || {}).nombre || '', monto: opts.reparto[pid], pagado: false, tipo: 'persona', montoRecibido: null, linkedTxId: null, grupoId: opts.grupoId, participanteId: pid }));
+        const txOrigen = soyYoQuienPago ? {
+            id: 'gasto-' + Date.now(), fecha: opts.fecha, hora: todayISO() === opts.fecha ? new Date().toTimeString().slice(0, 5) : '12:00',
+            comercio: opts.descripcion, monto: Math.round(opts.monto), medio: opts.medio || ensureMedioGrupoCompartido(),
+            tipo: 'gasto', recurrencia: 'variable', estado: otrosSplits.length ? 'por_cobrar' : 'confirmado',
+            categorias: opts.categoriaId ? [{ cat: opts.categoriaId, monto: Math.round(opts.monto) }] : [],
+            porCobrar: otrosSplits.map(s => ({ ...s, gastoCompartidoId: undefined })), reglaAuto: false, nota: '',
+            grupoId: opts.grupoId
+        } : {
+            id: 'gasto-' + Date.now(), fecha: opts.fecha, hora: '12:00',
+            comercio: opts.descripcion, monto: Math.round(opts.monto), medio: opts.medio || ensureMedioGrupoCompartido(),
+            tipo: 'gasto', recurrencia: 'variable', estado: 'no_es_gasto',
+            categorias: [], porCobrar: [], reglaAuto: false,
+            nota: 'Registrado por ti para el grupo, pero lo pagó otra persona — no cuenta en tu presupuesto.',
+            grupoId: opts.grupoId
+        };
+        TX.push(txOrigen);
+        ensureMonthExists(txOrigen.fecha.slice(0, 7));
+        const { data: gasto, error } = await sb.from('gastos_compartidos').insert({
+            grupo_id: opts.grupoId, descripcion: opts.descripcion, categoria_origen: opts.categoriaOrigen || null,
+            monto: Math.round(opts.monto), fecha: opts.fecha, pagado_por: opts.pagadoPorId,
+            registrado_por: currentUser.id, division_tipo: opts.divisionTipo || 'iguales', tx_origen_id: txOrigen.id
+        }).select().single();
+        if (error) {
+            console.error('Pitucas sin lucas — error creando gasto compartido:', error);
+            return null;
+        }
+        txOrigen.gastoCompartidoId = gasto.id;
+        txOrigen.porCobrar.forEach(p => { p.gastoCompartidoId = gasto.id; });
+        const filas = Object.keys(opts.reparto).map(pid => ({ gasto_compartido_id: gasto.id, participante_id: pid, monto: Math.round(opts.reparto[pid]) }));
+        const { error: eR } = await sb.from('gasto_reparto').insert(filas);
+        if (eR)
+            console.error('Pitucas sin lucas — error creando el reparto del gasto:', eR);
+        await cargarGastosCompartidos();
+        return gasto;
+    }
+    // Comparte una transacción de gasto QUE YA EXISTE (creada por el flujo normal de la app) con
+    // un grupo -- a diferencia de crearGastoCompartido (que arma una transacción nueva desde
+    // cero para "Agregar un gasto" en la vista de grupo), esta reusa la transacción tal cual,
+    // con su categoría/comercio/monto/fecha ya puestos, y solo le agrega el reparto -- es el
+    // flujo "Compartir con un grupo" dentro del detalle de una transacción.
+    async function compartirTransaccionExistente(txId, grupoId, pagadoPorId, divisionTipo, reparto) {
+        if (!sb || !currentUser)
+            return null;
+        const tx = getTx(txId);
+        if (!tx)
+            return null;
+        const miParticipanteId = participanteIdDeUsuario(grupoId, currentUser.id);
+        const soyYoQuienPago = miParticipanteId != null && miParticipanteId === pagadoPorId;
+        const otrosSplits = Object.keys(reparto).filter(pid => pid !== miParticipanteId).map(pid => ({
+            persona: (GRUPO_PARTICIPANTES.find(p => p.id === pid) || {}).nombre || '', monto: reparto[pid], pagado: false,
+            tipo: 'persona', montoRecibido: null, linkedTxId: null, grupoId, participanteId: pid
+        }));
+        if (soyYoQuienPago) {
+            tx.porCobrar = tx.porCobrar.concat(otrosSplits);
+            if (otrosSplits.length)
+                tx.estado = 'por_cobrar';
+        }
+        else {
+            // La plata no salió de mi bolsillo -- esta transacción pasa a ser solo un recibo (no
+            // cuenta en mi presupuesto); mi propia parte, si me toca, me llega igual que a cualquier
+            // otro participante vía sincronizarGastosCompartidos.
+            tx.categorias = [];
+            tx.porCobrar = [];
+            tx.estado = 'no_es_gasto';
+            tx.nota = (tx.nota ? tx.nota + ' — ' : '') + 'Compartido con el grupo, pero lo pagó otra persona — no cuenta en tu presupuesto.';
+        }
+        tx.grupoId = grupoId;
+        const { data: gasto, error } = await sb.from('gastos_compartidos').insert({
+            grupo_id: grupoId, descripcion: tx.comercio, categoria_origen: tx.categorias[0] ? catInfo(tx.categorias[0].cat).nombre : null,
+            monto: Math.round(tx.monto), fecha: tx.fecha, pagado_por: pagadoPorId,
+            registrado_por: currentUser.id, division_tipo: divisionTipo || 'iguales', tx_origen_id: tx.id
+        }).select().single();
+        if (error) {
+            console.error('Pitucas sin lucas — error compartiendo la transacción:', error);
+            return null;
+        }
+        tx.gastoCompartidoId = gasto.id;
+        tx.porCobrar.forEach(p => { if (p.grupoId === grupoId && p.gastoCompartidoId === undefined)
+            p.gastoCompartidoId = gasto.id; });
+        const filas = Object.keys(reparto).map(pid => ({ gasto_compartido_id: gasto.id, participante_id: pid, monto: Math.round(reparto[pid]) }));
+        const { error: eR } = await sb.from('gasto_reparto').insert(filas);
+        if (eR)
+            console.error('Pitucas sin lucas — error creando el reparto del gasto:', eR);
+        await cargarGastosCompartidos();
+        return gasto;
+    }
+    // Solo un registro contable — nunca crea una transacción real. La plata que de verdad se
+    // transfiere debería llegar sola por cartola/correo y subirse por los flujos normales de
+    // importación de la app (a propósito: nada de transacciones forzadas acá).
+    async function registrarSaldoPagado(grupoId, deParticipanteId, aParticipanteId, monto) {
+        if (!sb)
+            return false;
+        const { error } = await sb.from('saldos_pagados').insert({ grupo_id: grupoId, de_participante: deParticipanteId, a_participante: aParticipanteId, monto: Math.round(monto) });
+        if (error) {
+            console.error('Pitucas sin lucas — error registrando el saldo pagado:', error);
+            return false;
+        }
+        await cargarGastosCompartidos();
+        return true;
+    }
     /* ---------- notificaciones push reales (Cloudflare Worker + Web Push) ----------
        Dos avisos: (1) "llegó una transacción nueva de tu correo" -- lo dispara el Apps Script,
        directo al Worker, sin pasar por acá. (2) "cruzaste el 80/90/100% de un presupuesto" --
@@ -3781,6 +4185,225 @@
         else
             renderMenuMain();
     }
+    /* ===================== GRUPOS (gastos compartidos) ===================== */
+    // Avatar redondo con la inicial + color del participante -- mismo criterio de reuso de
+    // colores de categoría (--cat-<color>-fill/ink) para no inventar una paleta nueva.
+    function avatarHtml(nombre, color, size) {
+        const s = size || 28;
+        const inicial = (nombre || '?').trim().charAt(0).toUpperCase() || '?';
+        return '<span class="avatar-circle" style="width:' + s + 'px;height:' + s + 'px;font-size:' + Math.round(s * 0.42) + 'px;' +
+            '--fill:var(--cat-' + (color || 'lavender') + '-fill);--ink:var(--cat-' + (color || 'lavender') + '-ink);">' + inicial + '</span>';
+    }
+    function grupoScreenHead(title) {
+        return '<div class="menu-screen-head"><button class="menu-back-btn" data-grupo-back aria-label="Volver a Grupos">' + ICONS.chevL + '</button><h2 class="menu-screen-title">' + title + '</h2></div>';
+    }
+    function miParticipanteEnGrupo(grupoId) {
+        if (!currentUser)
+            return null;
+        return GRUPO_PARTICIPANTES.find(p => p.grupo_id === grupoId && p.user_id === currentUser.id) || null;
+    }
+    // Borrador de "Compartir con un grupo" (detalle de transacción): por defecto se comparte con
+    // el primer grupo, se asume que pagaste tú, y se divide en partes iguales entre TODOS los
+    // participantes (vos incluida) -- todo eso es desmarcable/cambiable después.
+    // NOTA de alcance: esta primera pasada solo ofrece partes iguales -- "montos"/"%" (reparto
+    // personalizado) queda para una próxima pasada, el esquema/backend ya los soporta.
+    function defaultCompartirDraft(txId, grupoId) {
+        const gid = grupoId || (GRUPOS[0] ? GRUPOS[0].id : null);
+        if (!gid)
+            return null;
+        const participantes = participantesDeGrupo(gid);
+        const mi = miParticipanteEnGrupo(gid);
+        return {
+            txId, grupoId: gid,
+            pagadoPorId: mi ? mi.id : (participantes[0] ? participantes[0].id : null),
+            participantesIncluidos: participantes.map(p => p.id)
+        };
+    }
+    function renderCompartirGrupoSection(tx) {
+        if (tx.tipo !== 'gasto' || tx.compartidoAjeno)
+            return '';
+        if (tx.grupoId) {
+            const g = GRUPOS.find(x => x.id === tx.grupoId);
+            return '<div class="sheet-block card" style="padding:16px;">' +
+                '<div class="sheet-block-title">Compartido con un grupo</div>' +
+                '<p class="muted" style="font-size:12.5px;margin:0;">Este gasto ya se compartió con <b>' + (g ? g.nombre : 'un grupo') + '</b>. Para cambiar el reparto, hazlo desde la vista del grupo.</p>' +
+                '</div>';
+        }
+        if (!GRUPOS.length)
+            return '';
+        const d = (state.compartirDraft && state.compartirDraft.txId === tx.id) ? state.compartirDraft : null;
+        if (!d) {
+            return '<div class="sheet-block card" style="padding:16px;">' +
+                '<div class="sheet-block-title">Compartir con un grupo</div>' +
+                '<button class="split-add" data-compartir-abrir="' + tx.id + '">' + ICONS.users + ' Elegir un grupo</button>' +
+                '</div>';
+        }
+        const participantes = participantesDeGrupo(d.grupoId);
+        const reparto = repartirIguales(tx.monto, d.participantesIncluidos);
+        const suma = d.participantesIncluidos.reduce((s, pid) => s + (reparto[pid] || 0), 0);
+        const ok = suma === tx.monto;
+        return '<div class="sheet-block card" style="padding:16px;">' +
+            '<div class="sheet-block-title">Compartir con un grupo</div>' +
+            '<label class="draft-label">Grupo</label>' +
+            '<select data-compartir-grupo>' + GRUPOS.map(g => '<option value="' + g.id + '" ' + (g.id === d.grupoId ? 'selected' : '') + '>' + g.icono + ' ' + g.nombre + '</option>').join('') + '</select>' +
+            '<label class="draft-label" style="margin-top:12px;">¿Quién pagó?</label>' +
+            segmentedHtml('compartir-pagador', participantes.map(p => ({ id: p.id, label: p.nombre })), d.pagadoPorId) +
+            '<label class="draft-label" style="margin-top:12px;">¿Entre quiénes se divide? (partes iguales)</label>' +
+            participantes.map(p => {
+                const incluido = d.participantesIncluidos.includes(p.id);
+                return '<div class="split-row" style="align-items:center;">' +
+                    '<input type="checkbox" data-compartir-incluir="' + p.id + '" ' + (incluido ? 'checked' : '') + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">' +
+                    avatarHtml(p.nombre, p.color, 24) +
+                    '<span style="flex:1;margin-left:8px;">' + p.nombre + '</span>' +
+                    '<span class="tabular muted">' + (incluido ? money(reparto[p.id] || 0) : '—') + '</span>' +
+                    '</div>';
+            }).join('') +
+            '<div class="split-remaining"><span>Total repartido</span><span class="' + (ok ? 'ok' : 'bad') + ' tabular">' + money(suma) + ' de ' + money(tx.monto) + '</span></div>' +
+            '<div style="display:flex;gap:10px;margin-top:14px;">' +
+            '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-compartir-cancelar>Cancelar</button>' +
+            '<button class="save-tx-btn" style="flex:1;" data-compartir-confirmar="' + tx.id + '" ' + (d.participantesIncluidos.length && ok ? '' : 'disabled') + '>Compartir</button>' +
+            '</div>' +
+            '</div>';
+    }
+    function renderGruposView() {
+        document.getElementById('header-title').textContent = 'Grupos';
+        if (state.grupoAbiertoId)
+            renderGrupoDetalle(state.grupoAbiertoId);
+        else
+            renderGruposLista();
+    }
+    function renderGruposLista() {
+        const cont = document.getElementById('view-root');
+        if (state.uniendoAGrupo) {
+            cont.innerHTML = renderUnirseAGrupoForm();
+            return;
+        }
+        if (state.creandoGrupo) {
+            cont.innerHTML = renderCrearGrupoForm();
+            return;
+        }
+        if (!GRUPOS.length) {
+            cont.innerHTML =
+                '<div class="empty-state" style="padding:40px 20px;text-align:center;">' +
+                    '<div style="font-size:38px;">👥</div>' +
+                    '<p class="muted" style="margin:12px 0 20px;">Todavía no tienes ningún grupo. Crea uno para dividir gastos con tu pareja, tu familia, tus roomies o un viaje.</p>' +
+                    '<button class="save-tx-btn" data-grupo-crear-abrir>' + ICONS.plus + ' Crear grupo</button>' +
+                    '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);margin-top:10px;" data-grupo-unirse-abrir>Unirme con un código</button>' +
+                    '</div>';
+            return;
+        }
+        const cards = GRUPOS.map(g => {
+            const mi = miParticipanteEnGrupo(g.id);
+            const miSaldo = mi ? (saldoGrupo(g.id).find(s => s.participanteId === mi.id) || { saldo: 0 }).saldo : 0;
+            const n = participantesDeGrupo(g.id).length;
+            const saldoTxt = miSaldo === 0 ? 'Todo saldado' : (miSaldo > 0 ? 'Te deben ' + money(miSaldo) : 'Debes ' + money(-miSaldo));
+            return '<li><button class="menu-list-item" data-grupo-abrir="' + g.id + '">' +
+                '<span class="menu-item-icon" style="font-size:20px;">' + (g.icono || '👥') + '</span>' +
+                '<span class="menu-item-label">' + g.nombre + '<span class="menu-item-sub">' + n + ' participante' + (n === 1 ? '' : 's') + ' · ' + saldoTxt + '</span></span>' +
+                '<span class="menu-item-chev">' + ICONS.chevL + '</span>' +
+                '</button></li>';
+        }).join('');
+        cont.innerHTML =
+            '<ul class="menu-list">' + cards + '</ul>' +
+                '<div style="display:flex;gap:10px;margin-top:16px;">' +
+                '<button class="save-tx-btn" style="flex:1;" data-grupo-crear-abrir>' + ICONS.plus + ' Crear grupo</button>' +
+                '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-grupo-unirse-abrir>Unirme con un código</button>' +
+                '</div>';
+    }
+    function renderCrearGrupoForm() {
+        const d = state.grupoDraft;
+        const iconos = ['👥', '🏠', '❤️', '✈️', '🎉', '🎓'];
+        return grupoScreenHead('Crear grupo') +
+            '<div class="sheet-block card" style="padding:16px;">' +
+            '<label class="draft-label">Nombre</label>' +
+            '<input type="text" class="draft-input" data-grupo-draft-field="nombre" value="' + d.nombre + '" placeholder="Ej: Depto, Familia, Viaje a Chiloé">' +
+            '<label class="draft-label" style="margin-top:12px;">Ícono</label>' +
+            '<div class="icon-picker emoji-icon-picker">' + iconos.map(em => '<button type="button" data-grupo-draft-icon="' + em + '" class="' + (d.icono === em ? 'active' : '') + '">' + em + '</button>').join('') + '</div>' +
+            '<div class="platform-hint muted" style="margin-top:10px;">Quedas tú como primer participante -- después puedes invitar a alguien más con cuenta, o agregar a alguien sin cuenta que tú administres.</div>' +
+            '<div style="display:flex;gap:10px;margin-top:16px;">' +
+            '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-grupo-crear-cancelar>Cancelar</button>' +
+            '<button class="save-tx-btn" style="flex:1;" data-grupo-crear-confirmar>Crear</button>' +
+            '</div>' +
+            '</div>';
+    }
+    function renderUnirseAGrupoForm() {
+        const d = state.joinDraft;
+        return grupoScreenHead('Unirme a un grupo') +
+            '<div class="sheet-block card" style="padding:16px;">' +
+            '<div class="platform-hint muted" style="margin-bottom:12px;">Pide el código de invitación a quien creó el grupo (Menú del grupo -> Invitar).</div>' +
+            '<label class="draft-label">Código de invitación</label>' +
+            '<input type="text" class="draft-input" data-join-draft-field="inviteCode" value="' + d.inviteCode + '" placeholder="Pega el código acá">' +
+            '<label class="draft-label" style="margin-top:12px;">Tu nombre en este grupo</label>' +
+            '<input type="text" class="draft-input" data-join-draft-field="nombre" value="' + d.nombre + '" placeholder="Como quieres que te vean los demás">' +
+            '<div style="display:flex;gap:10px;margin-top:16px;">' +
+            '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-grupo-unirse-cancelar>Cancelar</button>' +
+            '<button class="save-tx-btn" style="flex:1;" data-grupo-unirse-confirmar>Unirme</button>' +
+            '</div>' +
+            '</div>';
+    }
+    function renderGrupoDetalle(grupoId) {
+        const g = GRUPOS.find(x => x.id === grupoId);
+        const cont = document.getElementById('view-root');
+        if (!g) {
+            state.grupoAbiertoId = null;
+            renderGruposLista();
+            return;
+        }
+        const participantes = participantesDeGrupo(grupoId);
+        const saldos = saldoGrupo(grupoId);
+        const transferencias = transferenciasSugeridas(grupoId);
+        const gastos = gastosDeGrupo(grupoId);
+        const mi = miParticipanteEnGrupo(grupoId);
+        const miSaldo = mi ? (saldos.find(s => s.participanteId === mi.id) || { saldo: 0 }).saldo : 0;
+        const balanceCard = '<div class="card stat-tile" style="padding:20px;text-align:center;margin-bottom:14px;' +
+            'background:' + (miSaldo > 0 ? 'var(--income-fill)' : miSaldo < 0 ? 'var(--expense-fill)' : 'var(--surface)') + ';">' +
+            '<div class="stat-label">' + (miSaldo === 0 ? 'Estás al día' : (miSaldo > 0 ? 'Te deben en total' : 'Debes en total')) + '</div>' +
+            '<div class="stat-value tabular" style="font-size:26px;color:' + (miSaldo > 0 ? 'var(--income-ink)' : miSaldo < 0 ? 'var(--expense-ink)' : 'var(--text)') + ';">' + money(Math.abs(miSaldo)) + '</div>' +
+            '</div>';
+        const desglose = '<div class="sheet-block card" style="padding:16px;margin-bottom:14px;">' +
+            '<div class="sheet-block-title">Por persona</div>' +
+            saldos.map(s => {
+                const sugerida = transferencias.find(t => t.de === s.participanteId || t.a === s.participanteId);
+                return '<div class="split-row" style="align-items:center;">' +
+                    avatarHtml(s.nombre, s.color) +
+                    '<span style="flex:1;margin-left:10px;">' + s.nombre + '</span>' +
+                    '<span class="tabular" style="color:' + (s.saldo > 0 ? 'var(--income-ink)' : s.saldo < 0 ? 'var(--expense-ink)' : 'var(--text-secondary)') + ';font-weight:600;">' +
+                    (s.saldo === 0 ? 'Al día' : (s.saldo > 0 ? '+' : '−') + money(Math.abs(s.saldo))) +
+                    '</span>' +
+                    (s.saldo !== 0 ? '<button class="chip" style="margin-left:8px;" data-grupo-saldar="' + grupoId + '|' + s.participanteId + '">Saldar</button>' : '') +
+                    '</div>';
+            }).join('') +
+            '<button class="split-add" data-grupo-agregar-participante-abrir="' + grupoId + '">' + ICONS.plus + ' Agregar persona</button>' +
+            (state.agregandoParticipante ? renderAgregarParticipanteForm(grupoId) : '') +
+            '</div>';
+        const feed = '<div class="sheet-block card" style="padding:16px;">' +
+            '<div class="sheet-block-title">Gastos del grupo</div>' +
+            (gastos.length ? '<div class="tx-list" style="box-shadow:none;border:none;">' + gastos.map(gc => {
+                const pagador = participantes.find(p => p.id === gc.pagado_por);
+                return '<div class="tx-item" style="cursor:default;">' +
+                    avatarHtml(pagador ? pagador.nombre : '?', pagador ? pagador.color : 'neutral', 40) +
+                    '<span class="tx-info">' +
+                    '<span class="tx-name">' + gc.descripcion + '</span>' +
+                    '<span class="tx-sub">' + dayLabel(gc.fecha) + ' · pagó ' + (pagador ? pagador.nombre : '?') + '</span>' +
+                    '</span>' +
+                    '<span class="tx-right"><span class="tx-amount tabular">' + money(gc.monto) + '</span></span>' +
+                    '</div>';
+            }).join('') + '</div>' : '<p class="muted" style="padding:8px 0;">Todavía no hay gastos en este grupo.</p>') +
+            '<button class="split-add" data-grupo-crear-gasto-abrir="' + grupoId + '">' + ICONS.plus + ' Agregar un gasto</button>' +
+            '</div>';
+        cont.innerHTML = grupoScreenHead(g.nombre) + balanceCard + desglose + feed;
+    }
+    function renderAgregarParticipanteForm(grupoId) {
+        const d = state.participanteDraft;
+        return '<div class="sheet-block card" style="padding:12px;margin-top:10px;background:var(--surface-sunken);">' +
+            '<label class="draft-label">Nombre</label>' +
+            '<input type="text" class="draft-input" data-participante-draft-field="nombre" value="' + d.nombre + '" placeholder="Sin cuenta -- la administras tú">' +
+            '<div style="display:flex;gap:10px;margin-top:10px;">' +
+            '<button class="save-tx-btn" style="background:var(--surface);color:var(--text);flex:1;" data-grupo-agregar-participante-cancelar>Cancelar</button>' +
+            '<button class="save-tx-btn" style="flex:1;" data-grupo-agregar-participante-confirmar="' + grupoId + '">Agregar</button>' +
+            '</div>' +
+            '</div>';
+    }
     /* ===================== MAIN RENDER ===================== */
     function render() {
         renderTabbar();
@@ -3788,6 +4411,8 @@
             renderTransaccionesView();
         else if (state.tab === 'resumen')
             renderResumenView();
+        else if (state.tab === 'grupos')
+            renderGruposView();
         else
             renderMenuView();
         const fab = document.getElementById('fab-add');
@@ -3960,7 +4585,9 @@
         // sigue mostrando la grilla grande de íconos para elegir por primera vez), la categoría
         // siempre se ve como filas editables con select — igual que el resto de la app.
         const categoriaSection = needsClassifying
-            ? '<p class="cat-picker-hint">Todavía no le has puesto categoría. Elige una para clasificarla (y luego puedes activar el candado para que se repita sola).</p>' +
+            ? (t.compartidoAjeno
+                ? '<p class="cat-picker-hint">Este es tu parte de un gasto de grupo' + (t.categoriaOrigenSugerida ? ' que la otra persona anotó como "' + t.categoriaOrigenSugerida + '"' : '') + '. Elige tu categoría y la próxima vez que registre algo así se va a clasificar sola.</p>'
+                : '<p class="cat-picker-hint">Todavía no le has puesto categoría. Elige una para clasificarla (y luego puedes activar el candado para que se repita sola).</p>') +
                 catPickerGrid(t.tipo, 'pick-cat')
             : renderCategoriaRows(t, !isInvest);
         // Antes una transacción ya creada como inversión quedaba con un chip fijo ("se edita en la
@@ -4069,6 +4696,7 @@
                         '<button class="action-btn ' + (t.estado === 'no_es_gasto' ? 'selected' : '') + '" data-action="noesgasto" data-tx="' + t.id + '">' + ICONS.ban + ' No es gasto</button>' +
                         '</div></div>' +
                         (t.estado === 'por_cobrar' ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>' + renderCobroSplitBlock(t) + '</div>' : ''))
+            + renderCompartirGrupoSection(t)
             + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nota</div>' +
             '<input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="' + t.id + '" value="' + (t.nota || '').replace(/"/g, '&quot;') + '" placeholder="Agregar notas personales">' +
             '</div>'
@@ -4739,6 +5367,11 @@
                 renderMenuView();
                 return;
             }
+            if (group === 'compartir-pagador' && state.compartirDraft) {
+                state.compartirDraft.pagadoPorId = val;
+                renderSheet();
+                return;
+            }
             const t = getTx(state.openTxId);
             if (t) {
                 if (group === 'tipo' && t.tipo !== val) {
@@ -4776,14 +5409,27 @@
             const t = getTx(state.openTxId);
             if (t) {
                 const catId = pickCatBtn.getAttribute('data-pick-cat');
-                const wasClassified = t.categorias.length > 0;
-                t.categorias = [{ cat: catId, monto: t.monto }];
-                if (t.estado === 'pendiente')
-                    t.estado = 'confirmado';
-                state.categoryEditMode[t.id] = false;
-                toast(wasClassified ? 'Categoría actualizada a ' + catInfo(catId).nombre : 'Clasificada como ' + catInfo(catId).nombre);
-                renderSheet();
-                renderIfListVisible();
+                if (t.compartidoAjeno) {
+                    // Gasto de grupo que registró otra persona: además de clasificar esta transacción,
+                    // esto aprende el mapeo "su categoría -> la mía" para que los próximos gastos así se
+                    // clasifiquen solos (ver clasificarGastoCompartidoAjeno).
+                    clasificarGastoCompartidoAjeno(t.id, catId).then(function () {
+                        state.categoryEditMode[t.id] = false;
+                        toast('Clasificada como ' + catInfo(catId).nombre);
+                        renderSheet();
+                        renderIfListVisible();
+                    });
+                }
+                else {
+                    const wasClassified = t.categorias.length > 0;
+                    t.categorias = [{ cat: catId, monto: t.monto }];
+                    if (t.estado === 'pendiente')
+                        t.estado = 'confirmado';
+                    state.categoryEditMode[t.id] = false;
+                    toast(wasClassified ? 'Categoría actualizada a ' + catInfo(catId).nombre : 'Clasificada como ' + catInfo(catId).nombre);
+                    renderSheet();
+                    renderIfListVisible();
+                }
             }
             return;
         }
@@ -5666,6 +6312,147 @@
             renderMenuView();
             return;
         }
+        /* ---- Grupos (gastos compartidos) ---- */
+        const grupoBackBtn = e.target.closest('[data-grupo-back]');
+        if (grupoBackBtn) {
+            state.grupoAbiertoId = null;
+            state.agregandoParticipante = false;
+            renderGruposView();
+            return;
+        }
+        const grupoAbrirBtn = e.target.closest('[data-grupo-abrir]');
+        if (grupoAbrirBtn) {
+            state.grupoAbiertoId = grupoAbrirBtn.getAttribute('data-grupo-abrir');
+            renderGruposView();
+            return;
+        }
+        const grupoCrearAbrirBtn = e.target.closest('[data-grupo-crear-abrir]');
+        if (grupoCrearAbrirBtn) {
+            state.creandoGrupo = true;
+            state.grupoDraft = { nombre: '', icono: '👥' };
+            renderGruposView();
+            return;
+        }
+        const grupoCrearCancelarBtn = e.target.closest('[data-grupo-crear-cancelar]');
+        if (grupoCrearCancelarBtn) {
+            state.creandoGrupo = false;
+            renderGruposView();
+            return;
+        }
+        const grupoDraftIconBtn = e.target.closest('[data-grupo-draft-icon]');
+        if (grupoDraftIconBtn) {
+            state.grupoDraft.icono = grupoDraftIconBtn.getAttribute('data-grupo-draft-icon');
+            renderGruposView();
+            return;
+        }
+        const grupoCrearConfirmarBtn = e.target.closest('[data-grupo-crear-confirmar]');
+        if (grupoCrearConfirmarBtn) {
+            const d = state.grupoDraft;
+            if (d.nombre.trim()) {
+                crearGrupo(d.nombre.trim(), d.icono).then(function (g) {
+                    state.creandoGrupo = false;
+                    if (g)
+                        toast('Grupo "' + g.nombre + '" creado');
+                    renderGruposView();
+                });
+            }
+            return;
+        }
+        const grupoUnirseAbrirBtn = e.target.closest('[data-grupo-unirse-abrir]');
+        if (grupoUnirseAbrirBtn) {
+            state.uniendoAGrupo = true;
+            state.joinDraft = { inviteCode: '', nombre: '' };
+            renderGruposView();
+            return;
+        }
+        const grupoUnirseCancelarBtn = e.target.closest('[data-grupo-unirse-cancelar]');
+        if (grupoUnirseCancelarBtn) {
+            state.uniendoAGrupo = false;
+            renderGruposView();
+            return;
+        }
+        const grupoUnirseConfirmarBtn = e.target.closest('[data-grupo-unirse-confirmar]');
+        if (grupoUnirseConfirmarBtn) {
+            const d = state.joinDraft;
+            if (d.inviteCode.trim() && d.nombre.trim()) {
+                unirseAGrupo(d.inviteCode.trim(), d.nombre.trim()).then(function (ok) {
+                    state.uniendoAGrupo = false;
+                    toast(ok ? 'Te uniste al grupo' : 'No se pudo unir — revisa el código');
+                    renderGruposView();
+                });
+            }
+            return;
+        }
+        const grupoAgregarParticipanteAbrirBtn = e.target.closest('[data-grupo-agregar-participante-abrir]');
+        if (grupoAgregarParticipanteAbrirBtn) {
+            state.agregandoParticipante = true;
+            state.participanteDraft = { nombre: '' };
+            renderGruposView();
+            return;
+        }
+        const grupoAgregarParticipanteCancelarBtn = e.target.closest('[data-grupo-agregar-participante-cancelar]');
+        if (grupoAgregarParticipanteCancelarBtn) {
+            state.agregandoParticipante = false;
+            renderGruposView();
+            return;
+        }
+        const grupoAgregarParticipanteConfirmarBtn = e.target.closest('[data-grupo-agregar-participante-confirmar]');
+        if (grupoAgregarParticipanteConfirmarBtn) {
+            const gid = grupoAgregarParticipanteConfirmarBtn.getAttribute('data-grupo-agregar-participante-confirmar');
+            const nombre = state.participanteDraft.nombre.trim();
+            if (nombre) {
+                agregarParticipanteSinCuenta(gid, nombre, 'peach').then(function () {
+                    state.agregandoParticipante = false;
+                    renderGruposView();
+                });
+            }
+            return;
+        }
+        const grupoSaldarBtn = e.target.closest('[data-grupo-saldar]');
+        if (grupoSaldarBtn) {
+            const [gid, otroId] = grupoSaldarBtn.getAttribute('data-grupo-saldar').split('|');
+            const mi = miParticipanteEnGrupo(gid);
+            if (mi) {
+                const saldos = saldoGrupo(gid);
+                const miSaldo = (saldos.find(s => s.participanteId === mi.id) || { saldo: 0 }).saldo;
+                const suSaldo = (saldos.find(s => s.participanteId === otroId) || { saldo: 0 }).saldo;
+                const monto = Math.min(Math.abs(miSaldo), Math.abs(suSaldo));
+                if (monto > 0) {
+                    const promesa = (miSaldo < 0 && suSaldo > 0) ? registrarSaldoPagado(gid, mi.id, otroId, monto)
+                        : (miSaldo > 0 && suSaldo < 0) ? registrarSaldoPagado(gid, otroId, mi.id, monto) : Promise.resolve(false);
+                    promesa.then(function (ok) { toast(ok ? 'Cuenta saldada' : 'No se pudo registrar el saldo'); renderGruposView(); });
+                }
+            }
+            return;
+        }
+        const compartirAbrirBtn = e.target.closest('[data-compartir-abrir]');
+        if (compartirAbrirBtn) {
+            const txId = compartirAbrirBtn.getAttribute('data-compartir-abrir');
+            state.compartirDraft = defaultCompartirDraft(txId);
+            renderSheet();
+            return;
+        }
+        const compartirCancelarBtn = e.target.closest('[data-compartir-cancelar]');
+        if (compartirCancelarBtn) {
+            state.compartirDraft = null;
+            renderSheet();
+            return;
+        }
+        const compartirConfirmarBtn = e.target.closest('[data-compartir-confirmar]');
+        if (compartirConfirmarBtn) {
+            const txId = compartirConfirmarBtn.getAttribute('data-compartir-confirmar');
+            const d = state.compartirDraft;
+            if (d && d.txId === txId && d.grupoId && d.pagadoPorId && d.participantesIncluidos.length > 0) {
+                const t = getTx(txId);
+                const reparto = repartirIguales(t ? t.monto : 0, d.participantesIncluidos);
+                compartirTransaccionExistente(txId, d.grupoId, d.pagadoPorId, 'iguales', reparto).then(function (gasto) {
+                    state.compartirDraft = null;
+                    toast(gasto ? 'Gasto compartido' : 'No se pudo compartir — revisa tu conexión');
+                    render();
+                });
+            }
+            return;
+        }
         const addCatBtn = e.target.closest('[data-add-cat]');
         if (addCatBtn) {
             state.editingCatId = 'nueva';
@@ -5984,6 +6771,24 @@
             }
             return;
         }
+        const compartirGrupoSelect = e.target.closest('[data-compartir-grupo]');
+        if (compartirGrupoSelect && state.compartirDraft) {
+            state.compartirDraft = defaultCompartirDraft(state.compartirDraft.txId, compartirGrupoSelect.value);
+            renderSheet();
+            return;
+        }
+        const compartirIncluirBox = e.target.closest('[data-compartir-incluir]');
+        if (compartirIncluirBox && state.compartirDraft) {
+            const pid = compartirIncluirBox.getAttribute('data-compartir-incluir');
+            const d = state.compartirDraft;
+            const idx = d.participantesIncluidos.indexOf(pid);
+            if (compartirIncluirBox.checked && idx === -1)
+                d.participantesIncluidos.push(pid);
+            else if (!compartirIncluirBox.checked && idx !== -1)
+                d.participantesIncluidos.splice(idx, 1);
+            renderSheet();
+            return;
+        }
         const filterDate = e.target.closest('[data-filter-date]');
         if (filterDate) {
             const which = filterDate.getAttribute('data-filter-date');
@@ -6235,6 +7040,21 @@
             state.medioDraft[medioDraftField.getAttribute('data-medio-draft-field')] = medioDraftField.value;
             return;
         }
+        const grupoDraftField = e.target.closest('[data-grupo-draft-field]');
+        if (grupoDraftField) {
+            state.grupoDraft[grupoDraftField.getAttribute('data-grupo-draft-field')] = grupoDraftField.value;
+            return;
+        }
+        const joinDraftField = e.target.closest('[data-join-draft-field]');
+        if (joinDraftField) {
+            state.joinDraft[joinDraftField.getAttribute('data-join-draft-field')] = joinDraftField.value;
+            return;
+        }
+        const participanteDraftField = e.target.closest('[data-participante-draft-field]');
+        if (participanteDraftField) {
+            state.participanteDraft[participanteDraftField.getAttribute('data-participante-draft-field')] = participanteDraftField.value;
+            return;
+        }
         const planBaseInput = e.target.closest('[data-plan-base-input]');
         if (planBaseInput) {
             PLANIFICADOR.base = parseInt(planBaseInput.value.replace(/\D/g, ''), 10) || 0;
@@ -6472,7 +7292,17 @@
       set PRESUPUESTO_AVISOS_ENVIADOS(v){ PRESUPUESTO_AVISOS_ENVIADOS = v; },
       catGastoEnMes: catGastoEnMes, txDesdeImportEmail: txDesdeImportEmail, reglasAgrupadas: reglasAgrupadas,
       categoriasConColor: categoriasConColor, buildDonut: buildDonut, enviarPushPrueba: enviarPushPrueba,
-      presupuestoAvisoTexto: presupuestoAvisoTexto, intentarAbrirArchivoCartola: intentarAbrirArchivoCartola
+      presupuestoAvisoTexto: presupuestoAvisoTexto, intentarAbrirArchivoCartola: intentarAbrirArchivoCartola,
+      get GRUPOS(){ return GRUPOS; }, set GRUPOS(v){ GRUPOS = v; },
+      get GRUPO_PARTICIPANTES(){ return GRUPO_PARTICIPANTES; }, set GRUPO_PARTICIPANTES(v){ GRUPO_PARTICIPANTES = v; },
+      get GASTOS_COMPARTIDOS(){ return GASTOS_COMPARTIDOS; }, set GASTOS_COMPARTIDOS(v){ GASTOS_COMPARTIDOS = v; },
+      get SALDOS_PAGADOS(){ return SALDOS_PAGADOS; }, set SALDOS_PAGADOS(v){ SALDOS_PAGADOS = v; },
+      get MAPEO_CATEGORIAS(){ return MAPEO_CATEGORIAS; }, set MAPEO_CATEGORIAS(v){ MAPEO_CATEGORIAS = v; },
+      saldoGrupo: saldoGrupo, transferenciasSugeridas: transferenciasSugeridas, repartirIguales: repartirIguales,
+      participantesDeGrupo: participantesDeGrupo, gastosDeGrupo: gastosDeGrupo,
+      sincronizarGastosCompartidos: sincronizarGastosCompartidos, participanteIdDeUsuario: participanteIdDeUsuario,
+      clasificarGastoCompartidoAjeno: clasificarGastoCompartidoAjeno, ensureMedioGrupoCompartido: ensureMedioGrupoCompartido,
+      get currentUser(){ return currentUser; }, set currentUser(v){ currentUser = v; }
     };
     render();
     /* ===================== SUPABASE: CUENTAS + GUARDADO EN LA NUBE =====================
@@ -6529,7 +7359,10 @@
     // checks del objetivo total y con los meses — antes esos dos no viajaban en el respaldo.
     function buildFullStateBlob() {
         return {
-            transacciones: TX, categorias: CATS, mediosPago: MEDIOS,
+            // compartidoAjeno nunca se persiste -- se recalcula sola desde gastos_compartidos/
+            // gasto_reparto cada vez (ver sincronizarGastosCompartidos), así nunca puede quedar
+            // desincronizada de la fuente real ni duplicarse.
+            transacciones: TX.filter(t => !t.compartidoAjeno), categorias: CATS, mediosPago: MEDIOS,
             presupuestos: PRESUPUESTOS, presupuestoTotalMensual: presupuestoTotalMensual,
             metasGastoPct: METAS_GASTO_PCT, datosTransferencia: DATOS_TRANSFERENCIA,
             metasInversion: METAS_INVERSION, plataformas: PLATAFORMA_DATA, planificador: PLANIFICADOR,
@@ -6845,7 +7678,12 @@
             clearAuthError();
             clearAuthHint();
             render();
-            setTimeout(function () { suppressAutoSave = false; absorbImportedRows(); }, 0);
+            setTimeout(function () {
+                suppressAutoSave = false;
+                absorbImportedRows();
+                cargarGastosCompartidos();
+                suscribirseAGruposEnVivo();
+            }, 0);
         }
         catch (err) {
             console.error('Pitucas sin lucas — error cargando datos del hogar:', err);
@@ -6857,6 +7695,17 @@
     function resetToLoggedOutState() {
         suppressAutoSave = true;
         applyStateBlob(emptyAppStateBlob());
+        GRUPOS = [];
+        GRUPO_PARTICIPANTES = [];
+        GASTOS_COMPARTIDOS = [];
+        SALDOS_PAGADOS = [];
+        MAPEO_CATEGORIAS = [];
+        state.espacio = 'personal';
+        state.grupoAbiertoId = null;
+        if (gruposRealtimeChannel && sb) {
+            sb.removeChannel(gruposRealtimeChannel);
+            gruposRealtimeChannel = null;
+        }
         state.importCorreoLoaded = false;
         state.importCorreoError = null;
         state.importToken = null;

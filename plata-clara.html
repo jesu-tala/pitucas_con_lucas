@@ -300,6 +300,13 @@
      nuestro CSS. Un tamaño más chico que el del ícono SVG de al lado le da un margen dentro
      del círculo para que esa diferencia se note mucho menos. */
   .tx-avatar .emoji-icon{font-size:17px;line-height:1;}
+  /* Avatar de participante de un grupo (gastos compartidos) -- círculo con la inicial del
+     nombre, mismo criterio de reuso de color que tx-avatar (--fill/--ink vienen del color de
+     categoría --cat-<color>-fill/ink, no una paleta nueva). Tamaño variable vía style inline. */
+  .avatar-circle{
+    border-radius:50%;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;
+    background:var(--fill);color:var(--ink);font-weight:700;line-height:1;
+  }
   .tx-info{flex:1;min-width:0;}
   /* Ícono de categoría como emoji suelto (en vez de un SVG del set ICONS) — ver catIconMarkup().
      line-height:1 evita que el emoji quede descentrado verticalmente dentro del círculo. El

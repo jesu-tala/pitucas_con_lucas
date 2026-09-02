@@ -24,7 +24,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   });
   console.log('tabbar icon centering:', JSON.stringify(tabs));
 
-  check('la barra inferior tiene los 3 tabs esperados', tabs.length === 3, tabs.map(t => t.label));
+  check('la barra inferior tiene los 4 tabs esperados (incluye Grupos, de gastos compartidos)', tabs.length === 4, tabs.map(t => t.label));
   tabs.forEach(t => {
     check('ícono de "' + t.label + '" centrado horizontalmente sobre su propio botón (tolerancia 1px)', Math.abs(t.svgCenter - t.btnCenter) <= 1, t);
     check('ícono de "' + t.label + '" alineado con su etiqueta de texto (tolerancia 1px)', Math.abs(t.svgCenter - t.spanCenter) <= 1, t);

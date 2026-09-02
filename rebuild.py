@@ -69,7 +69,17 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  set PRESUPUESTO_AVISOS_ENVIADOS(v){ PRESUPUESTO_AVISOS_ENVIADOS = v; },
 """ + indent + """  catGastoEnMes: catGastoEnMes, txDesdeImportEmail: txDesdeImportEmail, reglasAgrupadas: reglasAgrupadas,
 """ + indent + """  categoriasConColor: categoriasConColor, buildDonut: buildDonut, enviarPushPrueba: enviarPushPrueba,
-""" + indent + """  presupuestoAvisoTexto: presupuestoAvisoTexto, intentarAbrirArchivoCartola: intentarAbrirArchivoCartola
+""" + indent + """  presupuestoAvisoTexto: presupuestoAvisoTexto, intentarAbrirArchivoCartola: intentarAbrirArchivoCartola,
+""" + indent + """  get GRUPOS(){ return GRUPOS; }, set GRUPOS(v){ GRUPOS = v; },
+""" + indent + """  get GRUPO_PARTICIPANTES(){ return GRUPO_PARTICIPANTES; }, set GRUPO_PARTICIPANTES(v){ GRUPO_PARTICIPANTES = v; },
+""" + indent + """  get GASTOS_COMPARTIDOS(){ return GASTOS_COMPARTIDOS; }, set GASTOS_COMPARTIDOS(v){ GASTOS_COMPARTIDOS = v; },
+""" + indent + """  get SALDOS_PAGADOS(){ return SALDOS_PAGADOS; }, set SALDOS_PAGADOS(v){ SALDOS_PAGADOS = v; },
+""" + indent + """  get MAPEO_CATEGORIAS(){ return MAPEO_CATEGORIAS; }, set MAPEO_CATEGORIAS(v){ MAPEO_CATEGORIAS = v; },
+""" + indent + """  saldoGrupo: saldoGrupo, transferenciasSugeridas: transferenciasSugeridas, repartirIguales: repartirIguales,
+""" + indent + """  participantesDeGrupo: participantesDeGrupo, gastosDeGrupo: gastosDeGrupo,
+""" + indent + """  sincronizarGastosCompartidos: sincronizarGastosCompartidos, participanteIdDeUsuario: participanteIdDeUsuario,
+""" + indent + """  clasificarGastoCompartidoAjeno: clasificarGastoCompartidoAjeno, ensureMedioGrupoCompartido: ensureMedioGrupoCompartido,
+""" + indent + """  get currentUser(){ return currentUser; }, set currentUser(v){ currentUser = v; }
 """ + indent + """};"""
 
 inline_js_debug = inline_js.replace(anchor, debug_block, 1)
