@@ -407,7 +407,12 @@ export const state: AppState = {
   saldarConId:null,            // participanteId con quien se está por registrar "Saldar cuentas", o null
   // "Compartir con un grupo" dentro del detalle/creación de una transacción de gasto:
   compartirDraft:null,         // null, o {grupoId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
-  confirmDeleteGrupoId:null
+  confirmDeleteGrupoId:null,
+  // grupoId de origen cuando "nueva transacción" se abrió desde el botón "Agregar un gasto" de
+  // un grupo (en vez del + de Transacciones) -- saveDraftTx() lo usa para, al guardar, dejar
+  // la transacción abierta en su detalle con "Compartir con un grupo" ya precargado con este
+  // grupo, en vez de volver a la lista de Transacciones como en el flujo normal.
+  crearGastoDesdeGrupoId:null
 };
 export let subtabDrag = null;         // bookkeeping transitorio del drag (no es parte de state: no se pinta directo)
 export let suppressNextSubtabClick = false;

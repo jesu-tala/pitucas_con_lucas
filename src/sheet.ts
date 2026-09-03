@@ -712,7 +712,7 @@ export function renderNewTxSheetContent(d){
 }
 export function saveDraftTx(){
   const d = state.draftTx;
-  if(!d || d.comercio.trim().length===0 || !(d.monto>0)) return;
+  if(!d || d.comercio.trim().length===0 || !(d.monto>0)) return null;
   draftIdCounter++;
   const id = 'manual-'+Date.now()+'-'+draftIdCounter;
   const tx: Transaccion = {
@@ -724,10 +724,20 @@ export function saveDraftTx(){
   };
   TX.push(tx);
   ensureMonthExists(tx.fecha.slice(0,7));
-  state.categoryFilter=null; state.categoryFilterMonth=null; state.filter='todas'; state.tab='transacciones';
-  closeSheet();
-  render();
-  toast('Transacción agregada');
+  if(state.crearGastoDesdeGrupoId){
+    // Viene de "Agregar un gasto" dentro de un grupo -- events.ts arma el resto (deja
+    // state.compartirDraft precargado con este grupo) apenas volvemos con la transacción
+    // creada, así que acá solo dejamos su detalle abierto en vez de cerrar la hoja.
+    state.openTxId = id; state.creatingNew = false;
+    renderSheet();
+    document.getElementById('sheet-content').scrollTop = 0;
+  } else {
+    state.categoryFilter=null; state.categoryFilterMonth=null; state.filter='todas'; state.tab='transacciones';
+    closeSheet();
+    render();
+    toast('Transacción agregada');
+  }
+  return tx;
 }
 export function renderSheet(){
   if(state.boleta){

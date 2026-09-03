@@ -2812,22 +2812,26 @@
   __name(suscribirseAGruposEnVivo, "suscribirseAGruposEnVivo");
   async function crearGrupo(nombre, icono) {
     if (!sb || !currentUser) return { data: null, error: null };
-    const insertRes = await sb.from("grupos").insert({ nombre, icono: icono || "\u{1F465}", creado_por: currentUser.id });
-    if (insertRes.error) {
-      console.error("Pitucas sin lucas \u2014 error creando grupo (insert puro):", insertRes.error);
-      toast("Diagn\xF3stico \u2014 fall\xF3 el INSERT: " + insertRes.error.message);
-      return { data: null, error: insertRes.error };
-    }
-    const { data, error } = await sb.from("grupos").select("*").eq("creado_por", currentUser.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const { data, error } = await sb.from("grupos").insert({ nombre, icono: icono || "\u{1F465}", creado_por: currentUser.id }).select().single();
     if (error) {
-      console.error("Pitucas sin lucas \u2014 el INSERT funcion\xF3 pero el select-back fall\xF3:", error);
-      toast("Diagn\xF3stico \u2014 el INSERT funcion\xF3, fall\xF3 el SELECT de vuelta: " + error.message);
+      console.error("Pitucas sin lucas \u2014 error creando grupo:", error);
       return { data: null, error };
     }
     await cargarGastosCompartidos();
     return { data, error: null };
   }
   __name(crearGrupo, "crearGrupo");
+  async function eliminarGrupo(grupoId) {
+    if (!sb) return false;
+    const { error } = await sb.from("grupos").delete().eq("id", grupoId);
+    if (error) {
+      console.error("Pitucas sin lucas \u2014 error eliminando grupo:", error);
+      return false;
+    }
+    await cargarGastosCompartidos();
+    return true;
+  }
+  __name(eliminarGrupo, "eliminarGrupo");
   async function unirseAGrupo(inviteCode, nombre) {
     if (!sb) return false;
     const { error } = await sb.rpc("unirse_a_grupo", { p_invite_code: inviteCode, p_nombre: nombre });
@@ -4258,7 +4262,14 @@
     }
     const saveDraftBtn = e.target.closest("[data-save-draft]");
     if (saveDraftBtn && !saveDraftBtn.disabled) {
-      saveDraftTx();
+      const grupoIdOrigen = state.crearGastoDesdeGrupoId;
+      const tx = saveDraftTx();
+      if (tx && grupoIdOrigen) {
+        state.crearGastoDesdeGrupoId = null;
+        state.compartirDraft = defaultCompartirDraft(tx.id, grupoIdOrigen);
+        renderSheet();
+        toast("Transacci\xF3n agregada \u2014 completa el reparto abajo");
+      }
       return;
     }
     const cancelNewMedio = e.target.closest("[data-cancel-new-medio]");
@@ -5180,6 +5191,37 @@
           });
         }
       }
+      return;
+    }
+    const grupoCrearGastoAbrirBtn = e.target.closest("[data-grupo-crear-gasto-abrir]");
+    if (grupoCrearGastoAbrirBtn) {
+      state.crearGastoDesdeGrupoId = grupoCrearGastoAbrirBtn.getAttribute("data-grupo-crear-gasto-abrir");
+      openNewTxSheet("gasto");
+      return;
+    }
+    const askDeleteGrupoBtn = e.target.closest("[data-ask-delete-grupo]");
+    if (askDeleteGrupoBtn) {
+      state.confirmDeleteGrupoId = askDeleteGrupoBtn.getAttribute("data-ask-delete-grupo");
+      renderGruposView();
+      return;
+    }
+    const cancelDeleteGrupoBtn = e.target.closest("[data-cancel-delete-grupo]");
+    if (cancelDeleteGrupoBtn) {
+      state.confirmDeleteGrupoId = null;
+      renderGruposView();
+      return;
+    }
+    const confirmDeleteGrupoBtn = e.target.closest("[data-confirm-delete-grupo]");
+    if (confirmDeleteGrupoBtn) {
+      const gid = confirmDeleteGrupoBtn.getAttribute("data-confirm-delete-grupo");
+      eliminarGrupo(gid).then(function(ok) {
+        state.confirmDeleteGrupoId = null;
+        if (ok) {
+          state.grupoAbiertoId = null;
+          toast("Grupo eliminado");
+        } else toast("No se pudo eliminar el grupo \u2014 revisa tu conexi\xF3n");
+        renderGruposView();
+      });
       return;
     }
     const compartirAbrirBtn = e.target.closest("[data-compartir-abrir]");
@@ -6512,7 +6554,9 @@
       const pagador = participantes.find((p) => p.id === gc.pagado_por);
       return '<div class="tx-item" style="cursor:default;">' + avatarHtml(pagador ? pagador.nombre : "?", pagador ? pagador.color : "neutral", 40) + '<span class="tx-info"><span class="tx-name">' + gc.descripcion + '</span><span class="tx-sub">' + dayLabel(gc.fecha) + " \xB7 pag\xF3 " + (pagador ? pagador.nombre : "?") + '</span></span><span class="tx-right"><span class="tx-amount tabular">' + money(gc.monto) + "</span></span></div>";
     }).join("") + "</div>" : '<p class="muted" style="padding:8px 0;">Todav\xEDa no hay gastos en este grupo.</p>') + '<button class="split-add" data-grupo-crear-gasto-abrir="' + grupoId + '">' + ICONS.plus + " Agregar un gasto</button></div>";
-    cont.innerHTML = grupoScreenHead(g.nombre) + balanceCard + desglose + feed;
+    const puedoEliminar = !!(currentUser && g.creado_por === currentUser.id);
+    const eliminarBlock = !puedoEliminar ? "" : state.confirmDeleteGrupoId === grupoId ? '<div class="sheet-block card" style="padding:16px;"><p class="muted" style="font-size:12.5px;margin:0 0 10px;">\xBFSeguro que quieres eliminar "' + g.nombre + '"? Se borran todos sus gastos y saldos, para todos los participantes. No se puede deshacer.</p><div style="display:flex;gap:8px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-grupo>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-grupo="' + grupoId + '">S\xED, eliminar</button></div></div>' : '<button class="split-add" style="color:var(--expense-ink);" data-ask-delete-grupo="' + grupoId + '">' + ICONS.trash + " Eliminar grupo</button>";
+    cont.innerHTML = grupoScreenHead(g.nombre) + balanceCard + desglose + feed + eliminarBlock;
   }
   __name(renderGrupoDetalle, "renderGrupoDetalle");
   function renderAgregarParticipanteForm(grupoId) {
@@ -6941,7 +6985,7 @@
   __name(renderNewTxSheetContent, "renderNewTxSheetContent");
   function saveDraftTx() {
     const d = state.draftTx;
-    if (!d || d.comercio.trim().length === 0 || !(d.monto > 0)) return;
+    if (!d || d.comercio.trim().length === 0 || !(d.monto > 0)) return null;
     draftIdCounter++;
     const id = "manual-" + Date.now() + "-" + draftIdCounter;
     const tx = {
@@ -6961,13 +7005,21 @@
     };
     TX.push(tx);
     ensureMonthExists(tx.fecha.slice(0, 7));
-    state.categoryFilter = null;
-    state.categoryFilterMonth = null;
-    state.filter = "todas";
-    state.tab = "transacciones";
-    closeSheet();
-    render();
-    toast("Transacci\xF3n agregada");
+    if (state.crearGastoDesdeGrupoId) {
+      state.openTxId = id;
+      state.creatingNew = false;
+      renderSheet();
+      document.getElementById("sheet-content").scrollTop = 0;
+    } else {
+      state.categoryFilter = null;
+      state.categoryFilterMonth = null;
+      state.filter = "todas";
+      state.tab = "transacciones";
+      closeSheet();
+      render();
+      toast("Transacci\xF3n agregada");
+    }
+    return tx;
   }
   __name(saveDraftTx, "saveDraftTx");
   function renderSheet() {
@@ -7602,7 +7654,12 @@
     // "Compartir con un grupo" dentro del detalle/creación de una transacción de gasto:
     compartirDraft: null,
     // null, o {grupoId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
-    confirmDeleteGrupoId: null
+    confirmDeleteGrupoId: null,
+    // grupoId de origen cuando "nueva transacción" se abrió desde el botón "Agregar un gasto" de
+    // un grupo (en vez del + de Transacciones) -- saveDraftTx() lo usa para, al guardar, dejar
+    // la transacción abierta en su detalle con "Compartir con un grupo" ya precargado con este
+    // grupo, en vez de volver a la lista de Transacciones como en el flujo normal.
+    crearGastoDesdeGrupoId: null
   };
   var subtabDrag = null;
   var suppressNextSubtabClick = false;

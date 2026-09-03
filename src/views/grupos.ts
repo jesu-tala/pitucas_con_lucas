@@ -211,7 +211,22 @@ export function renderGrupoDetalle(grupoId){
     '<button class="split-add" data-grupo-crear-gasto-abrir="'+grupoId+'">'+ICONS.plus+' Agregar un gasto</button>'+
   '</div>';
 
-  cont.innerHTML = grupoScreenHead(g.nombre)+balanceCard+desglose+feed;
+  // Eliminar grupo: solo quien lo creó puede hacerlo (mismo criterio que la política de borrado
+  // en Supabase) -- borra el grupo y, en cascada, todos sus gastos/saldos/participantes para
+  // todo el mundo, así que no se lo ofrecemos a cualquier miembro por error.
+  const puedoEliminar = !!(currentUser && g.creado_por===currentUser.id);
+  const eliminarBlock = !puedoEliminar ? '' :
+    (state.confirmDeleteGrupoId===grupoId
+      ? '<div class="sheet-block card" style="padding:16px;">'+
+          '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">¿Seguro que quieres eliminar "'+g.nombre+'"? Se borran todos sus gastos y saldos, para todos los participantes. No se puede deshacer.</p>'+
+          '<div style="display:flex;gap:8px;">'+
+            '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-grupo>Cancelar</button>'+
+            '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-grupo="'+grupoId+'">Sí, eliminar</button>'+
+          '</div>'+
+        '</div>'
+      : '<button class="split-add" style="color:var(--expense-ink);" data-ask-delete-grupo="'+grupoId+'">'+ICONS.trash+' Eliminar grupo</button>');
+
+  cont.innerHTML = grupoScreenHead(g.nombre)+balanceCard+desglose+feed+eliminarBlock;
 }
 
 export function renderAgregarParticipanteForm(grupoId){

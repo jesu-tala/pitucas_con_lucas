@@ -8,7 +8,7 @@ import { toast } from './ui/toasts';
 import { PROYECCION_SUPUESTOS, metasForPlataforma, renderEvolucionView } from './views/evolucion';
 import { defaultCompartirDraft, miParticipanteEnGrupo, renderGruposView } from './views/grupos';
 import { platformValorActual, renderInversionesView, renderResumenSubContent, renderResumenSubtabsInner, renderResumenView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
-import { absorbImportedRows, activarNotificaciones, agregarParticipanteSinCuenta, buildBackupJSON, buildCobroWhatsAppText, buildTransaccionesCSV, buscarTxParecida, cargarCartolasDisponibles, catEnUso, clasificarGastoCompartidoAjeno, compartirTransaccionExistente, crearGrupo, crearTxDesdeMovimiento, datosTransferenciaCompletos, desactivarNotificaciones, downloadFile, enviarPushPrueba, importCartolaRows, intentarAbrirArchivoCartola, loadImportCorreoScreen, loadNotifStatus, medioEnUso, parseCartolaCSV, registrarSaldoPagado, renderMenuView, unirseAGrupo, usarCartolaImportada } from './views/menu';
+import { absorbImportedRows, activarNotificaciones, agregarParticipanteSinCuenta, buildBackupJSON, buildCobroWhatsAppText, buildTransaccionesCSV, buscarTxParecida, cargarCartolasDisponibles, catEnUso, clasificarGastoCompartidoAjeno, compartirTransaccionExistente, crearGrupo, crearTxDesdeMovimiento, datosTransferenciaCompletos, desactivarNotificaciones, downloadFile, eliminarGrupo, enviarPushPrueba, importCartolaRows, intentarAbrirArchivoCartola, loadImportCorreoScreen, loadNotifStatus, medioEnUso, parseCartolaCSV, registrarSaldoPagado, renderMenuView, unirseAGrupo, usarCartolaImportada } from './views/menu';
 import { renderPresupuestoView } from './views/presupuesto';
 import { openSueldoSuggestionSheet, renderTransaccionesView, renderTxResultsOnly } from './views/transacciones';
 /* ===================== EVENT HANDLING (delegated) ===================== */
@@ -277,7 +277,20 @@ phone.addEventListener('click', function(e: any){
   }
 
   const saveDraftBtn = e.target.closest('[data-save-draft]');
-  if(saveDraftBtn && !saveDraftBtn.disabled){ saveDraftTx(); return; }
+  if(saveDraftBtn && !saveDraftBtn.disabled){
+    const grupoIdOrigen = state.crearGastoDesdeGrupoId;
+    const tx = saveDraftTx();
+    if(tx && grupoIdOrigen){
+      // saveDraftTx() ya dejó la hoja abierta en el detalle de esta transacción -- acá
+      // precargamos "Compartir con un grupo" con el grupo del que vinimos, para no obligar a
+      // elegirlo de nuevo.
+      state.crearGastoDesdeGrupoId = null;
+      state.compartirDraft = defaultCompartirDraft(tx.id, grupoIdOrigen);
+      renderSheet();
+      toast('Transacción agregada — completa el reparto abajo');
+    }
+    return;
+  }
 
   const cancelNewMedio = e.target.closest('[data-cancel-new-medio]');
   if(cancelNewMedio){
@@ -1130,6 +1143,30 @@ phone.addEventListener('click', function(e: any){
         promesa.then(function(ok){ toast(ok?'Cuenta saldada':'No se pudo registrar el saldo'); renderGruposView(); });
       }
     }
+    return;
+  }
+  const grupoCrearGastoAbrirBtn = e.target.closest('[data-grupo-crear-gasto-abrir]');
+  if(grupoCrearGastoAbrirBtn){
+    // Abre la misma hoja de "nueva transacción" del + de Transacciones -- al guardar,
+    // saveDraftTx() ve este flag y en vez de cerrar la hoja deja la transacción recién creada
+    // abierta en su detalle, lista para completar el reparto (ver el handler de data-save-draft).
+    state.crearGastoDesdeGrupoId = grupoCrearGastoAbrirBtn.getAttribute('data-grupo-crear-gasto-abrir');
+    openNewTxSheet('gasto');
+    return;
+  }
+  const askDeleteGrupoBtn = e.target.closest('[data-ask-delete-grupo]');
+  if(askDeleteGrupoBtn){ state.confirmDeleteGrupoId = askDeleteGrupoBtn.getAttribute('data-ask-delete-grupo'); renderGruposView(); return; }
+  const cancelDeleteGrupoBtn = e.target.closest('[data-cancel-delete-grupo]');
+  if(cancelDeleteGrupoBtn){ state.confirmDeleteGrupoId = null; renderGruposView(); return; }
+  const confirmDeleteGrupoBtn = e.target.closest('[data-confirm-delete-grupo]');
+  if(confirmDeleteGrupoBtn){
+    const gid = confirmDeleteGrupoBtn.getAttribute('data-confirm-delete-grupo');
+    eliminarGrupo(gid).then(function(ok){
+      state.confirmDeleteGrupoId = null;
+      if(ok){ state.grupoAbiertoId = null; toast('Grupo eliminado'); }
+      else toast('No se pudo eliminar el grupo — revisa tu conexión');
+      renderGruposView();
+    });
     return;
   }
   const compartirAbrirBtn = e.target.closest('[data-compartir-abrir]');

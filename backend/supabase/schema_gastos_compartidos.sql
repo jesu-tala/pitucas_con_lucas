@@ -73,6 +73,11 @@ create policy "crear grupo" on grupos
   for insert with check (creado_por = auth.uid());
 create policy "editar mi grupo" on grupos
   for update using (is_grupo_member(id));
+-- Solo quien creó el grupo puede eliminarlo (no cualquier miembro): borrarlo se lleva en
+-- cascada todos sus gastos/saldos/participantes para todo el mundo, así que se restringe más
+-- que "editar", que sí permite a cualquier miembro.
+create policy "eliminar mi grupo" on grupos
+  for delete using (creado_por = auth.uid());
 
 create policy "ver participantes de mis grupos" on grupo_participantes
   for select using (is_grupo_member(grupo_id));
@@ -200,7 +205,7 @@ create policy "crear mi propio mapeo" on mapeo_categorias
 create policy "actualizar mi propio mapeo" on mapeo_categorias
   for update using (user_id = auth.uid());
 
-grant select, insert, update on grupos to authenticated;
+grant select, insert, update, delete on grupos to authenticated;
 grant select, insert, update on grupo_participantes to authenticated;
 grant select, insert, update, delete on gastos_compartidos to authenticated;
 grant select, insert, update, delete on gasto_reparto to authenticated;
