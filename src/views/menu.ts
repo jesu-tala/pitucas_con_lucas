@@ -1221,26 +1221,18 @@ export function suscribirseAGruposEnVivo(){
 
 export async function crearGrupo(nombre, icono){
   if(!sb || !currentUser) return {data:null, error:null};
-  // Diagnóstico temporal (ver DOCUMENTACION.md / historial de este archivo): política, trigger
-  // y función ya confirmados correctos a mano en Supabase, pero seguía fallando -- separamos acá
-  // el INSERT puro (sin pedir la fila de vuelta) del SELECT que normalmente se hace junto por el
-  // .select().single(), porque Postgres usa el MISMO mensaje genérico de RLS para ambos casos.
-  // Si el insert sin .select() funciona, el problema real es la política de SELECT
-  // ("ver mis grupos" / is_grupo_member), no la de INSERT ("crear grupo").
-  const insertRes = await sb.from('grupos').insert({nombre, icono: icono||'👥', creado_por: currentUser.id});
-  if(insertRes.error){
-    console.error('Pitucas sin lucas — error creando grupo (insert puro):', insertRes.error);
-    toast('Diagnóstico — falló el INSERT: ' + insertRes.error.message);
-    return {data:null, error: insertRes.error};
-  }
-  const { data, error } = await sb.from('grupos').select('*').eq('creado_por', currentUser.id).order('created_at', {ascending:false}).limit(1).maybeSingle();
-  if(error){
-    console.error('Pitucas sin lucas — el INSERT funcionó pero el select-back falló:', error);
-    toast('Diagnóstico — el INSERT funcionó, falló el SELECT de vuelta: ' + error.message);
-    return {data:null, error};
-  }
+  const { data, error } = await sb.from('grupos').insert({nombre, icono: icono||'👥', creado_por: currentUser.id}).select().single();
+  if(error){ console.error('Pitucas sin lucas — error creando grupo:', error); return {data:null, error}; }
   await cargarGastosCompartidos();
   return {data, error:null};
+}
+
+export async function eliminarGrupo(grupoId){
+  if(!sb) return false;
+  const { error } = await sb.from('grupos').delete().eq('id', grupoId);
+  if(error){ console.error('Pitucas sin lucas — error eliminando grupo:', error); return false; }
+  await cargarGastosCompartidos();
+  return true;
 }
 
 export async function unirseAGrupo(inviteCode, nombre){
