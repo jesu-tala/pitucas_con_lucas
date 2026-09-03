@@ -2811,14 +2811,14 @@
   }
   __name(suscribirseAGruposEnVivo, "suscribirseAGruposEnVivo");
   async function crearGrupo(nombre, icono) {
-    if (!sb || !currentUser) return null;
+    if (!sb || !currentUser) return { data: null, error: null };
     const { data, error } = await sb.from("grupos").insert({ nombre, icono: icono || "\u{1F465}", creado_por: currentUser.id }).select().single();
     if (error) {
       console.error("Pitucas sin lucas \u2014 error creando grupo:", error);
-      return null;
+      return { data: null, error };
     }
     await cargarGastosCompartidos();
-    return data;
+    return { data, error: null };
   }
   __name(crearGrupo, "crearGrupo");
   async function unirseAGrupo(inviteCode, nombre) {
@@ -5097,9 +5097,9 @@
     if (grupoCrearConfirmarBtn) {
       const d = state.grupoDraft;
       if (d.nombre.trim()) {
-        crearGrupo(d.nombre.trim(), d.icono).then(function(g) {
+        crearGrupo(d.nombre.trim(), d.icono).then(function(res) {
           state.creandoGrupo = false;
-          toast(g ? 'Grupo "' + g.nombre + '" creado' : "No se pudo crear el grupo \u2014 revisa tu conexi\xF3n");
+          toast(res.data ? 'Grupo "' + res.data.nombre + '" creado' : "No se pudo crear el grupo \u2014 " + (res.error ? res.error.message : "revisa tu conexi\xF3n"));
           renderGruposView();
         });
       }
