@@ -1222,7 +1222,20 @@ export function suscribirseAGruposEnVivo(){
 export async function crearGrupo(nombre, icono){
   if(!sb || !currentUser) return {data:null, error:null};
   const { data, error } = await sb.from('grupos').insert({nombre, icono: icono||'👥', creado_por: currentUser.id}).select().single();
-  if(error){ console.error('Pitucas sin lucas — error creando grupo:', error); return {data:null, error}; }
+  if(error){
+    console.error('Pitucas sin lucas — error creando grupo:', error);
+    // Diagnóstico temporal (ver DOCUMENTACION.md / historial de este archivo): un error de RLS acá
+    // significa que auth.uid() en el servidor no coincide con currentUser.id que usa la app --
+    // sb.auth.getUser() pregunta directo al servidor quién es de verdad, para comparar los dos.
+    // Va sin esperar (no bloquea el toast del error principal ni cambia el timing de este
+    // return) y se muestra en un segundo toast aparte cuando responde.
+    const currentUserId = currentUser.id;
+    sb.auth.getUser().then(function(res){
+      const quienSoy = res && res.data && res.data.user;
+      toast('Diagnóstico — app: ' + currentUserId + ' · servidor: ' + (quienSoy ? quienSoy.id : 'sin sesión'));
+    }).catch(function(){ /* diagnóstico best-effort, no hay más que hacer si esto falla */ });
+    return {data:null, error};
+  }
   await cargarGastosCompartidos();
   return {data, error:null};
 }
