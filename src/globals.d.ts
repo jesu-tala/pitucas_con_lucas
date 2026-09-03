@@ -1,5 +1,5 @@
-// pdf.js se carga como <script src> externo (CDN o copia local para tests) -- no es un módulo,
-// así que su global no lo declara este archivo.
+// pdf.js loads as an external <script src> (CDN or a local copy for tests) -- it's not a
+// module, so this file doesn't declare its global.
 declare const pdfjsLib: any;
-// El cliente de Supabase también se carga como <script src> externo y se cuelga de window.
+// The Supabase client also loads as an external <script src> and hangs off window.
 interface Window { supabase: any; }

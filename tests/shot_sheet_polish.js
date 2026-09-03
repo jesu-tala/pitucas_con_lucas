@@ -10,10 +10,10 @@ const { openApp, check, finish } = require('./lib/test_kit');
     const dayLabels = Array.from(document.querySelectorAll('.day-label')).map(e => e.textContent);
     const list = document.querySelector('.tx-list');
     const cs = list ? getComputedStyle(list) : null;
-    // El chequeo de "separador solo entre filas" solo es observable en un día con >=2
-    // transacciones -- cuál día tiene eso depende de los datos de demo relativos a la fecha
-    // real de hoy (cambia con el calendario), así que buscamos el PRIMER grupo con 2+ filas
-    // en vez de asumir que el primer grupo de la lista siempre tiene varias.
+    // The "separator only between rows" check is only observable on a day with >=2
+    // transactions -- which day has that depends on the demo data relative to
+    // today's real date (changes with the calendar), so we look for the FIRST group with 2+ rows
+    // instead of assuming the first group in the list always has several.
     const allLists = Array.from(document.querySelectorAll('.tx-list'));
     const multiList = allLists.find(l => l.querySelectorAll('.tx-item').length >= 2) || null;
     const multiItems = multiList ? Array.from(multiList.querySelectorAll('.tx-item')) : [];
@@ -32,7 +32,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('   Última fila sin borde inferior (separador solo entre filas)', listCheck.foundMultiDayGroup && listCheck.lastItemBorderBottom === '0px' && listCheck.firstItemBorderBottom !== '0px', { found: listCheck.foundMultiDayGroup, nItems: listCheck.nItemsInMultiGroup, last: listCheck.lastItemBorderBottom, first: listCheck.firstItemBorderBottom });
 
   const medioIconCheck = await page.evaluate(() => {
-    // t2 = Copec Providencia, pagada con visa_bch (tarjeta) -> debe verse 💳
+    // t2 = Copec Providencia, paid with visa_bch (card) -> should show 💳
     const items = Array.from(document.querySelectorAll('.tx-item'));
     let cardRow = null, cashRow = null;
     items.forEach(it => {
@@ -40,9 +40,9 @@ const { openApp, check, finish } = require('./lib/test_kit');
       if (!sub) return;
       if (sub.textContent.includes('4821') && !cardRow) cardRow = sub.innerHTML;
     });
-    // Forzamos una transacción en efectivo para revisar el ícono de bolsa de plata.
+    // Force a cash transaction to check the money-bag icon.
     const d = window.__debug;
-    d.TX.push({id:'tefec', fecha:'2026-08-20', hora:'10:00', comercio:'Test efectivo', monto:1000,
+    d.TRANSACTIONS.push({id:'tefec', fecha:'2026-08-20', hora:'10:00', comercio:'Test efectivo', monto:1000,
       medio:'efectivo', tipo:'gasto', recurrencia:'variable', estado:'confirmado',
       categorias:[{cat:'supermercado',monto:1000}], porCobrar:[], reglaAuto:false, nota:''});
     d.render();
@@ -62,7 +62,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('3) Fila pagada con tarjeta muestra 💳 junto a los últimos dígitos', medioIconCheck.cardRowHtml && medioIconCheck.cardRowHtml.includes('💳'), medioIconCheck.cardRowHtml);
   check('   Fila en efectivo muestra 💰 (bolsa de plata)', cashIconCheck.cashRowHtml && cashIconCheck.cashRowHtml.includes('💰'), cashIconCheck.cashRowHtml);
 
-  // 4) Detalle de una transacción: Monto/Fecha/Hora editables, con eco en vivo y día calculado.
+  // 4) Transaction detail: Amount/Date/Time editable, with live echo and computed day.
   await page.evaluate(() => { window.__debug.render(); });
   await page.click('[data-tx="t2"]');
   await page.waitForTimeout(200);
@@ -98,7 +98,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
     const dayHint = document.querySelector('.edit-day-hint');
     const header = document.querySelector('.sheet-top .meta');
     const amount = document.querySelector('.sheet-amount');
-    const tx = window.__debug.TX.find(t => t.id === 't2');
+    const tx = window.__debug.TRANSACTIONS.find(t => t.id === 't2');
     return {
       echoText: echo ? echo.textContent : null,
       dayHintText: dayHint ? dayHint.textContent : null,

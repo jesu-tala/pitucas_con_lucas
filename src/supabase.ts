@@ -1,53 +1,53 @@
 import { phone } from './events';
 import { render } from './render';
 import { monthLabelFor } from './shared-expenses';
-import { CATS, CATS_SEED_DEFAULTS, DATOS_TRANSFERENCIA, MEDIOS, METAS_GASTO_PCT, METAS_INVERSION, METAS_TOTAL_CHECKS, MONTHS, MONTH_LABEL, PLANIFICADOR, PLATAFORMA_DATA, PRESUPUESTOS, PRESUPUESTO_AVISOS_ENVIADOS, TX, currentMonthIndex, getPlanificadorDefaults, importIdCounter, metaIdCounter, presupuestoTotalMensual, setDATOS_TRANSFERENCIA, setGASTOS_COMPARTIDOS, setGRUPOS, setGRUPO_PARTICIPANTES, setImportIdCounter, setMAPEO_CATEGORIAS, setMETAS_GASTO_PCT, setMETAS_INVERSION, setMETAS_TOTAL_CHECKS, setMetaIdCounter, setPLANIFICADOR, setPLATAFORMA_DATA, setPRESUPUESTOS, setPRESUPUESTO_AVISOS_ENVIADOS, setPresupuestoTotalMensual, setSALDOS_PAGADOS, setTX, state, todayISO } from './state';
-import { absorbImportedRows, cargarGastosCompartidos, checkPresupuestoPushAvisos, gruposRealtimeChannel, setGruposRealtimeChannel, suscribirseAGruposEnVivo } from './views/menu';
-/* ===================== SUPABASE: CUENTAS + GUARDADO EN LA NUBE =====================
-   Hasta acá arriba todo corrió igual que la maqueta: se pintó con los datos de ejemplo
-   (Fran/Cata/Sushi Itto, etc.) mientras se resuelve si hay o no una sesión real. Todo lo
-   de abajo reemplaza esos datos de ejemplo por los datos reales del hogar de la persona
-   que inició sesión (o por un estado vacío recién creado, si es una cuenta nueva) —
-   nunca se mezclan ni se guardan encima de los de la demo. */
+import { CATEGORIES, CATEGORY_SEED_DEFAULTS, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, MONTH_LABEL, PLANNER, PLATFORM_DATA, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, currentMonthIndex, getPlannerDefaults, importIdCounter, goalIdCounter, monthlyBudgetTotal, setTransferInfo, setSharedExpenses, setGroups, setGroupParticipants, setImportIdCounter, setCategoryMappings, setSpendingGoalPct, setInvestmentGoals, setTotalGoalChecks, setGoalIdCounter, setPlanner, setPlatformData, setBudgets, setBudgetAlertsSent, setMonthlyBudgetTotal, setPaidBalances, setTransactions, state, todayISO } from './state';
+import { absorbImportedRows, loadSharedExpenses, checkBudgetPushAlerts, groupsRealtimeChannel, setGroupsRealtimeChannel, subscribeToGroupsLive } from './views/menu';
+/* ===================== SUPABASE: ACCOUNTS + CLOUD SAVING =====================
+   Up to this point everything ran the same as the mockup: it rendered with the sample data
+   (Fran/Cata/Sushi Itto, etc.) while it's resolved whether there's a real session or not. Everything
+   below replaces that sample data with the real household data of the person
+   who signed in (or with a freshly created empty state, if it's a new account) —
+   they're never mixed nor saved over the demo data. */
 export const SUPABASE_URL = 'https://wuxdctmhbuttzssiknkt.supabase.co';
 export const SUPABASE_ANON_KEY = 'sb_publishable_uLIIyeomS52mPIie__KvAA_ErW-lYhb';
-// Notificaciones push: la llave pública VAPID (segura de tener acá, es pública por diseño —
-// la privada vive SOLO como secret en el Cloudflare Worker) y la URL de ese Worker, que es
-// quien realmente manda los avisos (ver cloudflare-worker/worker.js).
+// Push notifications: the public VAPID key (safe to have here, it's public by design —
+// the private one lives ONLY as a secret in the Cloudflare Worker) and the URL of that Worker, which is
+// the one that actually sends the notifications (see cloudflare-worker/worker.js).
 export const VAPID_PUBLIC_KEY = 'BBVwNyDtQKLPpTNpIRMLpl13w9_3ucBwbZKyStc-v5LFU3shPh9Q7HfrmDxR4m60riF1-3dGth9Iwe3BOTgF_uk';
-// Reemplaza esto por la URL real de tu Worker una vez que lo despliegues (Cloudflare te la
-// muestra apenas creas el Worker, algo como https://tu-worker.tu-cuenta.workers.dev).
+// Replace this with the real URL of your Worker once you deploy it (Cloudflare
+// shows it to you as soon as you create the Worker, something like https://your-worker.your-account.workers.dev).
 export const PUSH_WORKER_URL = 'https://curly-thunder-b4c6.talajesu.workers.dev';
-// La creación real del cliente (y todo lo que depende de que exista, más abajo) se movió
-// a initSupabaseAuth() -- si esto se ejecutara como efecto secundario de nivel de módulo (al
-// simple hecho de importar este archivo), correría ANTES que el primer render() con los datos
-// de ejemplo que hace app.ts al arrancar, invirtiendo el orden que tenía la app de una sola
-// pieza (acá abajo, en el archivo original, ese arranque ocurría textualmente después del
-// primer render()). app.ts llama a initSupabaseAuth() a mano, después de ese primer render(),
-// para conservar el mismo orden.
+// The actual creation of the client (and everything below that depends on it existing) was moved
+// to initSupabaseAuth() -- if this ran as a module-level side effect (just from
+// importing this file), it would run BEFORE the first render() with the sample
+// data that app.ts does on startup, reversing the order the app had as a single
+// piece (further down, in the original file, that startup happened textually after the
+// first render()). app.ts calls initSupabaseAuth() by hand, after that first render(),
+// to preserve the same order.
 export let sb: any = null;
 
-export let currentUser = null;          // objeto user de Supabase Auth, o null si no hay sesión
-export let currentHouseholdId = null;   // uuid del hogar cuyos datos están cargados ahora mismo
-export let authMode = 'login';          // 'login' | 'signup' — qué pestaña del auth-gate está activa
-export let suppressAutoSave = true;     // true mientras se están aplicando datos cargados (para no
-                                  // reguardar de vuelta lo que se acaba de leer)
+export let currentUser = null;          // Supabase Auth user object, or null if there's no session
+export let currentHouseholdId = null;   // uuid of the household whose data is currently loaded
+export let authMode = 'login';          // 'login' | 'signup' — which auth-gate tab is active
+export let suppressAutoSave = true;     // true while loaded data is being applied (so as not to
+                                  // save back what was just read)
 export let saveTimer = null;
-export let lastSavedBlobJSON = null;    // último estado ya guardado en Supabase — para no reguardar
-                                  // (ni mostrar "Guardando…") cuando el DOM cambió pero los
-                                  // datos reales son los mismos (ver writeStateToSupabase)
+export let lastSavedBlobJSON = null;    // last state already saved in Supabase — so as not to save again
+                                  // (nor show "Saving…") when the DOM changed but the
+                                  // actual data is the same (see writeStateToSupabase)
 
 export function emptyAppStateBlob(){
   const ym = todayISO().slice(0,7);
   const catsBase = {};
-  Object.keys(CATS_SEED_DEFAULTS).forEach(function(k){ catsBase[k] = Object.assign({}, CATS_SEED_DEFAULTS[k]); });
+  Object.keys(CATEGORY_SEED_DEFAULTS).forEach(function(k){ catsBase[k] = Object.assign({}, CATEGORY_SEED_DEFAULTS[k]); });
   const monthLabelObj = {}; monthLabelObj[ym] = monthLabelFor(ym);
   return {
     transacciones: [],
     categorias: catsBase,
     mediosPago: {efectivo:{nombre:'Efectivo', corto:'Efectivo', icon:'cash'}},
     presupuestos: {},
-    presupuestoTotalMensual: 0,
+    monthlyBudgetTotal: 0,
     metasGastoPct: {fijo:45, variable:17},
     datosTransferencia: {nombre:'', rut:'', banco:'', tipoCuenta:'', numeroCuenta:'', email:''},
     metasInversion: [],
@@ -60,40 +60,40 @@ export function emptyAppStateBlob(){
   };
 }
 
-// El mismo formato que ya usaba "Respaldo en JSON" (buildBackupJSON), extendido con los
-// checks del objetivo total y con los meses — antes esos dos no viajaban en el respaldo.
+// The same format already used by "JSON Backup" (buildBackupJSON), extended with the
+// total-goal checks and the months — previously those two didn't travel in the backup.
 export function buildFullStateBlob(){
   return {
-    // compartidoAjeno nunca se persiste -- se recalcula sola desde gastos_compartidos/
-    // gasto_reparto cada vez (ver sincronizarGastosCompartidos), así nunca puede quedar
-    // desincronizada de la fuente real ni duplicarse.
-    transacciones: TX.filter(t=>!t.compartidoAjeno), categorias: CATS, mediosPago: MEDIOS,
-    presupuestos: PRESUPUESTOS, presupuestoTotalMensual: presupuestoTotalMensual,
-    metasGastoPct: METAS_GASTO_PCT, datosTransferencia: DATOS_TRANSFERENCIA,
-    metasInversion: METAS_INVERSION, plataformas: PLATAFORMA_DATA, planificador: PLANIFICADOR,
-    metasTotalChecks: METAS_TOTAL_CHECKS, presupuestoAvisosEnviados: PRESUPUESTO_AVISOS_ENVIADOS,
+    // sharedByOthers is never persisted -- it's recalculated on its own from gastos_compartidos/
+    // gasto_reparto every time (see syncSharedExpenses), so it can never end up
+    // out of sync with the real source or duplicated.
+    transacciones: TRANSACTIONS.filter(t=>!t.sharedByOthers), categorias: CATEGORIES, mediosPago: PAYMENT_METHODS,
+    presupuestos: BUDGETS, monthlyBudgetTotal: monthlyBudgetTotal,
+    metasGastoPct: SPENDING_GOAL_PCT, datosTransferencia: TRANSFER_INFO,
+    metasInversion: INVESTMENT_GOALS, plataformas: PLATFORM_DATA, planificador: PLANNER,
+    metasTotalChecks: TOTAL_GOAL_CHECKS, presupuestoAvisosEnviados: BUDGET_ALERTS_SENT,
     months: MONTHS, monthLabel: MONTH_LABEL
   };
 }
 
-// CATS, MEDIOS, MONTHS y MONTH_LABEL son const — se vacían y se vuelven a llenar en el
-// mismo objeto/arreglo, nunca se reasignan. TX, PRESUPUESTOS, METAS_INVERSION,
-// PLATAFORMA_DATA, PLANIFICADOR y METAS_TOTAL_CHECKS son let — esas sí se reasignan directo.
+// CATEGORIES, PAYMENT_METHODS, MONTHS and MONTH_LABEL are const — they get emptied and refilled in the
+// same object/array, never reassigned. TRANSACTIONS, BUDGETS, INVESTMENT_GOALS,
+// PLATFORM_DATA, PLANNER and TOTAL_GOAL_CHECKS are let — those do get reassigned directly.
 export function applyStateBlob(blob){
-  Object.keys(CATS).forEach(function(k){ delete CATS[k]; });
-  Object.assign(CATS, blob.categorias || {});
-  Object.keys(MEDIOS).forEach(function(k){ delete MEDIOS[k]; });
-  Object.assign(MEDIOS, blob.mediosPago || {});
+  Object.keys(CATEGORIES).forEach(function(k){ delete CATEGORIES[k]; });
+  Object.assign(CATEGORIES, blob.categorias || {});
+  Object.keys(PAYMENT_METHODS).forEach(function(k){ delete PAYMENT_METHODS[k]; });
+  Object.assign(PAYMENT_METHODS, blob.mediosPago || {});
 
-  setTX(blob.transacciones || []);
-  setPRESUPUESTOS(blob.presupuestos || {});
-  setPresupuestoTotalMensual(blob.presupuestoTotalMensual || 0);
-  setMETAS_GASTO_PCT(blob.metasGastoPct || {fijo:45, variable:17});
-  setDATOS_TRANSFERENCIA(blob.datosTransferencia || {nombre:'', rut:'', banco:'', tipoCuenta:'', numeroCuenta:'', email:''});
-  setMETAS_INVERSION(blob.metasInversion || []);
-  setPLATAFORMA_DATA(blob.plataformas || {});
-  setMETAS_TOTAL_CHECKS(blob.metasTotalChecks || {});
-  setPRESUPUESTO_AVISOS_ENVIADOS(blob.presupuestoAvisosEnviados || {});
+  setTransactions(blob.transacciones || []);
+  setBudgets(blob.presupuestos || {});
+  setMonthlyBudgetTotal(blob.monthlyBudgetTotal || 0);
+  setSpendingGoalPct(blob.metasGastoPct || {fijo:45, variable:17});
+  setTransferInfo(blob.datosTransferencia || {nombre:'', rut:'', banco:'', tipoCuenta:'', numeroCuenta:'', email:''});
+  setInvestmentGoals(blob.metasInversion || []);
+  setPlatformData(blob.plataformas || {});
+  setTotalGoalChecks(blob.metasTotalChecks || {});
+  setBudgetAlertsSent(blob.presupuestoAvisosEnviados || {});
 
   const ym = todayISO().slice(0,7);
   const meses = (blob.months && blob.months.length) ? blob.months.slice().sort() : [ym];
@@ -103,34 +103,34 @@ export function applyStateBlob(blob){
   const ml = blob.monthLabel || {};
   MONTHS.forEach(function(m){ MONTH_LABEL[m] = ml[m] || monthLabelFor(m); });
 
-  setPLANIFICADOR(blob.planificador || getPlanificadorDefaults());
+  setPlanner(blob.planificador || getPlannerDefaults());
 
-  // que los ids nuevos sigan después de lo cargado, no desde el número fijo de la demo
-  setMetaIdCounter(METAS_INVERSION.reduce(function(mx,m){
+  // so new ids continue after what was loaded, not from the fixed demo number
+  setGoalIdCounter(INVESTMENT_GOALS.reduce(function(mx,m){
     const n = parseInt(String(m.id).replace(/[^0-9]/g,''),10);
     return isNaN(n) ? mx : Math.max(mx,n);
   }, 0));
-  setImportIdCounter(TX.reduce(function(mx,t){
+  setImportIdCounter(TRANSACTIONS.reduce(function(mx,t){
     if(!/^timp/.test(t.id)) return mx;
     const n = parseInt(t.id.replace('timp',''),10);
     return isNaN(n) ? mx : Math.max(mx,n);
   }, 0));
 
   state.monthIndex = currentMonthIndex();
-  state.tab = 'transacciones'; state.resumenSub = 'balance'; state.menuSection = null;
+  state.tab = 'transacciones'; state.summarySub = 'balance'; state.menuSection = null;
   state.openTxId = null; state.creatingNew = false; state.draftTx = null;
-  state.categoryFilter = null; state.categoryFilterMonth = null; state.evoSelectedMonth = null;
+  state.categoryFilter = null; state.categoryFilterMonth = null; state.evolutionSelectedMonth = null;
   state.editingPlatformId = null; state.creatingPlatform = false;
   state.confirmDeletePlatformId = null; state.confirmArchivePlatformId = null; state.confirmDeleteTxId = null;
   state.demoMode = false;
 }
 
-/* ---------- indicador de guardado (pastilla chica junto al título) ----------
-   A pedido: el guardado normal (mientras escribe, al tocar algo) debe pasar solo, sin
-   avisarle con palabras que está "Guardando…" ni "Guardado" — se entiende solo, sin que se
-   lo digamos. La única vez que SÍ vale la pena avisar es cuando algo salió mal de verdad
-   (sin conexión, no se guardó) — eso sí puede llevarla a perder datos sin darse cuenta, así
-   que ese caso se sigue mostrando. */
+/* ---------- save indicator (small pill next to the title) ----------
+   As requested: normal saving (while typing, when tapping something) should happen quietly, without
+   telling her in words that it's "Saving…" or "Saved" — it's understood on its own, without us
+   saying it. The only time it IS worth notifying is when something really went wrong
+   (no connection, it didn't save) — that could make her lose data without realizing it, so
+   that case is still shown. */
 export let syncHideTimer = null;
 export function updateSyncIndicator(status){
   const el = document.getElementById('sync-indicator');
@@ -144,16 +144,16 @@ export function updateSyncIndicator(status){
   }
 }
 
-/* ---------- guardar en Supabase (con espera corta para no escribir en cada tecla) ---------- */
+/* ---------- save to Supabase (with a short wait so it doesn't write on every keystroke) ---------- */
 export async function writeStateToSupabase(){
   if(!sb || !currentHouseholdId) return;
   const blobJSON = JSON.stringify(buildFullStateBlob());
-  // Casi todo lo que pasa en la app (cambiar de pestaña, abrir una transacción, filtrar)
-  // termina en un repintado del teléfono, y por eso agenda un guardado (ver autoSaveObserver
-  // más abajo) — pero la mayoría de esos repintados no cambiaron ningún dato real, solo la
-  // pantalla. Si el estado es idéntico al último que se guardó, no hay nada que escribir:
-  // ni llamada a Supabase ni "Guardando…/Guardado" en pantalla. Así el indicador aparece
-  // solo cuando de verdad se guardó algo nuevo.
+  // Almost everything that happens in the app (switching tabs, opening a transaction, filtering)
+  // ends up in a repaint of the phone, and that's why it schedules a save (see autoSaveObserver
+  // below) — but most of those repaints didn't change any real data, only the
+  // screen. If the state is identical to the last one saved, there's nothing to write:
+  // no call to Supabase and no "Saving…/Saved" on screen. That way the indicator appears
+  // only when something new was actually saved.
   if(blobJSON === lastSavedBlobJSON) return;
   updateSyncIndicator('saving');
   try{
@@ -165,10 +165,10 @@ export async function writeStateToSupabase(){
     if(error){ console.error('Pitucas sin lucas — error guardando en Supabase:', error); updateSyncIndicator('error'); return; }
     lastSavedBlobJSON = blobJSON;
     updateSyncIndicator('saved');
-    // Justo después de un guardado real (no de cualquier repintado) es el único momento en
-    // que el gasto de una categoría pudo haber cambiado -- por eso se revisa acá si algún
-    // presupuesto cruzó recién un umbral, no en cada render.
-    checkPresupuestoPushAvisos();
+    // Right after an actual save (not just any repaint) is the only moment when
+    // a category's spending could have changed -- that's why it's checked here whether some
+    // budget just crossed a threshold, not on every render.
+    checkBudgetPushAlerts();
   }catch(err){
     console.error('Pitucas sin lucas — error de red guardando en Supabase:', err);
     updateSyncIndicator('error');
@@ -179,22 +179,22 @@ export function scheduleSave(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(writeStateToSupabase, 1200);
 }
-// Cualquier cambio de datos en esta app termina, casi siempre, en un re-render de algún
-// pedazo del teléfono — no hay un único punto "el estado cambió" al que engancharse (son
-// decenas de handlers, cada uno llamando a su propio render*()). En vez de instrumentar cada
-// uno, se observa el DOM del teléfono completo: cualquier repintado agenda un guardado
-// (con espera corta, así una racha de clicks solo guarda una vez al final) — el chequeo de
-// "¿en verdad cambió algo?" queda adentro de writeStateToSupabase (arriba), no acá, así que
-// navegar entre pantallas agenda un guardado que después se descarta solo, sin tocar la red.
-// OJO: el propio indicador "Guardando…/Guardado" vive DENTRO de #phone y se actualiza
-// en cada guardado — si no se excluye acá, cada actualización del indicador dispara una
-// mutación, que agenda OTRO guardado, que vuelve a actualizar el indicador... un loop
-// infinito de "Guardando/Guardado" sin que la usuaria haya tocado nada. Por eso se ignora
-// un lote de mutaciones cuando TODAS ocurrieron adentro del propio indicador.
-// syncIndicatorEl/autoSaveObserver y el resto del arranque (registrar el listener del
-// auth-form, revisar si ya había sesión abierta) viven dentro de initSupabaseAuth() más abajo
-// -- ver la nota junto a "export let sb" sobre por qué no pueden ser efectos secundarios de
-// nivel de módulo acá arriba.
+// Any data change in this app almost always ends up in a re-render of some
+// piece of the phone — there's no single "the state changed" point to hook into (there are
+// dozens of handlers, each calling its own render*()). Instead of instrumenting each
+// one, the entire phone DOM is observed: any repaint schedules a save
+// (with a short wait, so a burst of clicks only saves once at the end) — the check for
+// "did anything actually change?" stays inside writeStateToSupabase (above), not here, so
+// navigating between screens schedules a save that later gets discarded on its own, without touching the network.
+// NOTE: the "Saving…/Saved" indicator itself lives INSIDE #phone and gets updated
+// on every save — if it's not excluded here, every update of the indicator triggers a
+// mutation, which schedules ANOTHER save, which updates the indicator again... an
+// infinite "Saving/Saved" loop without the user having touched anything. That's why
+// a batch of mutations is ignored when ALL of them happened inside the indicator itself.
+// syncIndicatorEl/autoSaveObserver and the rest of the startup (registering the
+// auth-form listener, checking whether there was already a session open) live inside initSupabaseAuth() below
+// -- see the note next to "export let sb" about why they can't be
+// module-level side effects up here.
 
 /* ---------- auth-gate: UI ---------- */
 export function showAuthError(msg){
@@ -219,11 +219,11 @@ export function setAuthLoading(isLoading){
   btn.disabled = isLoading;
   btn.textContent = isLoading ? 'Un momento…' : (authMode==='login' ? 'Iniciar sesión' : 'Crear cuenta');
 }
-// Al abrir la app, todavía no sabemos si ya había sesión iniciada — antes de tener esa
-// respuesta de Supabase, mostrábamos directo el formulario de "Iniciar sesión", así que
-// quien ya tenía sesión abierta veía un destello de esa pantalla antes de entrar a sus
-// datos. Ahora, mientras se resuelve esa pregunta, se ve solo un loader neutro (ni
-// formulario ni app) — recién se muestra el formulario si de verdad no hay sesión.
+// When the app opens, we still don't know whether a session was already active — before having that
+// answer from Supabase, we used to show the "Sign in" form directly, so
+// anyone who already had a session open would see a flash of that screen before getting into their
+// data. Now, while that question is being resolved, only a neutral loader is shown (neither
+// form nor app) — the form is only shown once it's confirmed there really is no session.
 export function showAuthChecking(){
   document.getElementById('auth-checking').hidden = false;
   document.getElementById('auth-content').hidden = true;
@@ -263,29 +263,29 @@ export async function handleAuthSubmit(){
     if(authMode==='login'){
       const { error } = await sb.auth.signInWithPassword({ email, password });
       if(error) throw error;
-      // sb.auth.onAuthStateChange sigue solo desde acá (evento SIGNED_IN)
+      // sb.auth.onAuthStateChange continues on its own from here (SIGNED_IN event)
     } else {
       const { data, error } = await sb.auth.signUp({ email, password });
       if(error) throw error;
       if(!data.session){
-        // proyecto con confirmación de correo activada: no queda sesión hasta que confirme
+        // project with email confirmation enabled: there's no session until they confirm
         setAuthLoading(false);
         switchAuthMode('login');
         showAuthHint('Cuenta creada — revisa tu correo ('+email+') para confirmarla, y después inicia sesión aquí.', true);
         return;
       }
-      // si el proyecto no pide confirmación, ya llega con sesión y onAuthStateChange sigue solo
+      // if the project doesn't require confirmation, it already arrives with a session and onAuthStateChange continues on its own
     }
   }catch(err){
     setAuthLoading(false);
     showAuthError(translateAuthError(err));
   }
 }
-// El listener del auth-form vive dentro de initSupabaseAuth() más abajo.
+// The auth-form listener lives inside initSupabaseAuth() below.
 
-/* ---------- cargar/guardar el hogar real tras autenticarse ---------- */
+/* ---------- load/save the real household after authenticating ---------- */
 export async function onAuthenticated(user){
-  if(currentUser && currentUser.id===user.id) return; // ya está cargado, no repetir
+  if(currentUser && currentUser.id===user.id) return; // already loaded, don't repeat
   currentUser = user;
   setAuthLoading(true);
   showAuthHint('Cargando tus datos…', false);
@@ -296,14 +296,14 @@ export async function onAuthenticated(user){
       throw new Error('Tu cuenta todavía no tiene un hogar asociado. Cierra sesión, espera unos segundos y vuelve a entrar — se crea automáticamente al registrarte.');
     }
     currentHouseholdId = memberRows[0].household_id;
-    // El código de importación (import_token) del hogar se usa para el import por correo Y
-    // para las notificaciones push (así el Worker puede validar "de qué hogar es esto" sin
-    // que tenga tu sesión) — se trae acá, apenas hay hogar, para no depender de que ella
-    // abra la pantalla de "Importar desde tu correo" primero. Si falla, no es grave: esa
-    // pantalla lo vuelve a intentar sola, y el push simplemente no se manda por ahora.
+    // The household's import code (import_token) is used for the email import AND
+    // for push notifications (so the Worker can validate "which household is this" without
+    // having your session) — it's fetched here, as soon as there's a household, so as not to depend on her
+    // opening the "Import from your email" screen first. If it fails, it's not serious: that
+    // screen retries it on its own, and the push simply won't be sent for now.
     try{
       const { data: hhRow, error: hhErr } = await sb.from('households').select('import_token').eq('id', currentHouseholdId).single();
-      if(!hhErr && hhRow){ state.importToken = hhRow.import_token; state.importCorreoLoaded = true; }
+      if(!hhErr && hhRow){ state.importToken = hhRow.import_token; state.emailImportLoaded = true; }
     }catch(e){ console.error('Pitucas sin lucas — error precargando el código de importación:', e); }
     const { data: stateRow, error: stateErr } = await sb.from('app_state').select('data').eq('household_id', currentHouseholdId).single();
     if(stateErr) throw stateErr;
@@ -311,11 +311,11 @@ export async function onAuthenticated(user){
     suppressAutoSave = true;
     if(!blob || !Object.keys(blob).length){
       applyStateBlob(emptyAppStateBlob());
-      lastSavedBlobJSON = null; // fuerza el guardado inicial de abajo, aunque esté vacío
-      await writeStateToSupabase(); // deja guardado el estado vacío recién armado
+      lastSavedBlobJSON = null; // forces the initial save below, even though it's empty
+      await writeStateToSupabase(); // saves the freshly built empty state
     } else {
       applyStateBlob(blob);
-      lastSavedBlobJSON = JSON.stringify(buildFullStateBlob()); // ya está guardado tal cual en Supabase
+      lastSavedBlobJSON = JSON.stringify(buildFullStateBlob()); // it's already saved as-is in Supabase
     }
     document.getElementById('auth-gate').hidden = true;
     clearAuthError(); clearAuthHint();
@@ -323,13 +323,13 @@ export async function onAuthenticated(user){
     setTimeout(function(){
       suppressAutoSave = false;
       absorbImportedRows();
-      cargarGastosCompartidos();
-      suscribirseAGruposEnVivo();
+      loadSharedExpenses();
+      subscribeToGroupsLive();
     }, 0);
   }catch(err){
     console.error('Pitucas sin lucas — error cargando datos del hogar:', err);
     setAuthLoading(false);
-    showAuthForm(); // si falla, hay que mostrar el formulario para que vea el error (estaba oculto)
+    showAuthForm(); // if it fails, the form needs to be shown so she can see the error (it was hidden)
     showAuthError(translateAuthError(err));
   }
 }
@@ -337,10 +337,10 @@ export async function onAuthenticated(user){
 export function resetToLoggedOutState(){
   suppressAutoSave = true;
   applyStateBlob(emptyAppStateBlob());
-  setGRUPOS([]); setGRUPO_PARTICIPANTES([]); setGASTOS_COMPARTIDOS([]); setSALDOS_PAGADOS([]); setMAPEO_CATEGORIAS([]);
-  state.espacio = 'personal'; state.grupoAbiertoId = null;
-  if(gruposRealtimeChannel && sb){ sb.removeChannel(gruposRealtimeChannel); setGruposRealtimeChannel(null); }
-  state.importCorreoLoaded = false; state.importCorreoError = null; state.importToken = null;
+  setGroups([]); setGroupParticipants([]); setSharedExpenses([]); setPaidBalances([]); setCategoryMappings([]);
+  state.workspace = 'personal'; state.openGroupId = null;
+  if(groupsRealtimeChannel && sb){ sb.removeChannel(groupsRealtimeChannel); setGroupsRealtimeChannel(null); }
+  state.emailImportLoaded = false; state.emailImportError = null; state.importToken = null;
   state.notifLoaded = false; state.notifError = null; state.notifSubscribed = false; state.notifBusy = false;
   state.notifTestBusy = false; state.notifTestResult = null;
   (document.getElementById('auth-email') as HTMLInputElement).value = '';
@@ -360,13 +360,13 @@ export async function handleLogout(){
   resetToLoggedOutState();
 }
 
-/* ---------- arranque: crear el cliente, enganchar todos los listeners, revisar sesión ----------
-   Todo esto era código de nivel de módulo al final del app.ts original (por eso corría recién
-   después del primer render() con datos de ejemplo, que ocurre unas líneas más arriba en el
-   archivo original). Acá queda como una función explícita que app.ts llama a mano en el mismo
-   punto, para conservar exactamente el mismo orden ahora que este archivo es un módulo aparte
-   (si esto corriera como efecto secundario de solo importar el archivo, se adelantaría a ese
-   primer render()). */
+/* ---------- startup: create the client, hook up all the listeners, check the session ----------
+   All of this used to be module-level code at the end of the original app.ts (which is why it only ran
+   after the first render() with sample data, which happens a few lines above in the
+   original file). Here it stays as an explicit function that app.ts calls by hand at the same
+   point, to preserve exactly the same order now that this file is a separate module
+   (if this ran as a side effect of just importing the file, it would run ahead of that
+   first render()). */
 export function initSupabaseAuth(){
   sb = (typeof window!=='undefined' && window.supabase)
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
@@ -381,8 +381,8 @@ export function initSupabaseAuth(){
     scheduleSave();
   });
   autoSaveObserver.observe(phone, {childList:true, subtree:true, characterData:true});
-  // Si la pestaña se oculta (se cambia de app, se apaga la pantalla, etc.) conviene guardar
-  // de inmediato en vez de esperar los 1200ms, por si no vuelve a abrirse a tiempo.
+  // If the tab gets hidden (switching apps, the screen turns off, etc.) it's better to save
+  // right away instead of waiting the 1200ms, in case it doesn't get reopened in time.
   document.addEventListener('visibilitychange', function(){
     if(document.hidden && saveTimer){ clearTimeout(saveTimer); writeStateToSupabase(); }
   });
@@ -392,7 +392,7 @@ export function initSupabaseAuth(){
     handleAuthSubmit();
   });
 
-  /* ---------- ¿ya había una sesión abierta? ---------- */
+  /* ---------- was there already a session open? ---------- */
   if(sb){
     sb.auth.onAuthStateChange(function(event, session){
       if(event==='SIGNED_OUT'){

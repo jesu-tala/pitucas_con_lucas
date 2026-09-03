@@ -1,9 +1,9 @@
-// jesu no podía saber por qué el aviso de presupuesto "no le llegaba" -- enviarPushHogar() es
-// a propósito "dispara y olvida" (nunca bloquea nada real por un aviso), así que un fallo en el
-// camino (Worker mal configurado, sin dispositivos suscritos, error de Supabase) queda
-// completamente en silencio para la usuaria. Este test fija el botón "Enviar aviso de prueba"
-// en Menú > Notificaciones, que sí espera la respuesta real de enviarPushPrueba() y la muestra
-// en pantalla -- para poder diagnosticar sin adivinar.
+// jesu couldn't figure out why the budget alert "wasn't arriving" -- enviarPushHogar() is
+// deliberately "fire and forget" (it never blocks anything real over a notification), so a failure
+// along the way (a misconfigured Worker, no subscribed devices, a Supabase error) stays
+// completely silent for the user. This test locks in the "Enviar aviso de prueba" (send test alert) button
+// in Menu > Notifications, which does wait for sendTestPush()'s real response and shows it
+// on screen -- so it can be diagnosed without guessing.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -14,21 +14,21 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.click('[data-menu-open="notificaciones"]');
   await page.waitForTimeout(200);
 
-  // Sin suscripción en este dispositivo (estado normal de los datos de ejemplo, sin Service
-  // Worker real registrado), el botón de prueba no debería aparecer -- no tiene sentido probar
-  // un envío si este dispositivo ni siquiera está suscrito.
+  // Without a subscription on this device (the normal state of the sample data, with no real
+  // Service Worker registered), the test button should not appear -- there's no point testing
+  // a send if this device isn't even subscribed.
   const sinSuscripcion = await page.evaluate(() => !!document.querySelector('[data-notif-test]'));
   check('Sin suscripción activa en este dispositivo, no aparece el botón "Enviar aviso de prueba"', sinSuscripcion === false, sinSuscripcion);
 
-  // Con notifSubscribed forzado a true (simulando un dispositivo ya suscrito), el botón debe
-  // aparecer, y al usarlo -- sin Worker real disponible en el entorno de test -- debe mostrar
-  // un resultado en pantalla (nunca quedar en silencio ni reventar).
+  // With notifSubscribed forced to true (simulating an already-subscribed device), the button should
+  // appear, and using it -- with no real Worker available in the test environment -- should show
+  // a result on screen (never staying silent or crashing).
   const resultado = await page.evaluate(async () => {
     const D = window.__debug;
     D.state.notifSubscribed = true;
     D.render();
     const apareceBoton = !!document.querySelector('[data-notif-test]');
-    await D.enviarPushPrueba();
+    await D.sendTestPush();
     const texto = document.getElementById('view-root').textContent;
     return { apareceBoton, texto };
   });

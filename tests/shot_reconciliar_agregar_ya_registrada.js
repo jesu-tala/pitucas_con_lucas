@@ -1,8 +1,8 @@
-// En Reconciliar con la cartola, un movimiento que la app detecta como "Ya registrada" (match
-// automático contra una transacción existente) no debe tener botón "+ Agregar" -- se probó
-// permitir agregarlo igual (informativo, no bloqueante) pero se decidió que NO, que siga siendo
-// un bloqueo real: si ya está registrada, no se ofrece la opción de agregarla de nuevo. Este test
-// deja eso fijado para que no se repita el cambio por error.
+// In Reconcile with the statement, a movement the app detects as "Already registered" (automatic
+// match against an existing transaction) must not have a "+ Add" button -- allowing it to be
+// added anyway (informational, non-blocking) was tried but it was decided NOT to, that it should stay
+// a real block: if it's already registered, the option to add it again is not offered. This test
+// locks that in so the change isn't made again by mistake.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -13,8 +13,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.click('[data-menu-open="reconciliar"]');
   await page.waitForTimeout(150);
 
-  // Arma a mano un resultado de cartola con un movimiento YA matcheado y otro sin matchear, sin
-  // depender de leer un PDF real.
+  // Build a statement result by hand with one movement ALREADY matched and another unmatched, without
+  // depending on reading a real PDF.
   await page.evaluate(() => {
     const D = window.__debug;
     D.state.reconciliar.archivo = 'cartola_test.pdf';
@@ -28,20 +28,20 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(150);
 
   const estado = await page.evaluate(() => ({
-    totalBotonesAgregar: document.querySelectorAll('[data-reconciliar-agregar]').length,
+    totalBotonesAgregar: document.querySelectorAll('[data-reconcile-add]').length,
     tieneTagYaRegistrada: !!document.querySelector('.state-cobrado-inline'),
   }));
   check('El movimiento ya registrado NO tiene botón "+ Agregar" (solo el nuevo, esperado 1)', estado.totalBotonesAgregar === 1, estado);
   check('El movimiento ya registrado muestra el aviso "Ya registrada" en su lugar', estado.tieneTagYaRegistrada, estado);
 
-  // El único botón "+ Agregar" visible corresponde al movimiento sin match (idx 1).
-  const idxBoton = await page.evaluate(() => document.querySelector('[data-reconciliar-agregar]').getAttribute('data-reconciliar-agregar'));
+  // The only visible "+ Agregar" button corresponds to the unmatched movement (idx 1).
+  const idxBoton = await page.evaluate(() => document.querySelector('[data-reconcile-add]').getAttribute('data-reconcile-add'));
   check('El botón "+ Agregar" visible es el del movimiento sin match (idx 1)', idxBoton === '1', idxBoton);
 
-  const txCountAntes = await page.evaluate(() => window.__debug.TX.length);
-  await page.click('[data-reconciliar-agregar="1"]');
+  const txCountAntes = await page.evaluate(() => window.__debug.TRANSACTIONS.length);
+  await page.click('[data-reconcile-add="1"]');
   await page.waitForTimeout(200);
-  const txCountDespues = await page.evaluate(() => window.__debug.TX.length);
+  const txCountDespues = await page.evaluate(() => window.__debug.TRANSACTIONS.length);
   check('Agregar el movimiento sin match funciona con normalidad', txCountDespues === txCountAntes + 1, { txCountAntes, txCountDespues });
 
   await finish({ context, browser, errors });

@@ -1,9 +1,9 @@
-// Reportado: "los iconos de la barra inferior están mal centrados". Revisando el CSS no
-// encontramos ningún bug de centrado (.tab usa flex-direction:column + align-items:center para
-// icono y texto, sin overrides en conflicto) -- este test lo deja verificado en automático: el
-// centro horizontal del ícono y del texto de cada tab deben coincidir exactamente entre sí y con
-// el centro del botón. Si algún cambio futuro rompe ese centrado (ej. un ancho fijo mal puesto,
-// un padding asimétrico, un ícono con viewBox descuadrado) este test lo va a agarrar.
+// Reported: "the bottom bar icons are badly centered". Reviewing the CSS we didn't
+// find any centering bug (.tab uses flex-direction:column + align-items:center for the
+// icon and text, with no conflicting overrides) -- this test leaves it automatically verified: the
+// horizontal center of each tab's icon and text must exactly match each other and
+// the button's center. If some future change breaks that centering (e.g. a badly set fixed width,
+// an asymmetric padding, an icon with a misaligned viewBox) this test will catch it.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {

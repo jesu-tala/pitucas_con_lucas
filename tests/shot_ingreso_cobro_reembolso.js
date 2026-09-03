@@ -1,26 +1,26 @@
-// Regresión: primero se sacó que la tarjeta "Cobros y reembolsos" apareciera cuando no había
-// NINGÚN pendiente en toda la app -- pero la usuaria reportó después que igual seguía viendo la
-// tarjeta en "Sueldo Agosto" (t6), que sí tiene categoría ("Sueldo"). La regla correcta: un
-// ingreso YA categorizado (un sueldo, un freelance con su categoría puesta) nunca es candidato a
-// ser el pago de un cobro o reembolso, así que la tarjeta nunca debe aparecer en él -- sin
-// importar cuántos pendientes sueltos haya en otras transacciones. La tarjeta solo tiene sentido
-// para un depósito SIN categoría (ambiguo, tipo "Transferencia de Fran"), que sí podría ser eso.
-// Casos: (a) sin pendientes en la app -> oculta. (b) ingreso sin categoría + pendiente real en
-// otro lado -> visible con el CTA de vincular. (c) ingreso ya vinculado -> visible con el banner,
-// tenga o no categoría. (d) ingreso CON categoría (Sueldo Agosto) + pendiente real en otro lado
-// -> sigue oculta (el caso que reportó la usuaria).
+// Regression: it was first fixed so the "Cobros y reembolsos" card would appear when there was
+// NO pending item anywhere in the app -- but the user later reported she was still seeing the
+// card on "Sueldo Agosto" (t6), which does have a category ("Sueldo"). The correct rule: an
+// income ALREADY categorized (a salary, a freelance job with its category set) is never a candidate
+// to be the payment for a charge or refund, so the card must never appear on it -- no
+// matter how many loose pending items exist on other transactions. The card only makes sense
+// for a deposit WITHOUT a category (ambiguous, like "Transferencia de Fran"), which could actually be that.
+// Cases: (a) no pending items in the app -> hidden. (b) uncategorized income + a real pending item
+// elsewhere -> visible with the link CTA. (c) already-linked income -> visible with the banner,
+// whether it has a category or not. (d) income WITH a category (Sueldo Agosto) + a real pending item
+// elsewhere -> stays hidden (the case the user reported).
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
   const { context, browser, page, errors } = await openApp();
 
-  // t59 = Venta bicicleta (ingreso SIN categoría, sin vínculo) -- el candidato correcto para
-  // ofrecer "vincular a un pendiente". t8 tiene el único pendiente sin pagar de toda la maqueta
-  // (reembolso de Isapre) -- lo marcamos pagado para dejar la app sin NINGÚN pendiente real, y
-  // así probar el caso "no debería aparecer la tarjeta".
+  // t59 = Venta bicicleta (income WITHOUT a category, unlinked) -- the correct candidate to
+  // offer "link to a pending item". t8 has the only unpaid pending item in the whole fixture
+  // (Isapre refund) -- we mark it paid to leave the app with NO real pending item, so
+  // we can test the "the card shouldn't appear" case.
   await page.evaluate(() => {
     const D = window.__debug;
-    const t8 = D.TX.find(t => t.id === 't8');
+    const t8 = D.TRANSACTIONS.find(t => t.id === 't8');
     t8.porCobrar[0].pagado = true;
     D.render();
   });
@@ -28,7 +28,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.evaluate(() => { window.__debug.state.tab = 'transacciones'; window.__debug.render(); });
   await page.waitForTimeout(150);
 
-  // (a) Sin ningún pendiente en toda la app y sin vínculo propio: la tarjeta no debe aparecer.
+  // (a) With no pending item anywhere in the app and no link of its own: the card must not appear.
   await page.click('[data-tx="t59"]');
   await page.waitForTimeout(200);
   const sinPendientes = await page.evaluate(() => document.getElementById('sheet-content').textContent.includes('Cobros y reembolsos'));
@@ -36,11 +36,11 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
 
-  // (b) Si vuelve a haber un pendiente real en algún lado (aunque sea de otra transacción), la
-  // tarjeta SÍ debe aparecer en un ingreso SIN categoría, ofreciendo vincular.
+  // (b) If a real pending item exists again somewhere (even on another transaction), the
+  // card SHOULD appear on an uncategorized income, offering to link.
   await page.evaluate(() => {
     const D = window.__debug;
-    const t8 = D.TX.find(t => t.id === 't8');
+    const t8 = D.TRANSACTIONS.find(t => t.id === 't8');
     t8.porCobrar[0].pagado = false;
     D.render();
   });
@@ -50,7 +50,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
     const content = document.getElementById('sheet-content');
     return {
       tieneTarjeta: content.textContent.includes('Cobros y reembolsos'),
-      tieneBotonVincular: !!document.querySelector('[data-open-link-ingreso="t59"]'),
+      tieneBotonVincular: !!document.querySelector('[data-open-link-income="t59"]'),
     };
   });
   check('(b) Ingreso SIN categoría + pendiente real en otra transacción: SÍ aparece la tarjeta', conPendienteGlobal.tieneTarjeta === true, conPendienteGlobal);
@@ -58,9 +58,9 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
 
-  // (d) El caso reportado por la usuaria: "Sueldo Agosto" (t6) SÍ tiene categoría ("Sueldo") --
-  // aunque siga habiendo un pendiente real suelto en otra transacción (mismo estado que en (b)),
-  // la tarjeta NO debe aparecer: un sueldo categorizado nunca es un cobro/reembolso.
+  // (d) The case the user reported: "Sueldo Agosto" (t6) DOES have a category ("Sueldo") --
+  // even though a real loose pending item still exists on another transaction (same state as in (b)),
+  // the card must NOT appear: a categorized salary is never a charge/refund.
   await page.click('[data-tx="t6"]');
   await page.waitForTimeout(200);
   const sueldoConPendienteSuelto = await page.evaluate(() => document.getElementById('sheet-content').textContent.includes('Cobros y reembolsos'));
@@ -68,12 +68,12 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
 
-  // (c) Un ingreso YA vinculado (t72, vinculado desde t5) debe mostrar la tarjeta con el banner
-  // de "Vinculado a...", incluso si luego no quedara ningún otro pendiente suelto.
+  // (c) An income ALREADY linked (t72, linked from t5) must show the card with the
+  // "Vinculado a..." banner, even if no other loose pending item remained afterward.
   const yaVinculado = await page.evaluate(() => {
     const D = window.__debug;
-    const t8 = D.TX.find(t => t.id === 't8');
-    t8.porCobrar[0].pagado = true; // sin pendientes sueltos ahora
+    const t8 = D.TRANSACTIONS.find(t => t.id === 't8');
+    t8.porCobrar[0].pagado = true; // no loose pending items now
     D.render();
     return true;
   });

@@ -6,7 +6,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.evaluate(() => { window.__debug.state.tab = 'transacciones'; window.__debug.render(); });
   await page.waitForTimeout(150);
 
-  // t2 = Copec Providencia, gasto normal sin regla activa todavía
+  // t2 = Copec Providencia, normal expense with no active rule yet
   await page.click('[data-tx="t2"]');
   await page.waitForTimeout(200);
   await page.screenshot({ path: '/tmp/sheet_format_1.png' });
@@ -17,18 +17,18 @@ const { openApp, check, finish } = require('./lib/test_kit');
   });
   check('El sheet de detalle abrió y muestra el comercio (Copec Providencia)', sheetAbrio);
 
-  const reglaAutoAntes = await page.evaluate(() => window.__debug.TX.find(t => t.id === 't2').reglaAuto);
+  const reglaAutoAntes = await page.evaluate(() => window.__debug.TRANSACTIONS.find(t => t.id === 't2').reglaAuto);
 
-  // Activar/desactivar la regla automática para ver el estado "ya clasificamos" (tarjeta teñida)
+  // Toggle the automatic rule on/off to see the "already classified" state (tinted card)
   await page.click('[data-toggle-lock="t2"]');
   await page.waitForTimeout(150);
   await page.screenshot({ path: '/tmp/sheet_format_2.png' });
-  const reglaAutoMedio = await page.evaluate(() => window.__debug.TX.find(t => t.id === 't2').reglaAuto);
+  const reglaAutoMedio = await page.evaluate(() => window.__debug.TRANSACTIONS.find(t => t.id === 't2').reglaAuto);
 
-  // Revertir y buscar una transacción con estado 'por_cobrar' para ver ese bloque también
+  // Revert and look for a transaction with status 'por_cobrar' to see that block too
   await page.click('[data-toggle-lock="t2"]');
   await page.waitForTimeout(100);
-  const reglaAutoFinal = await page.evaluate(() => window.__debug.TX.find(t => t.id === 't2').reglaAuto);
+  const reglaAutoFinal = await page.evaluate(() => window.__debug.TRANSACTIONS.find(t => t.id === 't2').reglaAuto);
 
   check('Toggle de reglaAuto cambia de estado en el primer click', reglaAutoMedio !== reglaAutoAntes, { reglaAutoAntes, reglaAutoMedio });
   check('Toggle de reglaAuto vuelve al estado original tras un segundo click', reglaAutoFinal === reglaAutoAntes, { reglaAutoAntes, reglaAutoFinal });

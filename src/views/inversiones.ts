@@ -1,79 +1,79 @@
-import { PLAZO_META, catInfo, montoAgregadoTx, plazoChip } from '../helpers';
+import { GOAL_TERM, catInfo, aggregatedTxAmount, termChip } from '../helpers';
 import { ICONS, catIconMarkup } from '../icons';
 import { segmentedHtml } from '../sheet';
-import { CATS, DIAS_UMBRAL_ACTUALIZACION, METAS_INVERSION, MONTHS, MONTH_LABEL, PLANIFICADOR, PLATAFORMA_DATA, TX, computeDefaultPlanBase, money, moneyPlain, moneyPlainMasked, moneyShort, monthAbbr, state, todayISO } from '../state';
-import { metaInversionMensualCLP, metaInversionPct } from '../ui/donut';
-import { metaProgresoTotal, metasForPlataforma, platformMetasResumen, proyeccionAportes, renderEvolucionView, renderMetaEditForm, renderMetaGoalCard, renderMetaTotalChecksGrid } from './evolucion';
-import { CAT_COLOR_CHOICES, CAT_ICON_CHOICES, catEnUso } from './menu';
-import { renderBalanceView, renderComingSoon, renderPresupuestoView } from './presupuesto';
-/* ===================== INVERSIONES (Fase 4) ===================== */
+import { CATEGORIES, UPDATE_THRESHOLD_DAYS, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, PLANNER, PLATFORM_DATA, TRANSACTIONS, computeDefaultPlanBase, money, moneyPlain, moneyPlainMasked, moneyShort, monthAbbr, state, todayISO } from '../state';
+import { monthlyInvestmentGoalCLP, investmentGoalPct } from '../ui/donut';
+import { totalGoalProgress, goalsForPlatform, platformGoalsSummary, projectedContributions, renderEvolutionView, renderGoalEditForm, renderGoalCard, renderTotalChecksGrid } from './evolucion';
+import { CATEGORY_COLOR_CHOICES, CATEGORY_ICON_CHOICES, isCategoryInUse } from './menu';
+import { renderBalanceView, renderComingSoon, renderBudgetView } from './presupuesto';
+/* ===================== INVESTMENTS (Phase 4) ===================== */
 export function platformIds(){
-  return Object.keys(CATS).filter(k=>CATS[k].tipo==='inversion');
+  return Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo==='inversion');
 }
-// "Cerrar" una plataforma (ej: cerraste tu cuenta en Buda) no borra su historial — tus
-// transacciones pasadas de esa plataforma siguen intactas en Transacciones/Balance/
-// Presupuesto/Evolución, tal como fueron. Solo deja de contar hacia adelante: desaparece
-// de "Mis plataformas", del "Total invertido" y de la proyección a futuro.
-export function isPlatformArchived(id){ return !!(PLATAFORMA_DATA[id] && PLATAFORMA_DATA[id].archivada); }
+// "Closing" a platform (e.g. you closed your Buda account) does not erase its history — its
+// past transactions stay intact in Transactions/Balance/Budget/Evolution exactly as they were.
+// It just stops counting going forward: it disappears from "Mis plataformas", from "Total
+// invertido" and from the future projection.
+export function isPlatformArchived(id){ return !!(PLATFORM_DATA[id] && PLATFORM_DATA[id].archivada); }
 export function activePlatformIds(){ return platformIds().filter(id=>!isPlatformArchived(id)); }
 export function archivedPlatformIds(){ return platformIds().filter(id=>isPlatformArchived(id)); }
 export function platformAportadoNeto(id){
   let total = 0;
-  TX.forEach(t=>{
+  TRANSACTIONS.forEach(t=>{
     if(t.tipo!=='inversion') return;
     t.categorias.forEach(c=>{ if(c.cat===id) total += c.monto; });
   });
   return total;
 }
 export function platformValorMonths(id){
-  return MONTHS.filter(m=> PLATAFORMA_DATA[id].valorHistorial[m]!=null);
+  return MONTHS.filter(m=> PLATFORM_DATA[id].valorHistorial[m]!=null);
 }
-export function platformValorActual(id){
+export function platformCurrentValue(id){
   const months = platformValorMonths(id);
-  return months.length ? PLATAFORMA_DATA[id].valorHistorial[months[months.length-1]] : 0;
+  return months.length ? PLATFORM_DATA[id].valorHistorial[months[months.length-1]] : 0;
 }
 export function platformDiasDesdeActualizacion(id){
   const hoy = new Date(todayISO()+'T00:00:00');
-  const fecha = new Date(PLATAFORMA_DATA[id].fechaActualizacion+'T00:00:00');
+  const fecha = new Date(PLATFORM_DATA[id].fechaActualizacion+'T00:00:00');
   return Math.max(0, Math.round((hoy.getTime()-fecha.getTime())/86400000));
 }
-// El eje X del gráfico de inversiones siempre muestra el año calendario completo (enero a
-// diciembre) del año de HOY -- no un rango que dependa de qué meses tengan datos. Así, cuando
-// sea 2027, esto automáticamente devuelve los 12 meses de 2027 en vez de seguir mostrando 2026.
+// The investments chart's X axis always shows the full calendar year (January to December) of
+// TODAY's year -- not a range that depends on which months have data. That way, once it's
+// 2027, this automatically returns the 12 months of 2027 instead of still showing 2026.
 export function inversionesMonthsCalendarYear(){
   const year = todayISO().slice(0,4);
   const out = [];
   for(let m=1; m<=12; m++) out.push(year+'-'+String(m).padStart(2,'0'));
   return out;
 }
-// true si TODAS las plataformas activas ya tienen un valor guardado para ese mes -- se usa
-// para decidir si el mes tiene "dato real" o si el gráfico debe dejar un hueco ahí (mes futuro
-// que todavía no llega, o mes anterior a que existiera la plataforma).
+// true if ALL active platforms already have a stored value for that month -- used to decide
+// whether the month has "real data" or whether the chart should leave a gap there (a future
+// month that hasn't arrived yet, or a month before the platform existed).
 export function mesTieneValorParaTodas(monthKey){
   const ids = activePlatformIds();
-  return ids.length>0 && ids.every(id=>PLATAFORMA_DATA[id].valorHistorial[monthKey]!=null);
+  return ids.length>0 && ids.every(id=>PLATFORM_DATA[id].valorHistorial[monthKey]!=null);
 }
-// Aportado acumulado hasta ese mes (inclusive), sumando TODA la historia de transacciones de
-// inversión hasta esa fecha (no solo un rango fijo de meses) -- o null si ese mes no tiene dato
-// de valor para todas las plataformas, para que el gráfico deje un hueco en vez de un $0 falso.
+// Cumulative contributions up to that month (inclusive), summing ALL of the investment
+// transaction history up to that date (not just a fixed range of months) -- or null if that
+// month doesn't have a value for all platforms, so the chart leaves a gap instead of a false $0.
 export function aportadoAcumuladoHastaMesONull(monthKey){
   if(!mesTieneValorParaTodas(monthKey)) return null;
   let total = 0;
-  TX.forEach(t=>{
+  TRANSACTIONS.forEach(t=>{
     if(t.tipo!=='inversion' || t.estado==='no_es_gasto') return;
-    if(t.fecha.slice(0,7) <= monthKey) total += montoAgregadoTx(t);
+    if(t.fecha.slice(0,7) <= monthKey) total += aggregatedTxAmount(t);
   });
   return total;
 }
 export function valorTotalEnMesONull(monthKey){
   if(!mesTieneValorParaTodas(monthKey)) return null;
-  return activePlatformIds().reduce((s,id)=> s + (PLATAFORMA_DATA[id].valorHistorial[monthKey]||0), 0);
+  return activePlatformIds().reduce((s,id)=> s + (PLATFORM_DATA[id].valorHistorial[monthKey]||0), 0);
 }
 
-// Gráfico de líneas "aportado vs. valor". Eje X: 12 posiciones fijas (enero-diciembre), tengan
-// o no dato ese mes -- si una serie no tiene dato en un mes (null), esa serie simplemente deja
-// un hueco ahí en vez de inventar un valor (por eso se corta en tramos, no una sola ruta).
-// Eje Y: 3 etiquetas aproximadas (arriba/medio/abajo), con formato abreviado.
+// "Contributed vs. value" line chart. X axis: 12 fixed positions (January-December), whether
+// or not there's data that month -- if a series has no data for a month (null), that series
+// simply leaves a gap there instead of making up a value (that's why it's split into segments,
+// not a single path). Y axis: 3 approximate labels (top/middle/bottom), abbreviated format.
 export function buildDualLineChart(months, seriesA, seriesB, colorA, colorB){
   const W=320, H=180, padL=38, padR=8, padTop=16, padBottom=24;
   const plotW = W-padL-padR, plotH = H-padTop-padBottom;
@@ -123,7 +123,7 @@ export function buildDualLineChart(months, seriesA, seriesB, colorA, colorB){
   const lastA = ultimoPunto(seriesA), lastB = ultimoPunto(seriesB);
   let labelsFin = '';
   if(lastA && lastB){
-    // separa las etiquetas finales si los dos valores terminan muy cerca (para que no se encimen)
+    // push the end labels apart if the two values end up very close (so they don't overlap)
     let yA = lastA[1]-8, yB = lastB[1]-8;
     const minGap = 13;
     if(Math.abs(yA-yB) < minGap){
@@ -157,9 +157,9 @@ export function renderPlatformEditForm(id){
     '<label class="draft-label" style="margin-top:12px;">Crecimiento anual estimado (opcional)</label>'+
     '<input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="tasaAnual" value="'+d.tasaAnual+'" placeholder="Sin estimar, ej: 6">'+
     '<div class="platform-hint muted">Escríbelo solo si quieres que el valor "crezca" solo entre actualizaciones — la app no te sugiere ningún número. Déjalo vacío para que se mueva solo con tus aportes y retiros.</div>'+
-    // La comisión ahora vive en cada meta (depende del fondo/inversión específica) — acá
-    // solo se ofrece cuando la plataforma todavía no tiene ninguna meta propia.
-    (metasForPlataforma(id).length===0 ?
+    // comision now lives on each goal (it depends on the specific fund/investment) — here
+    // it's only offered when the platform doesn't yet have any goal of its own.
+    (goalsForPlatform(id).length===0 ?
       '<label class="draft-label" style="margin-top:12px;">Comisión anual / TAC (opcional)</label>'+
       '<input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="comision" value="'+d.comision+'" placeholder="Ej: 1.1">'+
       '<div class="platform-hint muted">El % que te cobra esta plataforma al año (TAC, comisión de administración, etc.) — ponlo tú, la app no te sugiere ningún número. Se calcula sobre tu ganancia, no sobre el total de la cuenta. Si más adelante le agregas metas, la comisión se define por cada una, ya que puede variar por fondo.</div>'
@@ -175,20 +175,20 @@ export function renderPlatformEditForm(id){
   '</div>';
 }
 
-// Si la plataforma nunca tuvo movimientos ni metas, se puede borrar de verdad (ej: la
-// creaste sin querer). Si ya tiene historial, "eliminar" borraría transacciones reales —
-// en vez de eso se ofrece "cerrar" (como cerrar una cuenta): deja de contar hacia adelante
-// pero conserva intacto todo lo que ya pasó. Con metas activas, hay que borrarlas primero
-// en cualquiera de los dos casos, para no dejarlas apuntando a una plataforma fantasma.
+// If the platform never had any transactions or goals, it can be deleted for real (e.g. you
+// created it by mistake). If it already has history, "deleting" would erase real transactions —
+// instead it offers "closing" it (like closing an account): it stops counting going forward but
+// keeps everything that already happened intact. With active goals, they have to be deleted
+// first in either case, so they don't end up pointing at a ghost platform.
 export function platformDeleteBlock(id){
-  const enUso = catEnUso(id);
-  const tieneMetas = metasForPlataforma(id).length>0;
+  const enUso = isCategoryInUse(id);
+  const tieneMetas = goalsForPlatform(id).length>0;
   if(tieneMetas){
     return '<div class="file-format-hint">No se puede cerrar ni eliminar: tiene metas asociadas. Elimínalas primero.</div>';
   }
   if(!enUso){
-    // Eliminar de verdad no tiene vuelta atrás (a diferencia de "cerrar", que se puede
-    // reabrir) — por eso pide confirmar antes de borrarla y su categoría de Menú.
+    // Actually deleting has no way back (unlike "closing", which can be reopened) — that's
+    // why it asks for confirmation before deleting it and its category in Menu.
     if(state.confirmDeletePlatformId===id){
       return '<div class="file-format-hint" style="margin-bottom:8px;">¿Eliminar esta plataforma? No se puede deshacer, y también desaparece de Menú &gt; Categorías.</div>'+
         '<div style="display:flex;gap:10px;">'+
@@ -209,9 +209,9 @@ export function platformDeleteBlock(id){
     '<div class="platform-hint muted">Deja de contar en "Mis plataformas" y en el total invertido — tus transacciones pasadas no se tocan.</div>';
 }
 
-// Crea una plataforma de inversión nueva (ej: "Banco Santander") — hasta ahora las categorías
-// de tipo inversión solo podían nacer si ya existían en la data semilla; esto le da a la
-// usuaria una forma real de agregar una plataforma que todavía no tiene.
+// Creates a new investment platform (e.g. "Banco Santander") — until now, categories of type
+// inversion could only come into being if they already existed in the seed data; this gives
+// the user a real way to add a platform she doesn't already have.
 export function renderNewPlatformForm(){
   const d = state.newPlatformDraft;
   return '<div class="card platform-card editing">'+
@@ -219,9 +219,9 @@ export function renderNewPlatformForm(){
     '<label class="draft-label">Nombre</label>'+
     '<input type="text" class="draft-input" data-newplatform-field="nombre" value="'+d.nombre+'" placeholder="Ej: Banco Santander">'+
     '<label class="draft-label" style="margin-top:12px;">Ícono</label>'+
-    '<div class="icon-picker">'+CAT_ICON_CHOICES.map(ic=>'<button type="button" data-newplatform-icon="'+ic+'" class="'+(d.icon===ic?'active':'')+'">'+ICONS[ic]+'</button>').join('')+'</div>'+
+    '<div class="icon-picker">'+CATEGORY_ICON_CHOICES.map(ic=>'<button type="button" data-newplatform-icon="'+ic+'" class="'+(d.icon===ic?'active':'')+'">'+ICONS[ic]+'</button>').join('')+'</div>'+
     '<label class="draft-label" style="margin-top:12px;">Color</label>'+
-    '<div class="color-picker">'+CAT_COLOR_CHOICES.map(c=>'<button type="button" data-newplatform-color="'+c+'" class="'+(d.color===c?'active':'')+'" style="--sw:var(--cat-'+c+'-fill)"></button>').join('')+'</div>'+
+    '<div class="color-picker">'+CATEGORY_COLOR_CHOICES.map(c=>'<button type="button" data-newplatform-color="'+c+'" class="'+(d.color===c?'active':'')+'" style="--sw:var(--cat-'+c+'-fill)"></button>').join('')+'</div>'+
     '<label class="draft-label" style="margin-top:12px;">Valor actual aproximado</label>'+
     '<input type="text" inputmode="decimal" class="draft-input tabular" data-newplatform-field="valor" value="'+d.valor+'" placeholder="0">'+
     '<div class="platform-hint muted">Si ya tienes plata en esta plataforma, pon cuánto vale hoy — si acabas de abrirla, déjalo en 0.</div>'+
@@ -234,26 +234,26 @@ export function renderNewPlatformForm(){
   '</div>';
 }
 
-// Antes cada plataforma se veía siempre desplegada por completo (valor, comisión, mini
-// gráfico mes a mes, y sus metas, todo junto y siempre a la vista) — mucho espacio para
-// revisar varias plataformas de un vistazo. Ahora es un acordeón: colapsada solo muestra
-// nombre + hace cuánto se actualizó + el total + una flecha; tocarla despliega el resto
-// (comisión, botones, y sus metas) debajo. Se sacó también el mini gráfico por plataforma
-// (quedaba redundante con el gráfico general de "Aportado vs. valor" más abajo) y se
-// renombró "Valor estimado" a algo que se entienda directo como el total de esa plataforma.
+// Previously each platform was always shown fully expanded (value, comision, month-by-month
+// mini chart, and its goals, all together and always visible) — that took a lot of space to
+// review several platforms at a glance. Now it's an accordion: collapsed it only shows the
+// name + how long since it was updated + the total + an arrow; tapping it expands the rest
+// (comision, buttons, and its goals) below. The per-platform mini chart was also removed
+// (it was redundant with the general "Aportado vs. valor" chart further down) and "Valor
+// estimado" was renamed to something that reads directly as that platform's total.
 export function renderPlatformGroup(id){
   if(state.editingPlatformId===id) return '<div class="platform-group">'+renderPlatformEditForm(id)+'</div>';
 
   const cat = catInfo(id);
-  const valorActual = platformValorActual(id);
+  const valorActual = platformCurrentValue(id);
   const aportado = platformAportadoNeto(id);
   const diff = valorActual - aportado;
   const dias = platformDiasDesdeActualizacion(id);
-  const stale = dias > DIAS_UMBRAL_ACTUALIZACION;
-  const tieneMetas = metasForPlataforma(id).length>0;
-  const comision = PLATAFORMA_DATA[id].comision;
-  // La comisión se cobra sobre la ganancia (total en la plataforma − aportado neto), nunca
-  // sobre el total de la cuenta — si no hay ganancia todavía, la comisión estimada es $0.
+  const stale = dias > UPDATE_THRESHOLD_DAYS;
+  const tieneMetas = goalsForPlatform(id).length>0;
+  const comision = PLATFORM_DATA[id].comision;
+  // comision is charged on the gain (total in the platform − net contributed), never on the
+  // account's total — if there's no gain yet, the estimated comision is $0.
   const ganancia = Math.max(0, diff);
   const comisionRow = (comision!=null && !tieneMetas) ? (
     '<div class="platform-comision-row">'+
@@ -261,7 +261,7 @@ export function renderPlatformGroup(id){
       '<span class="muted tabular">≈ '+money(ganancia*comision/100)+'/año sobre tu ganancia</span>'+
     '</div>'
   ) : '';
-  const open = state.platformAbierta===id;
+  const open = state.openPlatformId===id;
 
   const header =
     '<button class="platform-head-toggle" data-toggle-platform="'+id+'" aria-expanded="'+(open?'true':'false')+'">'+
@@ -276,8 +276,8 @@ export function renderPlatformGroup(id){
 
   if(!open) return '<div class="card platform-group">'+header+'</div>';
 
-  const {metas, totalObjetivo, totalAcumulado, rachaCombinada} = platformMetasResumen(id);
-  const addingHere = state.editingMetaId==='nueva' && state.addMetaPlataformaId===id;
+  const {metas, totalObjetivo, totalAcumulado, rachaCombinada} = platformGoalsSummary(id);
+  const addingHere = state.editingGoalId==='nueva' && state.addGoalPlatformId===id;
   const combinedPct = totalObjetivo>0 ? (totalAcumulado/totalObjetivo)*100 : 0;
   const combinedSummary = metas.length>0 ? (
     '<div class="platform-meta-summary">'+
@@ -289,10 +289,10 @@ export function renderPlatformGroup(id){
       '<div class="budget-track"><div class="budget-fill" style="width:'+Math.max(0,Math.min(100,combinedPct))+'%;background:var(--accent);"></div></div>'+
     '</div>'
   ) : '';
-  const metasBody = combinedSummary + metas.map(renderMetaGoalCard).join('') +
+  const metasBody = combinedSummary + metas.map(renderGoalCard).join('') +
     (addingHere
-      ? renderMetaEditForm(null, id)
-      : '<button class="budget-add-link platform-add-meta-link" data-add-meta="'+id+'">+ Agregar meta a '+cat.nombre+'</button>');
+      ? renderGoalEditForm(null, id)
+      : '<button class="budget-add-link platform-add-meta-link" data-add-goal="'+id+'">+ Agregar meta a '+cat.nombre+'</button>');
 
   const body =
     '<div class="platform-body">'+
@@ -302,13 +302,13 @@ export function renderPlatformGroup(id){
       '</div>'+
       '<div class="platform-diff-row">'+
         '<span class="platform-diff '+(diff>=0?'pos':'neg')+'">'+(diff>=0?'+':'−')+money(Math.abs(diff))+' aprox.</span>'+
-        // El chip de plazo solo se muestra si todavía no tiene metas propias — en cuanto
-        // agregas una meta, su plazo manda y este queda de más.
-        (!tieneMetas ? plazoChip(PLATAFORMA_DATA[id].plazo) : '')+
+        // The plazo chip is only shown if it doesn't have its own goals yet — as soon as
+        // you add a goal, its plazo takes over and this one becomes redundant.
+        (!tieneMetas ? termChip(PLATFORM_DATA[id].plazo) : '')+
       '</div>'+
       comisionRow+
       '<div class="platform-actions-row">'+
-        '<button class="budget-ver-mas" data-platform-vermas="'+id+'">Ver transacciones →</button>'+
+        '<button class="budget-ver-mas" data-platform-see-more="'+id+'">Ver transacciones →</button>'+
         '<button class="budget-edit-btn" data-edit-platform="'+id+'" aria-label="Actualizar valor de '+cat.nombre+'">'+ICONS.edit+'</button>'+
       '</div>'+
       '<div class="platform-goal-nest">'+metasBody+'</div>'+
@@ -317,9 +317,9 @@ export function renderPlatformGroup(id){
   return '<div class="card platform-group open">'+header+body+'</div>';
 }
 
-// Plataformas cerradas: no cuentan en "Mis plataformas" ni en el total, pero su historial
-// de transacciones sigue intacto — este bloque solo existe para poder reabrirlas si te
-// equivocaste, o para recordar que existieron.
+// Closed platforms: they don't count in "Mis plataformas" or in the total, but their
+// transaction history stays intact — this block only exists so you can reopen them if you
+// made a mistake, or to remember that they existed.
 export function renderArchivedPlatformsBlock(){
   const ids = archivedPlatformIds();
   if(!ids.length) return '';
@@ -332,27 +332,27 @@ export function renderArchivedPlatformsBlock(){
           '<span class="platform-name muted">'+cat.nombre+'</span>'+
           '<button class="budget-edit-btn" data-reopen-platform="'+id+'" aria-label="Reabrir '+cat.nombre+'">'+ICONS.repeat+'</button>'+
         '</div>'+
-        '<button class="budget-ver-mas" data-platform-vermas="'+id+'">Ver transacciones →</button>'+
+        '<button class="budget-ver-mas" data-platform-see-more="'+id+'">Ver transacciones →</button>'+
       '</div>';
     }).join('');
 }
 
-/* ---------- planificador de sueldo ---------- */
+/* ---------- salary planner ---------- */
 export function round1(n){ return Math.round(n*10)/10; }
 
 export function metasPorPlazo(plazo){
-  return METAS_INVERSION.filter(m=>(m.plazo||null)===plazo);
+  return INVESTMENT_GOALS.filter(m=>(m.plazo||null)===plazo);
 }
 export function planMetaRowHtml(meta){
-  const pct = PLANIFICADOR.metaPcts[meta.id] || 0;
+  const pct = PLANNER.metaPcts[meta.id] || 0;
   return '<div class="plan-row">'+
     '<div class="plan-name">'+meta.nombre+'<small>Meta de aporte: '+money(meta.aporteMensualMeta)+'/mes</small></div>'+
-    '<div class="plan-pctbox"><input type="text" inputmode="decimal" data-plan-meta-pct data-plan-meta-id="'+meta.id+'" value="'+pct+'"><span>%</span></div>'+
-    '<div class="plan-amt tabular" data-plan-meta-amt="'+meta.id+'"></div>'+
+    '<div class="plan-pctbox"><input type="text" inputmode="decimal" data-plan-goal-pct data-plan-goal-id="'+meta.id+'" value="'+pct+'"><span>%</span></div>'+
+    '<div class="plan-amt tabular" data-plan-goal-amt="'+meta.id+'"></div>'+
   '</div>';
 }
 export function planGroupBlock(plazoKey){
-  const info = PLAZO_META[plazoKey];
+  const info = GOAL_TERM[plazoKey];
   const metas = metasPorPlazo(plazoKey);
   const rows = metas.length
     ? metas.map(planMetaRowHtml).join('')
@@ -365,7 +365,7 @@ export function planGroupBlock(plazoKey){
 }
 
 export function renderPlanificadorSection(){
-  const P = PLANIFICADOR;
+  const P = PLANNER;
   const defaultBase = computeDefaultPlanBase();
   const mesActualLabel = MONTH_LABEL[todayISO().slice(0,7)] || '';
 
@@ -392,16 +392,16 @@ export function renderPlanificadorSection(){
     '</div>';
 }
 
-// Recalcula solo los números de la card de proyección al vivo, sin re-renderizar todo
-// (así los inputs de % de retorno/inflación no pierden el foco mientras se escribe).
+// Recomputes only the numbers on the projection card live, without re-rendering everything
+// (that way the return/inflation % inputs don't lose focus while typing).
 export function updateProyeccionCompute(){
-  const proy = proyeccionAportes(3, 20);
-  const totalEl = document.querySelector('[data-proy-total]');
+  const proy = projectedContributions(3, 20);
+  const totalEl = document.querySelector('[data-proj-total]');
   if(totalEl) totalEl.textContent = money(proy.proyectadoConRetorno);
 }
 
 export function updatePlanCompute(){
-  const P = PLANIFICADOR;
+  const P = PLANNER;
   const base = P.base;
   const groupPct = {corto:0, medio:0, largo:0};
 
@@ -409,7 +409,7 @@ export function updatePlanCompute(){
     metasPorPlazo(plazoKey).forEach(meta=>{
       const pct = P.metaPcts[meta.id] || 0;
       groupPct[plazoKey] += pct;
-      const el = document.querySelector('[data-plan-meta-amt="'+meta.id+'"]');
+      const el = document.querySelector('[data-plan-goal-amt="'+meta.id+'"]');
       if(el) el.textContent = money(base*pct/100);
     });
     const pctEl = document.querySelector('[data-plan-group-pct="'+plazoKey+'"]'); if(pctEl) pctEl.textContent = String(round1(groupPct[plazoKey]));
@@ -458,43 +458,44 @@ export function updatePlanCompute(){
   }
 }
 
-export function renderInversionesView(){
+export function renderInvestmentsView(){
   const ids = activePlatformIds();
-  const totalValor = ids.reduce((s,id)=>s+platformValorActual(id),0);
+  const totalValor = ids.reduce((s,id)=>s+platformCurrentValue(id),0);
   const totalAportado = ids.reduce((s,id)=>s+platformAportadoNeto(id),0);
   const totalDiff = totalValor - totalAportado;
   const invMonths = inversionesMonthsCalendarYear();
   const aportadoSerie = invMonths.map(aportadoAcumuladoHastaMesONull);
   const valorSerie = invMonths.map(valorTotalEnMesONull);
 
-  const {totalObjetivo, totalAcumulado} = metaProgresoTotal();
+  const {totalObjetivo, totalAcumulado} = totalGoalProgress();
   const metaPct = totalObjetivo>0 ? (totalAcumulado/totalObjetivo)*100 : 0;
-  // Una sola card: el total invertido (aplica siempre, tengas o no metas) y, si tienes al
-  // menos una meta con monto objetivo, el progreso hacia esas metas como bloque secundario
-  // dentro de la misma card — antes eran dos cards separadas y no quedaba claro que "objetivo"
-  // solo suma las plataformas con meta, mientras "total invertido" suma todo.
-  const goalBlock = METAS_INVERSION.length ? (
+  // A single card: the total invested (always applies, whether or not you have goals) and, if
+  // you have at least one goal with a montoObjetivo, the progress toward those goals as a
+  // secondary block inside the same card — previously these were two separate cards and it
+  // wasn't clear that "objetivo" only adds up the platforms with a goal, while "total invertido"
+  // adds up everything.
+  const goalBlock = INVESTMENT_GOALS.length ? (
     '<div class="platform-total-goal-block">'+
       '<div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversión '+todayISO().slice(0,4)+' (todas tus metas)</div>'+
       '<div class="platform-total-value tabular" style="font-size:20px;">'+money(totalAcumulado)+'<span class="of-text"> de '+money(totalObjetivo)+'</span></div>'+
       '<div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:'+Math.max(0,Math.min(100,metaPct))+'%;background:var(--accent);"></div></div>'+
-      '<div class="platform-total-sub"><span>'+Math.round(metaPct)+'% completado entre '+METAS_INVERSION.length+' '+(METAS_INVERSION.length===1?'meta':'metas')+'</span></div>'+
-      // Detalle chico: cuánto es, en plata, "todas tus metas" sumadas por mes — y de paso deja
-      // claro que ese mismo número es el que define tu % de meta de Inversión en Balance.
-      '<div class="platform-total-sub" style="margin-top:2px;color:var(--text-tertiary);font-size:11.5px;">Aporte mensual objetivo: <b class="tabular">'+money(metaInversionMensualCLP())+'</b> · '+Math.round(metaInversionPct())+'% de tus ingresos</div>'+
-      renderMetaTotalChecksGrid()+
+      '<div class="platform-total-sub"><span>'+Math.round(metaPct)+'% completado entre '+INVESTMENT_GOALS.length+' '+(INVESTMENT_GOALS.length===1?'meta':'metas')+'</span></div>'+
+      // Small detail: how much "all your goals" adds up to per month, in money — and along the
+      // way makes clear that this same number is what defines your Investment goal % in Balance.
+      '<div class="platform-total-sub" style="margin-top:2px;color:var(--text-tertiary);font-size:11.5px;">Aporte mensual objetivo: <b class="tabular">'+money(monthlyInvestmentGoalCLP())+'</b> · '+Math.round(investmentGoalPct())+'% de tus ingresos</div>'+
+      renderTotalChecksGrid()+
     '</div>'
   ) : '';
 
-  const proy = proyeccionAportes(3, 20);
+  const proy = projectedContributions(3, 20);
   const proyeccionCard = proy.meses.length>=2 ? (
     '<div class="card proyeccion-card">'+
       '<div class="proyeccion-head"><span class="proyeccion-icon">'+ICONS.sparkle+'</span><span class="proyeccion-title">Simulador</span></div>'+
-      '<div class="proyeccion-value tabular" data-proy-total>'+money(proy.proyectadoConRetorno)+'</div>'+
+      '<div class="proyeccion-value tabular" data-proj-total>'+money(proy.proyectadoConRetorno)+'</div>'+
       '<div class="proyeccion-sub">en '+proy.anios+' años · pesos de hoy</div>'+
-      '<div class="proyeccion-text">Aportando <input type="text" inputmode="numeric" class="proy-inline-input proy-aporte-input" data-proy-aporte-input placeholder="'+moneyPlain(Math.round(proy.promedioMensual))+'" value="'+(state.proySimulatedAporte!=null?moneyPlain(state.proySimulatedAporte):'')+'">/mes al '+
-        '<input type="text" inputmode="decimal" class="proy-inline-input" data-proy-retorno-input value="'+proy.retornoAnual+'">% anual, −'+
-        '<input type="text" inputmode="decimal" class="proy-inline-input" data-proy-inflacion-input value="'+proy.inflacionAnual+'">% inflación.</div>'+
+      '<div class="proyeccion-text">Aportando <input type="text" inputmode="numeric" class="proy-inline-input proy-aporte-input" data-proj-contribution-input placeholder="'+moneyPlain(Math.round(proy.promedioMensual))+'" value="'+(state.simulatedContribution!=null?moneyPlain(state.simulatedContribution):'')+'">/mes al '+
+        '<input type="text" inputmode="decimal" class="proy-inline-input" data-proj-return-input value="'+proy.retornoAnual+'">% anual, −'+
+        '<input type="text" inputmode="decimal" class="proy-inline-input" data-proj-inflation-input value="'+proy.inflacionAnual+'">% inflación.</div>'+
       '<div class="proyeccion-caption">Promedio de tus últimas 3 inversiones mensuales: <b class="tabular">'+money(proy.promedioMensual)+'</b></div>'+
     '</div>'
   ) : '';
@@ -533,12 +534,12 @@ export function renderInversionesView(){
   updatePlanCompute();
 }
 
-export function renderResumenSubContent(){
-  if(state.resumenSub==='balance') renderBalanceView();
-  else if(state.resumenSub==='presupuesto') renderPresupuestoView();
-  else if(state.resumenSub==='evolucion') renderEvolucionView();
-  else if(state.resumenSub==='inversiones') renderInversionesView();
-  else renderComingSoon(state.resumenSub);
+export function renderSummarySubContent(){
+  if(state.summarySub==='balance') renderBalanceView();
+  else if(state.summarySub==='presupuesto') renderBudgetView();
+  else if(state.summarySub==='evolucion') renderEvolutionView();
+  else if(state.summarySub==='inversiones') renderInvestmentsView();
+  else renderComingSoon(state.summarySub);
 }
 
 export const SUBS_META = {
@@ -547,18 +548,18 @@ export const SUBS_META = {
   evolucion:{label:'Evolución'},
   inversiones:{label:'Inversiones'}
 };
-// El cuerpo interno de la barra de sub-tabs, aparte, para poder repintar SOLO esto
-// mientras se arrastra una pestaña (sin tocar #resumen-content ni perder el drag).
-export function renderResumenSubtabsInner(){
-  return state.resumenSubOrder.map(id=>
-    '<button class="subtab '+(state.resumenSub===id?'active':'')+(state.subtabDragId===id?' dragging':'')+'" data-resumen-sub="'+id+'">'+SUBS_META[id].label+'</button>'
+// The inner body of the sub-tabs bar, separated out, so it can be repainted for ONLY this
+// while a tab is being dragged (without touching #resumen-content or losing the drag).
+export function renderSummarySubtabsInner(){
+  return state.summarySubOrder.map(id=>
+    '<button class="subtab '+(state.summarySub===id?'active':'')+(state.subtabDragId===id?' dragging':'')+'" data-summary-sub="'+id+'">'+SUBS_META[id].label+'</button>'
   ).join('');
 }
 
-export function renderResumenView(){
+export function renderSummaryView(){
   document.getElementById('header-title').textContent = 'Resumen';
-  const subHtml = '<div class="subtabs" id="resumen-subtabs">'+renderResumenSubtabsInner()+'</div>';
+  const subHtml = '<div class="subtabs" id="resumen-subtabs">'+renderSummarySubtabsInner()+'</div>';
   document.getElementById('view-root').innerHTML = subHtml + '<div id="resumen-content"></div>';
-  renderResumenSubContent();
+  renderSummarySubContent();
 }
 

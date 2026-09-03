@@ -1,14 +1,15 @@
 import { monthLabelFor } from './shared-expenses';
-import { AppState, Categoria, GastoCompartido, Grupo, GrupoParticipante, MapeoCategoria, Medio, SaldoPagado, Transaccion } from './types';
+import { AppState, Category, SharedExpense, Group, GroupParticipant, CategoryMapping, PaymentMethod, PaidBalance, Transaction } from './types';
 import { monthTotals } from './views/evolucion';
 import { round1 } from './views/inversiones';
 /* ===================== DATA MODEL ===================== */
-// Categorías por defecto (Fase "diseño de categorías") — nombre, tipo, color e ícono definidos
-// a pedido: el ícono ahora es directamente un emoji (no un nombre del set ICONS de arriba),
-// gracias a catIconMarkup(). Las de tipo 'inversion' (fintual/racional/banco_chile/buda) NO son
-// categorías libres: son las plataformas de inversión reales, ligadas a PLATAFORMA_DATA y a
-// METAS_INVERSION.plataformaId — por eso se dejaron con su ícono de siempre en vez de emoji.
-export const CATS: Record<string, Categoria> = {
+// Default categories ("category design" phase) — name, type, color and icon defined on
+// request: the icon is now directly an emoji (not a name from the ICONS set above), thanks to
+// catIconMarkup(). The 'inversion' type ones (fintual/racional/banco_chile/buda) are NOT free
+// categories: they're the real investment platforms, tied to PLATFORM_DATA and to
+// INVESTMENT_GOALS.plataformaId — that's why they were left with their usual icon instead of
+// an emoji.
+export const CATEGORIES: Record<string, Category> = {
   supermercado:{nombre:'Supermercado', tipo:'gasto', color:'mint', icon:'🛒'},
   restoranes:{nombre:'Restoranes y bares', tipo:'gasto', color:'peach', icon:'🍽️'},
   transporte:{nombre:'Transporte', tipo:'gasto', color:'sky', icon:'🚕'},
@@ -31,27 +32,27 @@ export const CATS: Record<string, Categoria> = {
   banco_chile:{nombre:'Banco de Chile', tipo:'inversion', color:'butter', icon:'bank'},
   buda:{nombre:'Buda (cripto)', tipo:'inversion', color:'pink', icon:'coin'}
 };
-// Snapshot de categorías "de fábrica" (solo gasto/ingreso, sin plataformas de inversión —
-// esas las crea cada quien desde cero) — se toma UNA vez acá, antes de que nada la toque,
-// para poder armar el estado inicial de una cuenta nueva de verdad sin arrastrar los datos
-// de ejemplo (Fran/Cata/Sushi Itto, etc.) de esta maqueta.
-export const CATS_SEED_DEFAULTS = (function(){
+// Snapshot of the "factory" categories (only gasto/ingreso, no investment platforms — each
+// person creates those from scratch) — taken ONCE here, before anything touches it, so the
+// initial state of a truly new account can be built without dragging along the sample data
+// (Fran/Cata/Sushi Itto, etc.) from this mockup.
+export const CATEGORY_SEED_DEFAULTS = (function(){
   const out = {};
-  Object.keys(CATS).forEach(function(k){ if(CATS[k].tipo!=='inversion') out[k] = Object.assign({}, CATS[k]); });
+  Object.keys(CATEGORIES).forEach(function(k){ if(CATEGORIES[k].tipo!=='inversion') out[k] = Object.assign({}, CATEGORIES[k]); });
   return out;
 })();
-export const MEDIOS: Record<string, Medio> = {
+export const PAYMENT_METHODS: Record<string, PaymentMethod> = {
   visa_bch:{nombre:'Visa Banco de Chile', corto:'•••• 4821', icon:'card'},
   debito_bci:{nombre:'Débito BCI', corto:'•••• 9034', icon:'card'},
   cuenta_vista:{nombre:'Cuenta Vista', corto:'Cta. Vista', icon:'bank'},
   efectivo:{nombre:'Efectivo', corto:'Efectivo', icon:'cash'}
 };
-export const CONTACTOS = ['Cata','Fran','Pancho','Mamá'];
+export const CONTACTS = ['Cata','Fran','Pancho','Mamá'];
 
-// Presupuesto (Fase 2): meta mensual + alertas por categoría de gasto.
-// Sólo las categorías presentes acá tienen presupuesto asignado; el resto
-// se muestra con un "+ Agregar presupuesto" para simular el estado vacío.
-export let PRESUPUESTOS = {
+// Budget (Phase 2): monthly goal + alerts per expense category.
+// Only the categories present here have a budget assigned; the rest are shown with a
+// "+ Add budget" to simulate the empty state.
+export let BUDGETS = {
   supermercado:{meta:180000, alertas:{80:true,90:true,100:true}},
   transporte:{meta:90000, alertas:{80:true,90:false,100:true}},
   restoranes:{meta:60000, alertas:{80:true,90:true,100:true}},
@@ -59,31 +60,31 @@ export let PRESUPUESTOS = {
   salud:{meta:30000, alertas:{80:true,90:true,100:true}},
   suscripciones:{meta:15000, alertas:{80:true,90:true,100:true}}
 };
-export let presupuestoTotalMensual = 900000;
+export let monthlyBudgetTotal = 900000;
 
-// Metas de Fijo/Variable como % de tus ingresos (editable en Presupuesto) — la de Inversión
-// NO se guarda acá: sale sola de la suma de "aporteMensualMeta" de tus metas en Inversiones,
-// para no tener el mismo número escrito en dos partes de la app.
-export let METAS_GASTO_PCT = {fijo:45, variable:17};
+// Fixed/Variable goals as a % of your income (editable in Budget) — the Investment one is
+// NOT stored here: it comes by itself from the sum of "aporteMensualMeta" of your goals in
+// Investments, so the same number isn't written in two places of the app.
+export let SPENDING_GOAL_PCT = {fijo:45, variable:17};
 
-// Tus datos de transferencia (Menú > Mi cuenta) — para poder copiar de un tiro, en formato
-// listo para pegar en WhatsApp, un cobro pendiente + cómo te pueden transferir. Nunca se
-// manda a ninguna parte sola: solo se usa para armar el texto que TÚ decides copiar y pegar.
-export let DATOS_TRANSFERENCIA = {nombre:'', rut:'', banco:'', tipoCuenta:'', numeroCuenta:'', email:''};
+// Your transfer info (Menu > My account) — so a pending charge + how you can be paid can be
+// copied in one shot, ready to paste into WhatsApp. It's never sent anywhere by itself: it's
+// only used to build the text that YOU decide to copy and paste.
+export let TRANSFER_INFO = {nombre:'', rut:'', banco:'', tipoCuenta:'', numeroCuenta:'', email:''};
 
-// Metas de inversión estilo Fintual (Fase 3): objetivo + aporte mensual meta +
-// historial de monto acumulado por mes + check manual de cumplimiento por mes.
-export let metaIdCounter = 3;
-export let importIdCounter = 0; // contador de ids para transacciones creadas por "Importar CSV de cartola" (Menú)
-// Todavía sin tipar (queda para una próxima pasada de la migración, según lo conversado --
-// esta primera pasada se enfocó en el modelo de datos de Transacciones). "any[]" es explícito
-// a propósito, para no dejar pasar un tipo inferido de la data de ejemplo por accidente.
-export let METAS_INVERSION: any[] = [
+// Fintual-style investment goals (Phase 3): target + monthly goal contribution + accumulated
+// amount history per month + manual completion check per month.
+export let goalIdCounter = 3;
+export let importIdCounter = 0; // id counter for transactions created via "Import statement CSV" (Menu)
+// Still untyped (left for a future pass of the migration, as discussed -- this first pass
+// focused on the Transactions data model). "any[]" is explicit on purpose, so an inferred type
+// from the sample data doesn't sneak in by accident.
+export let INVESTMENT_GOALS: any[] = [
   {
     id:'m1', nombre:'Fondo de emergencia', montoObjetivo:3000000, aporteMensualMeta:150000, plataformaId:'banco_chile', plazo:'corto', comision:null,
-    // aportadoNeto: cuánto de lo acumulado es plata que tú pusiste (a diferencia de las
-    // plataformas, acá no hay transacciones por meta para calcularlo solo, así que se
-    // guarda directo) — la diferencia con "acumulado" es la ganancia real de esta meta.
+    // aportadoNeto: how much of what's accumulated is money YOU put in (unlike the platforms,
+    // there are no transactions per goal here to calculate it on its own, so it's stored
+    // directly) — the difference with "accumulated" is this goal's real profit.
     aportadoNeto:2150000,
     historial:{'2026-04':1700000,'2026-05':1850000,'2026-06':1900000,'2026-07':2050000,'2026-08':2200000},
     checks:{'2026-04':true,'2026-05':true,'2026-06':false,'2026-07':true,'2026-08':true}
@@ -96,25 +97,26 @@ export let METAS_INVERSION: any[] = [
   }
 ];
 
-// Check manual mes a mes de "¿cumplí mi objetivo de inversión TOTAL este mes?" — independiente
-// de los checks de cada meta individual (esos ya existen dentro de cada meta). Es una marca
-// que tú pones a mano, no algo que la app calcule sola: un mes puede faltar (todavía no llega,
-// o simplemente no lo has marcado) y eso se ve igual que "no marcado", nunca como "false".
-export let METAS_TOTAL_CHECKS = {'2026-01':true,'2026-02':true,'2026-03':true,'2026-04':true,'2026-05':true,'2026-06':false,'2026-07':true,'2026-08':true};
+// Manual month-by-month check of "did I hit my TOTAL investment goal this month?" —
+// independent of each individual goal's own checks (those already exist inside each goal).
+// It's a mark you set by hand, not something the app calculates on its own: a month can be
+// missing (hasn't arrived yet, or you simply haven't marked it) and that looks the same as
+// "unmarked", never as "false".
+export let TOTAL_GOAL_CHECKS = {'2026-01':true,'2026-02':true,'2026-03':true,'2026-04':true,'2026-05':true,'2026-06':false,'2026-07':true,'2026-08':true};
 
-// Qué avisos de presupuesto (catId+mes+umbral, ej. "supermercado|2026-09|80") ya se mandaron
-// como notificación push, para no repetirla cada vez que se recalcula el gasto del mes —
-// ver checkPresupuestoPushAvisos(). Viaja en el respaldo/app_state para no re-avisar apenas
-// se recarga la app en otro dispositivo.
-export let PRESUPUESTO_AVISOS_ENVIADOS = {};
+// Which budget alerts (catId+month+threshold, e.g. "supermercado|2026-09|80") have already
+// been sent as a push notification, so it's not repeated every time the month's spending is
+// recalculated — see checkBudgetPushAlerts(). Travels in the backup/app_state so it
+// doesn't re-notify as soon as the app reloads on another device.
+export let BUDGET_ALERTS_SENT = {};
 
-// Inversiones por plataforma (Fase 4): valor aproximado que la usuaria actualiza a mano
-// de vez en cuando (valorHistorial = lo que iba ingresando cada mes), fecha de la última
-// actualización real y una tasa de crecimiento anual opcional (apagada por defecto, sin
-// ningún porcentaje sugerido por la app). El "aportado neto" no se guarda acá — se calcula
-// siempre desde las transacciones de tipo inversión ya clasificadas.
-export const DIAS_UMBRAL_ACTUALIZACION = 30;
-export let PLATAFORMA_DATA = {
+// Investments by platform (Phase 4): approximate value the user updates by hand every now and
+// then (valorHistorial = what was entered each month), date of the last real update and an
+// optional annual growth rate (off by default, with no percentage suggested by the app). "Net
+// contributed" isn't stored here — it's always calculated from the already-classified
+// investment-type transactions.
+export const UPDATE_THRESHOLD_DAYS = 30;
+export let PLATFORM_DATA = {
   fintual:{
     valorHistorial:{'2026-04':81600,'2026-05':185400,'2026-06':291200,'2026-07':395600,'2026-08':504000},
     fechaActualizacion:'2026-08-20', tasaAnual:null, comision:null, plazo:'largo'
@@ -124,9 +126,10 @@ export let PLATAFORMA_DATA = {
     fechaActualizacion:'2026-07-10', tasaAnual:null, comision:null, plazo:'largo'
   },
   banco_chile:{
-    // Es la cuenta de ahorro donde viven "Fondo de emergencia" + "Pie departamento" (no el APV,
-    // que en realidad está en Fintual) — por eso el valor acá es la suma de esas dos metas mes a mes.
-    // Sin plazo propio: sus dos metas ya traen el suyo (corto/medio) por separado.
+    // This is the savings account where "Fondo de emergencia" + "Pie departamento" live (not
+    // the APV, which is actually in Fintual) — that's why the value here is the sum of those
+    // two goals month by month.
+    // No term of its own: its two goals already bring their own (corto/medio) separately.
     valorHistorial:{'2026-04':3700000,'2026-05':4150000,'2026-06':4500000,'2026-07':5000000,'2026-08':5500000},
     fechaActualizacion:'2026-06-15', tasaAnual:null, comision:null, plazo:null
   },
@@ -136,38 +139,38 @@ export let PLATAFORMA_DATA = {
   }
 };
 
-// Planificador de sueldo (Fase 4, sub-sección dentro de Inversiones).
-// Ya no reparte el sueldo completo (fijo + libre): ahora es puramente "cuánto de mi
-// excedente mensual mando a cada meta de inversión", agrupado por plazo (Corto/Medio/
-// Largo, el mismo sistema de plazo que ya existe en Inversiones), más un sub-reparto de
-// cómo se compone la pata de largo plazo (ETF/cripto/especulativo).
+// Salary planner (Phase 4, sub-section within Investments).
+// It no longer splits the whole salary (fixed + free): now it's purely "how much of my
+// monthly surplus goes to each investment goal", grouped by term (Short/Medium/Long, the same
+// term system that already exists in Investments), plus a sub-split of how the long-term leg
+// is made up (ETF/crypto/speculative).
 export function computeDefaultPlanBase(){
-  const mesActual = todayISO().slice(0,7);
-  const t = monthTotals(mesActual);
+  const currentMonth = todayISO().slice(0,7);
+  const t = monthTotals(currentMonth);
   return Math.max(0, Math.round(t.ingresos - t.gastos));
 }
-export function computeDefaultMetaPcts(base){
+export function computeDefaultGoalPcts(base){
   const out = {};
-  METAS_INVERSION.forEach(m=>{
+  INVESTMENT_GOALS.forEach(m=>{
     out[m.id] = base>0 ? round1(m.aporteMensualMeta/base*100) : 0;
   });
   return out;
 }
-export function getPlanificadorDefaults(){
+export function getPlannerDefaults(){
   const base = computeDefaultPlanBase();
   return {
     base,
-    metaPcts: computeDefaultMetaPcts(base)
+    metaPcts: computeDefaultGoalPcts(base)
   };
 }
-// PLANIFICADOR se inicializa más abajo, después de declarar TX y MONTHS — su valor por
-// defecto depende de monthTotals(), que necesita ambos ya definidos.
+// PLANNER is initialized further below, after declaring TRANSACTIONS and MONTHS — its default
+// value depends on monthTotals(), which needs both already defined.
 
-// Cada transacción: id, fecha, hora, comercio, monto, medio, tipo, recurrencia, estado, categorias:[{cat,monto}],
-// porCobrar:[{persona,monto,pagado,tipo:'persona'|'reembolso',montoRecibido,linkedTxId}] (persona = nombre o entidad
-// que te debe/reembolsa; monto puede ser null cuando es un reembolso de monto desconocido; montoRecibido/linkedTxId
-// se llenan solo al vincular un depósito real — ver resolvePendiente), reglaAuto, nota
-export let TX: Transaccion[] = [
+// Each transaction: id, fecha, hora, comercio, monto, medio, tipo, recurrencia, estado, categorias:[{cat,monto}],
+// porCobrar:[{persona,monto,pagado,tipo:'persona'|'reembolso',montoRecibido,linkedTxId}] (persona = name or entity
+// that owes you/is reimbursing you; monto can be null when it's a reimbursement of unknown amount; montoRecibido/
+// linkedTxId are only filled in when linking a real deposit — see resolvePending), reglaAuto, nota
+export let TRANSACTIONS: Transaction[] = [
   {id:'t1',fecha:'2026-08-28',hora:'09:12',comercio:'Jumbo Ñuñoa',monto:45000,medio:'debito_bci',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'supermercado',monto:31500},{cat:'hogar',monto:13500}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t2',fecha:'2026-08-28',hora:'08:05',comercio:'Copec Providencia',monto:18000,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'transporte',monto:18000}],porCobrar:[],reglaAuto:true,nota:''},
   {id:'t3',fecha:'2026-08-27',hora:'20:40',comercio:'Uber',monto:6200,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'transporte',monto:6200}],porCobrar:[],reglaAuto:false,nota:''},
@@ -179,9 +182,10 @@ export let TX: Transaccion[] = [
   {id:'t9',fecha:'2026-08-22',hora:'10:00',comercio:'Aporte Fintual',monto:100000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'fintual',monto:100000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t70',fecha:'2026-08-16',hora:'11:40',comercio:'Retiro parcial Buda',monto:-20000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'buda',monto:-20000}],porCobrar:[],reglaAuto:false,nota:'Retiro'},
   {id:'t71',fecha:'2026-07-20',hora:'10:00',comercio:'Reembolso Isapre',monto:7500,medio:'cuenta_vista',tipo:'ingreso',recurrencia:'variable',estado:'confirmado',categorias:[],porCobrar:[],reglaAuto:false,nota:''},
-  // Fran te transfirió su parte de Restobar Lastarria (t5) — un depósito real, vinculado a ese
-  // pendiente tipo 'persona'. Esa plata NO debe sumar en "Ingresos": ya se descontó de "Gastos"
-  // al dividir la cuenta, así que contarla de nuevo acá la duplicaría a tu favor.
+  // Fran transferred you her share of Restobar Lastarria (t5) — a real deposit, linked to that
+  // 'persona' type pending item. That money must NOT add to "Income": it was already deducted
+  // from "Expenses" when the bill was split, so counting it again here would double it in your
+  // favor.
   {id:'t72',fecha:'2026-08-27',hora:'10:15',comercio:'Transferencia de Fran',monto:21333,medio:'cuenta_vista',tipo:'ingreso',recurrencia:'variable',estado:'confirmado',categorias:[],porCobrar:[],reglaAuto:false,nota:'Su parte de la cena en Restobar Lastarria'},
   {id:'t10',fecha:'2026-08-21',hora:'18:22',comercio:'Cine Hoyts Costanera',monto:12000,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'entretenimiento',monto:12000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t11',fecha:'2026-08-20',hora:'09:00',comercio:'Freelance diseño web',monto:180000,medio:'cuenta_vista',tipo:'ingreso',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'pololos_extra',monto:180000}],porCobrar:[],reglaAuto:false,nota:''},
@@ -247,30 +251,32 @@ export let TX: Transaccion[] = [
   {id:'t69',fecha:'2026-04-02',hora:'10:00',comercio:'Aporte Banco de Chile',monto:30000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'banco_chile',monto:30000}],porCobrar:[],reglaAuto:false,nota:''}
 ];
 
-// Ahora que TX y METAS_INVERSION ya existen, se puede calcular el default real
-// (ingresos − gastos del mes actual, y el % por meta que cubre su aporte mensual meta).
-export let PLANIFICADOR = getPlanificadorDefaults();
+// Now that TRANSACTIONS and INVESTMENT_GOALS already exist, the real default can be computed
+// (income − expenses of the current month, and the % per goal that its monthly goal
+// contribution covers).
+export let PLANNER = getPlannerDefaults();
 
-/* ---- Gastos compartidos: datos sincronizados desde Supabase, NUNCA desde app_state ----
-   A diferencia de TX/CATS/MEDIOS/etc. (que viven en app_state, privado por hogar), esto se
-   lee/escribe directo en las tablas de supabase/schema_gastos_compartidos.sql -- un grupo
-   puede juntar participantes de cuentas/hogares distintos, así que no puede vivir en un
-   blob que es privado de un solo hogar. En modo demo (o antes de que cargue la sesión real)
-   quedan arreglos vacíos; sincronizarGastosCompartidos() los llena después de auth. */
-export let GRUPOS: Grupo[] = [];
-export let GRUPO_PARTICIPANTES: GrupoParticipante[] = [];
-export let GASTOS_COMPARTIDOS: GastoCompartido[] = [];
-export let SALDOS_PAGADOS: SaldoPagado[] = [];
-export let MAPEO_CATEGORIAS: MapeoCategoria[] = [];
+/* ---- Shared expenses: data synced from Supabase, NEVER from app_state ----
+   Unlike TRANSACTIONS/CATEGORIES/PAYMENT_METHODS/etc. (which live in app_state, private per
+   household), this is read/written directly on the tables in
+   supabase/schema_gastos_compartidos.sql -- a group can bring together participants from
+   different accounts/households, so it can't live in a blob that's private to a single
+   household. In demo mode (or before the real session loads) these stay empty arrays;
+   syncSharedExpenses() fills them in after auth. */
+export let GROUPS: Group[] = [];
+export let GROUP_PARTICIPANTS: GroupParticipant[] = [];
+export let SHARED_EXPENSES: SharedExpense[] = [];
+export let PAID_BALANCES: PaidBalance[] = [];
+export let CATEGORY_MAPPINGS: CategoryMapping[] = [];
 
 export const MONTHS = ['2026-04','2026-05','2026-06','2026-07','2026-08'];
 export const MONTH_LABEL = {'2026-04':'Abril 2026','2026-05':'Mayo 2026','2026-06':'Junio 2026','2026-07':'Julio 2026','2026-08':'Agosto 2026'};
-export const MESES_LARGO=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+export const MONTHS_LONG=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
-// El índice del mes REAL de hoy dentro de MONTHS — nunca "el último mes del arreglo", porque
-// las cuotas de tarjeta (regenerateCuotasFor) empujan meses futuros hacia adelante en MONTHS
-// (si compraste algo en 6 cuotas este mes, MONTHS se extiende varios meses hacia el futuro), y
-// por eso Balance/Presupuesto deben abrir siempre en el mes de hoy, no en ese mes futuro.
+// The index of TODAY's REAL month within MONTHS — never "the last month in the array", because
+// card installments (regenerateInstallmentsFor) push future months forward into MONTHS (if you
+// bought something in 6 installments this month, MONTHS extends several months into the
+// future), and that's why Balance/Budget must always open on today's month, not that future one.
 export function currentMonthIndex(){
   const ym = todayISO().slice(0,7);
   if(!MONTHS.includes(ym)){ MONTHS.push(ym); MONTHS.sort(); if(!MONTH_LABEL[ym]) MONTH_LABEL[ym] = monthLabelFor(ym); }
@@ -278,18 +284,18 @@ export function currentMonthIndex(){
 }
 
 export const fmt = new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0});
-// En Modo demo, cualquier monto mostrado (no editable) se enmascara acá mismo — un solo
-// punto de cambio que cubre toda la app sin tocar cada vista una por una.
+// In Demo mode, any displayed (non-editable) amount is masked right here — a single point of
+// change that covers the whole app without touching each view one by one.
 export function money(n){ return state.demoMode ? '$••••••' : fmt.format(Math.round(n)); }
 export function moneyPlain(n){ return new Intl.NumberFormat('es-CL',{maximumFractionDigits:0}).format(Math.round(n)); }
-// moneyPlain() por sí sola NO se enmascara (la usan también los inputs editables, que deben
-// seguir mostrando el número real mientras se completan) — para texto de solo lectura que use
-// el formato "plain" (sin "$"), como el centro del donut o las etiquetas de un gráfico, hay que
-// pasar por acá en vez de moneyPlain() directo.
+// moneyPlain() by itself is NOT masked (it's also used by editable inputs, which must keep
+// showing the real number while being filled in) — for read-only text that should use the
+// "plain" format (no "$"), like the donut's center or a chart's labels, you need to go through
+// here instead of moneyPlain() directly.
 export function moneyPlainMasked(n){ return state.demoMode ? '••••••' : moneyPlain(n); }
-// Formato abreviado ("$1,2M", "$45K") para las etiquetas del eje Y del gráfico de inversiones
-// -- son valores "aprox" a propósito, no cada peso exacto, así que no tiene sentido mostrar el
-// monto completo ahí. Coma como separador decimal, como el resto del formato chileno de la app.
+// Abbreviated format ("$1,2M", "$45K") for the Y-axis labels of the investments chart -- these
+// are "approx" values on purpose, not each exact peso, so showing the full amount there doesn't
+// make sense. Comma as the decimal separator, like the rest of the app's Chilean formatting.
 export function moneyShort(n){
   const abs = Math.abs(Math.round(n));
   const sign = n<0 ? '−' : '';
@@ -297,10 +303,10 @@ export function moneyShort(n){
   if(abs>=1000) return sign+'$'+Math.round(abs/1000)+'K';
   return sign+'$'+abs;
 }
-// Nombre corto de un mes (1=enero ... 12=diciembre), reusando MESES_LARGO en vez de mantener
-// otra lista de nombres aparte.
+// Short name of a month (1=enero ... 12=diciembre), reusing MONTHS_LONG instead of keeping
+// another separate list of names.
 export function monthAbbr(monthNum1based){
-  const s = MESES_LARGO[monthNum1based-1];
+  const s = MONTHS_LONG[monthNum1based-1];
   return s.charAt(0).toUpperCase()+s.slice(1,3);
 }
 
@@ -308,7 +314,7 @@ export function monthAbbr(monthNum1based){
 /* ===================== STATE ===================== */
 export const state: AppState = {
   tab:'transacciones',        // transacciones | resumen | menu
-  resumenSub:'balance',       // balance | presupuesto | evolucion | inversiones
+  summarySub:'balance',       // balance | presupuesto | evolucion | inversiones
   filter:'todas',             // todas | entradas | porcobrar | pendientes
   categoryFilter:null,        // cat id or null
   categoryFilterMonth:null,   // 'YYYY-MM' or null, set together with categoryFilter from a Balance drill-down
@@ -316,109 +322,109 @@ export const state: AppState = {
   openTxId:null,
   creatingNew:false,
   draftTx:null,
-  splitCatMode:{},            // per tx id: bool
-  splitCatUnit:{},            // per tx id: '%'|'$'
-  splitCobroMode:{},
-  splitCobroUnit:{},
-  categoryEditMode:{},        // per tx id: bool — true mientras se está reeligiendo la categoría
-  searchQuery:'',             // texto libre para buscar por comercio en Transacciones
+  splitCategoryMode:{},       // per tx id: bool
+  splitCategoryUnit:{},       // per tx id: '%'|'$'
+  splitCollectMode:{},
+  splitCollectUnit:{},
+  categoryEditMode:{},        // per tx id: bool — true while the category is being re-picked
+  searchQuery:'',             // free text to search by merchant in Transactions
   advFilters:{cats:[], medios:[], dateFrom:'', dateTo:''},
   filterSheetOpen:false,
-  addingMedio:false,          // true mientras se muestra el mini-formulario "agregar tarjeta"
-  newMedioDraft:{nombre:'', ultimos4:''},
-  editingBudgetCat:null,       // catId en edición inline, o null
+  addingPaymentMethod:false,  // true while the "add card" mini-form is shown
+  newPaymentMethodDraft:{nombre:'', ultimos4:''},
+  editingBudgetCat:null,       // catId being edited inline, or null
   budgetDraft:{meta:'', alertas:{80:true,90:true,100:true}},
   editingBudgetTotal:false,
   budgetTotalDraft:'',
-  editingMetasGasto:false,
-  metasGastoDraft:{fijo:'', variable:''},
-  editingDatosTransferencia:false,
-  datosTransferenciaDraft:{nombre:'', rut:'', banco:'', tipoCuenta:'', numeroCuenta:'', email:''},
-  editingMetaId:null,          // id de meta en edición, o 'nueva', o null
-  metaDraft:{nombre:'', montoObjetivo:'', aporteMensualMeta:'', plazo:'', comision:''},
-  addMetaPlataformaId:null,    // plataforma a la que quedará asociada una meta nueva
-  evoSelectedMonth:null,       // mes tocado en el gráfico de Evolución, o null (= último mes)
-  platformAbierta:null,        // id de la plataforma con el acordeón desplegado en Inversiones, o null (todas cerradas)
-  editingPlatformId:null,      // id de plataforma en edición ("actualizar valor"), o null
+  editingSpendingGoals:false,
+  spendingGoalsDraft:{fijo:'', variable:''},
+  editingTransferInfo:false,
+  transferInfoDraft:{nombre:'', rut:'', banco:'', tipoCuenta:'', numeroCuenta:'', email:''},
+  editingGoalId:null,          // id of the goal being edited, or 'nueva', or null
+  goalDraft:{nombre:'', montoObjetivo:'', aporteMensualMeta:'', plazo:'', comision:''},
+  addGoalPlatformId:null,      // platform a new goal will end up associated with
+  evolutionSelectedMonth:null, // month tapped on the Evolution chart, or null (= latest month)
+  openPlatformId:null,         // id of the platform with its accordion expanded in Investments, or null (all closed)
+  editingPlatformId:null,      // id of the platform being edited ("update value"), or null
   platformDraft:{valor:'', tasaAnual:'', comision:'', plazo:''},
-  creatingPlatform:false,      // true mientras se muestra el formulario de "nueva plataforma"
-  confirmDeletePlatformId:null, // id de la plataforma para la que se está mostrando "¿seguro?" antes de eliminarla de verdad
-  confirmArchivePlatformId:null, // mismo "¿seguro?" pero para "cerrar" una plataforma (reversible, pero igual se pregunta)
+  creatingPlatform:false,      // true while the "new platform" form is shown
+  confirmDeletePlatformId:null, // id of the platform showing "are you sure?" before actually deleting it
+  confirmArchivePlatformId:null, // same "are you sure?" but for "closing" a platform (reversible, but still asked)
   newPlatformDraft:{nombre:'', icon:'bank', color:'butter', valor:'', plazo:''},
-  // Monto mensual que la usuaria escribió a mano en el simulador de Inversiones, reemplazando
-  // el promedio real de sus últimos 3 meses -- null mientras no lo toque (usa el promedio).
-  proySimulatedAporte:null,
-  resumenSubOrder:['balance','presupuesto','evolucion','inversiones'], // orden de sub-tabs de Resumen, reordenable con drag and drop
-  subtabDragId:null,           // id de la sub-tab que se está arrastrando ahora mismo, o null
+  // Monthly amount the user typed by hand in the Investments simulator, replacing the real
+  // average of their last 3 months -- null while untouched (uses the average).
+  simulatedContribution:null,
+  summarySubOrder:['balance','presupuesto','evolucion','inversiones'], // order of Summary sub-tabs, reorderable via drag and drop
+  subtabDragId:null,           // id of the sub-tab currently being dragged, or null
 
-  // ---- Menú ----
+  // ---- Menu ----
   menuSection:null,            // null | 'categorias' | 'medios' | 'reglas' | 'exportar' | 'respaldo' | 'importar' | 'demo' | 'asesoria' | 'cuenta' | 'importarcorreo' | 'notificaciones'
-  importCorreoLoaded:false,     // si ya se cargó el código de importación al menos una vez
-  importCorreoLoading:false,
-  importCorreoError:null,
-  importToken:null,             // código de importación del hogar (households.import_token), para el Apps Script y el Worker de push
-  // ---- Notificaciones push (nueva transacción importada, alerta de presupuesto) ----
-  notifLoaded:false,            // si ya se revisó el estado de la suscripción de este navegador al menos una vez
+  emailImportLoaded:false,     // whether the import code has already been loaded at least once
+  emailImportLoading:false,
+  emailImportError:null,
+  importToken:null,             // household's import code (households.import_token), for Apps Script and the push Worker
+  // ---- Push notifications (new imported transaction, budget alert) ----
+  notifLoaded:false,            // whether this browser's subscription status has already been checked at least once
   notifLoading:false,
   notifError:null,
-  notifSubscribed:false,        // si ESTE navegador ya tiene una suscripción push guardada
-  notifBusy:false,              // activando/desactivando ahora mismo (deshabilita el botón)
-  notifTestBusy:false,          // mandando el aviso de prueba ahora mismo
-  notifTestResult:null,         // texto con el resultado real del Worker (a diferencia de enviarPushHogar, este SÍ espera la respuesta)
-  confirmDeleteTxId:null,       // id de la transacción para la que se está mostrando "¿seguro que quieres borrarla?"
-  sueldoBannerDescartadoMes:null, // 'YYYY-MM' del mes en que se apretó "Todavía no" en la sugerencia de sueldo
-  editingCatId:null,           // catId en edición, 'nueva', o null
+  notifSubscribed:false,        // whether THIS browser already has a push subscription saved
+  notifBusy:false,              // subscribing/unsubscribing right now (disables the button)
+  notifTestBusy:false,          // sending the test notification right now
+  notifTestResult:null,         // text with the Worker's actual result (unlike enviarPushHogar, this one DOES wait for the response)
+  confirmDeleteTxId:null,       // id of the transaction showing "are you sure you want to delete it?"
+  salaryBannerDismissedMonth:null, // 'YYYY-MM' of the month "Not now" was tapped on the salary suggestion
+  editingCategoryId:null,      // catId being edited, 'nueva', or null
   catDraft:{nombre:'', tipo:'gasto', color:'sage', icon:'more'},
-  editingMedioId:null,         // medioId en edición, 'nueva', o null (distinto del mini-form dentro de la hoja de nueva transacción)
+  editingPaymentMethodId:null, // medioId being edited, 'nueva', or null (different from the mini-form inside the new-transaction sheet)
   medioDraft:{nombre:'', corto:'', icon:'card'},
   demoMode:false,
-  importSummary:null,          // resultado del último CSV importado, para mostrarlo en pantalla
+  importSummary:null,          // result of the last CSV imported, to show on screen
   reconciliar:{
-    archivo:null,               // nombre del PDF leído
+    archivo:null,               // name of the PDF that was read
     cargando:false,
     error:null,
     tipo:null,                  // 'cuenta_corriente' | 'tarjeta_nacional'
     movimientos:[],             // [{fecha,detalle,monto,tipoMov,esEspecial,yaRegistrada,idSugerido}]
-    pagosTarjeta: null,         // resumen aparte para las filas "CARGO POR PAGO TC"
-    disponibles:[],             // cartolas que llegaron solas por correo, todavía sin usar
-    usandoId:null,              // id de la que se está por abrir (pidiendo la clave), o null
+    pagosTarjeta: null,         // separate summary for the "CARGO POR PAGO TC" rows
+    disponibles:[],             // statements that arrived by themselves via email, not used yet
+    usandoId:null,              // id of the one about to be opened (asking for the password), or null
     passwordDraft:'',
     errorPassword:null,
-    archivoBuffer:null,          // ArrayBuffer de un PDF elegido a mano que pidió clave, mientras se espera que la escriba
-    archivoNombrePendiente:null  // nombre de ese archivo, o null si no hay ninguno pendiente de clave
+    archivoBuffer:null,          // ArrayBuffer of a manually chosen PDF that asked for a password, while waiting for it to be typed
+    archivoNombrePendiente:null  // name of that file, or null if none is pending a password
   },
 
-  // ---- Cobros y reembolsos pendientes (vincular un depósito a un pendiente, o viceversa) ----
-  linkFlow:null,                // null | {mode:'fromPendiente', gastoTxId, idx} | {mode:'fromIngreso', ingresoTxId}
+  // ---- Pending charges and reimbursements (link a deposit to a pending item, or vice versa) ----
+  linkFlow:null,                // null | {mode:'fromPendiente', expenseTxId, idx} | {mode:'fromIngreso', incomeTxId}
 
-  // ---- Dividir boleta (simulado: sin OCR ni link real) ----
-  boleta:null,                 // null cuando el asistente está cerrado, o {step, gastoTxId, comercio, items, asign} —
-                                // siempre asociado a una transacción ya existente marcada "por cobrar"
+  // ---- Split receipt (simulated: no OCR or real link) ----
+  boleta:null,                 // null when the assistant is closed, or {step, expenseTxId, comercio, items, asign} —
+                                // always tied to an already-existing transaction marked "por cobrar"
 
-  // ---- Gastos compartidos ----
-  espacio:'personal',          // 'personal' | grupoId — qué espacio se está mirando ahora mismo
-  grupoAbiertoId:null,         // grupoId cuya vista de detalle está abierta, o null (lista de grupos)
-  creandoGrupo:false,          // true mientras se muestra el formulario "Crear grupo"
-  grupoDraft:{nombre:'', icono:'👥'},
-  uniendoAGrupo:false,         // true mientras se muestra el formulario "Unirme con un código"
+  // ---- Shared expenses ----
+  workspace:'personal',        // 'personal' | groupId — which workspace is being viewed right now
+  openGroupId:null,            // groupId whose detail view is open, or null (group list)
+  creatingGroup:false,          // true while the "Create group" form is shown
+  groupDraft:{nombre:'', icono:'👥'},
+  joiningGroup:false,           // true while the "Join with a code" form is shown
   joinDraft:{inviteCode:'', nombre:''},
-  agregandoParticipante:false, // true mientras se muestra "Agregar persona" (sin cuenta) dentro de un grupo
-  participanteDraft:{nombre:''},
-  saldarConId:null,            // participanteId con quien se está por registrar "Saldar cuentas", o null
-  // "Compartir con un grupo" dentro del detalle/creación de una transacción de gasto:
-  compartirDraft:null,         // null, o {grupoId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
-  confirmDeleteGrupoId:null,
-  // grupoId de origen cuando "nueva transacción" se abrió desde el botón "Agregar un gasto" de
-  // un grupo (en vez del + de Transacciones) -- saveDraftTx() lo usa para, al guardar, dejar
-  // la transacción abierta en su detalle con "Compartir con un grupo" ya precargado con este
-  // grupo, en vez de volver a la lista de Transacciones como en el flujo normal.
-  crearGastoDesdeGrupoId:null
+  addingParticipant:false,      // true while "Add person" (no account) inside a group is shown
+  participantDraft:{nombre:''},
+  settleWithId:null,            // participantId being "Settled up" right now, or null
+  // "Share with a group" inside a expense transaction's detail/creation:
+  shareDraft:null,              // null, or {groupId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
+  confirmDeleteGroupId:null,
+  // groupId of origin when "new transaction" was opened from a group's "Add an expense"
+  // button (instead of Transactions' +) -- saveDraftTx() uses it to, on save, leave the
+  // transaction open in its detail with "Share with a group" already pre-filled with this
+  // group, instead of going back to the Transactions list like in the normal flow.
+  createExpenseFromGroupId:null
 };
-export let subtabDrag = null;         // bookkeeping transitorio del drag (no es parte de state: no se pinta directo)
+export let subtabDrag = null;         // transient drag bookkeeping (not part of state: not rendered directly)
 export let suppressNextSubtabClick = false;
 
-// Antes de conectar la cuenta real esto devolvía una fecha fija ('2026-08-28', el "hoy" de
-// la maqueta de demostración) — con datos reales de verdad tiene que ser el día de hoy.
+// Before connecting the real account this returned a fixed date ('2026-08-28', the demo
+// mockup's "today") — with real data it has to be today's actual date.
 export function todayISO(){
   const d = new Date();
   const mm = String(d.getMonth()+1).padStart(2,'0');
@@ -431,36 +437,36 @@ export function normalize(s){
 
 
 /* ===================== SETTERS =====================
-   Varias de las variables de arriba (TX, PRESUPUESTOS, METAS_INVERSION, PLATAFORMA_DATA,
-   PLANIFICADOR, METAS_TOTAL_CHECKS, PRESUPUESTO_AVISOS_ENVIADOS, GRUPOS, GRUPO_PARTICIPANTES,
-   GASTOS_COMPARTIDOS, SALDOS_PAGADOS, MAPEO_CATEGORIAS, DATOS_TRANSFERENCIA,
-   presupuestoTotalMensual) no solo se mutan en el mismo objeto/arreglo -- se REASIGNAN
-   enteras desde otros módulos (por ejemplo al cargar el estado real desde Supabase, o al
-   filtrar TX tras borrar una transacción). Un import { TX } de ES modules es de solo lectura
-   (TS2632: "Cannot assign to 'TX' because it is an import"), así que los módulos que
-   necesitan reemplazar el valor completo llaman a estos setters en vez de reasignar
-   directo -- son el único lugar fuera de este archivo donde el valor de estas variables
-   cambia de raíz. CATS, MEDIOS, MONTHS y MONTH_LABEL no están acá porque nunca se reasignan
-   así: se vacían y se vuelven a llenar en el mismo objeto/arreglo (const de toda la vida). */
-export function setTX(v: Transaccion[]){ TX = v; }
-export function setPRESUPUESTOS(v){ PRESUPUESTOS = v; }
-export function setPresupuestoTotalMensual(v){ presupuestoTotalMensual = v; }
-export function setMETAS_GASTO_PCT(v){ METAS_GASTO_PCT = v; }
-export function setDATOS_TRANSFERENCIA(v){ DATOS_TRANSFERENCIA = v; }
-export function setMETAS_INVERSION(v){ METAS_INVERSION = v; }
-export function setPLATAFORMA_DATA(v){ PLATAFORMA_DATA = v; }
-export function setMETAS_TOTAL_CHECKS(v){ METAS_TOTAL_CHECKS = v; }
-export function setPRESUPUESTO_AVISOS_ENVIADOS(v){ PRESUPUESTO_AVISOS_ENVIADOS = v; }
-export function setPLANIFICADOR(v){ PLANIFICADOR = v; }
-export function setGRUPOS(v: Grupo[]){ GRUPOS = v; }
-export function setGRUPO_PARTICIPANTES(v: GrupoParticipante[]){ GRUPO_PARTICIPANTES = v; }
-export function setGASTOS_COMPARTIDOS(v: GastoCompartido[]){ GASTOS_COMPARTIDOS = v; }
-export function setSALDOS_PAGADOS(v: SaldoPagado[]){ SALDOS_PAGADOS = v; }
-export function setMAPEO_CATEGORIAS(v: MapeoCategoria[]){ MAPEO_CATEGORIAS = v; }
-// metaIdCounter/importIdCounter/subtabDrag/suppressNextSubtabClick: mismo motivo, otros
-// módulos (events.ts, views/menu.ts, supabase.ts) los reasignan por completo (o los
-// incrementan, que también cuenta como reasignación del binding).
-export function setMetaIdCounter(v){ metaIdCounter = v; }
+   Several of the variables above (TRANSACTIONS, BUDGETS, INVESTMENT_GOALS, PLATFORM_DATA,
+   PLANNER, TOTAL_GOAL_CHECKS, BUDGET_ALERTS_SENT, GROUPS, GROUP_PARTICIPANTS, SHARED_EXPENSES,
+   PAID_BALANCES, CATEGORY_MAPPINGS, TRANSFER_INFO, monthlyBudgetTotal) aren't just mutated in
+   place -- they get REASSIGNED wholesale from other modules (for example when loading the real
+   state from Supabase, or when filtering TRANSACTIONS after deleting a transaction). An
+   ES-modules `import { TRANSACTIONS }` is read-only (TS2632: "Cannot assign to 'TRANSACTIONS'
+   because it is an import"), so the modules that need to replace the whole value call these
+   setters instead of reassigning directly -- they're the only place outside this file where
+   these variables' value changes from the root. CATEGORIES, PAYMENT_METHODS, MONTHS and
+   MONTH_LABEL aren't here because they're never reassigned like that: they're emptied and
+   refilled in the same object/array (a plain old const). */
+export function setTransactions(v: Transaction[]){ TRANSACTIONS = v; }
+export function setBudgets(v){ BUDGETS = v; }
+export function setMonthlyBudgetTotal(v){ monthlyBudgetTotal = v; }
+export function setSpendingGoalPct(v){ SPENDING_GOAL_PCT = v; }
+export function setTransferInfo(v){ TRANSFER_INFO = v; }
+export function setInvestmentGoals(v){ INVESTMENT_GOALS = v; }
+export function setPlatformData(v){ PLATFORM_DATA = v; }
+export function setTotalGoalChecks(v){ TOTAL_GOAL_CHECKS = v; }
+export function setBudgetAlertsSent(v){ BUDGET_ALERTS_SENT = v; }
+export function setPlanner(v){ PLANNER = v; }
+export function setGroups(v: Group[]){ GROUPS = v; }
+export function setGroupParticipants(v: GroupParticipant[]){ GROUP_PARTICIPANTS = v; }
+export function setSharedExpenses(v: SharedExpense[]){ SHARED_EXPENSES = v; }
+export function setPaidBalances(v: PaidBalance[]){ PAID_BALANCES = v; }
+export function setCategoryMappings(v: CategoryMapping[]){ CATEGORY_MAPPINGS = v; }
+// goalIdCounter/importIdCounter/subtabDrag/suppressNextSubtabClick: same reason, other modules
+// (events.ts, views/menu.ts, supabase.ts) reassign them wholesale (or increment them, which
+// also counts as reassigning the binding).
+export function setGoalIdCounter(v){ goalIdCounter = v; }
 export function setImportIdCounter(v){ importIdCounter = v; }
 export function nextImportId(){ importIdCounter++; return importIdCounter; }
 export function setSubtabDrag(v){ subtabDrag = v; }

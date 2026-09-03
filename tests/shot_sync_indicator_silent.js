@@ -1,9 +1,9 @@
-// Regresión: la usuaria pidió que la app NUNCA le diga explícitamente "guardando..."/"guardado"
-// -- que el guardado pase invisible, y que se entienda solo (sin avisar con texto). El único
-// caso en el que sí debe aparecer algo visible es un error real de conexión ("no se guardó"),
-// porque ahí sí importa que la persona sepa que algo no se guardó. Este test llama directo a
-// updateSyncIndicator() (la función real que usa el flujo de autosave con Supabase) con cada
-// estado posible y verifica qué queda visible en cada caso.
+// Regression: the user asked that the app NEVER explicitly tell her "saving..."/"saved"
+// -- saving should be invisible and just work implicitly (no text notification). The only
+// case where something visible should appear is a real connection error ("not saved"),
+// because there it does matter that the person knows something wasn't saved. This test calls
+// updateSyncIndicator() directly (the real function used by the Supabase autosave flow) with each
+// possible state and verifies what stays visible in each case.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -23,7 +23,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
     D.updateSyncIndicator('error');
     const error = leer();
 
-    // Volver a un estado bueno (ej: se recuperó la conexión) debe volver a ocultarlo.
+    // Returning to a good state (e.g. connection recovered) should hide it again.
     D.updateSyncIndicator('saved');
     const trasRecuperar = leer();
 

@@ -1,19 +1,19 @@
 /* ===================== ENTRY POINT =====================
-   Este archivo es lo único que apunta rebuild.py a tsc/esbuild -- ver tsconfig.json e
-   "include". Ya no es una sola IIFE gigante: importa cada módulo bajo src/ (uno por
-   sección/vista, ver DOCUMENTACION.md sección 2) y, al final, corre exactamente el mismo
-   código de arranque que corría al final del app.ts original de una sola pieza (registrar
-   listeners, hacer el primer render() con los datos de ejemplo, y recién después arrancar
-   Supabase/auth) -- el orden importa, por eso initSupabaseAuth() se llama a mano acá, después
-   del primer render(), en vez de dejar que Supabase se auto-ejecute con solo importar ese
-   módulo (ver la nota junto a "export let sb" en supabase.ts). esbuild empaqueta todos estos
-   módulos en un único IIFE (--format=iife), así que el resultado final sigue siendo el mismo
-   script autocontenido de siempre. */
+   This file is the only thing rebuild.py points tsc/esbuild at -- see tsconfig.json and
+   "include". It's no longer one giant IIFE: it imports every module under src/ (one per
+   section/view, see DOCUMENTACION.md section 2) and, at the end, runs exactly the same
+   startup code that used to run at the end of the original single-piece app.ts (register
+   listeners, do the first render() with the sample data, and only afterward start
+   Supabase/auth) -- order matters, that's why initSupabaseAuth() is called by hand here, after
+   the first render(), instead of letting Supabase auto-run just from importing that module
+   (see the note next to "export let sb" in supabase.ts). esbuild bundles all these modules
+   into a single IIFE (--format=iife), so the final result is still the same self-contained
+   script as always. */
 
 import { ICONS } from './icons';
 import './state';
 import './helpers';
-import { regenerateCuotasFor } from './shared-expenses';
+import { regenerateInstallmentsFor } from './shared-expenses';
 import './ui/toasts';
 import './ui/tabbar';
 import './ui/donut';
@@ -28,15 +28,15 @@ import './sheet';
 import './events';
 import { initSupabaseAuth } from './supabase';
 
-/* ---------- alto real de pantalla en modo "agregado a inicio" (PWA standalone) ----------
-   En iOS, cuando la app está agregada a la pantalla de inicio (sin barra de navegador),
-   a veces el primer dibujo usa un alto de pantalla que todavía no incluye del todo el área
-   bajo la barra de estado / sobre el "home indicator" — 100dvh y env(safe-area-inset-bottom)
-   deberían resolverlo solos, pero en algunos iPhone queda un resto de espacio vacío (del
-   color de fondo de la página) debajo de la barra inferior hasta que la app se repinta.
-   Guardamos el alto real en una variable CSS y la recalculamos ante cualquier evento que
-   pueda cambiarlo, para que .phone (que la usa como respaldo de 100dvh) siempre calce con
-   la pantalla real y no se quede pegada a una medida vieja. */
+/* ---------- real screen height in "added to home screen" mode (PWA standalone) ----------
+   On iOS, when the app is added to the home screen (no browser chrome), sometimes the first
+   paint uses a screen height that doesn't yet fully include the area under the status bar /
+   above the "home indicator" — 100dvh and env(safe-area-inset-bottom) should resolve this on
+   their own, but on some iPhones there's a leftover strip of empty space (the page's
+   background color) below the bottom bar until the app repaints.
+   We store the real height in a CSS variable and recompute it on any event that could change
+   it, so .phone (which uses it as a fallback for 100dvh) always matches the real screen and
+   never stays stuck on a stale measurement. */
 function setAppHeight(){
   document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
 }
@@ -50,10 +50,10 @@ if(window.visualViewport){
 
 document.getElementById('fab-add').innerHTML = ICONS.plus;
 document.getElementById('auth-brand-icon').innerHTML = ICONS.lock;
-regenerateCuotasFor('t31');
+regenerateInstallmentsFor('t31');
 render();
 
-// Todo lo de arriba corre igual que la maqueta (datos de ejemplo). Recién acá arranca
-// Supabase: crea el cliente, engancha los listeners de auth/guardado automático, y revisa si
-// ya había una sesión abierta -- ver la nota larga junto a initSupabaseAuth() en supabase.ts.
+// Everything above runs the same as the mockup (sample data). Only here does Supabase start:
+// it creates the client, hooks up the auth/auto-save listeners, and checks whether there was
+// already an open session -- see the long note next to initSupabaseAuth() in supabase.ts.
 initSupabaseAuth();

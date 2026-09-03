@@ -3,9 +3,9 @@ const { openApp, check, finish } = require('./lib/test_kit');
 (async () => {
   const { context, browser, page, errors } = await openApp();
 
-  // 1) Balance debe abrir en el mes real de hoy, no en un mes futuro. Derivamos "hoy" del
-  // propio todayISO()/MONTH_LABEL de la app (no lo hardcodeamos) para que este test no se
-  // rompa solo porque el calendario real avanzó de un mes a otro.
+  // 1) Balance should open on today's real month, not a future month. We derive "today" from
+  // the app's own todayISO()/MONTH_LABEL (we don't hardcode it) so this test doesn't
+  // break just because the real calendar advanced from one month to another.
   await page.click('[data-tab="resumen"]');
   await page.waitForTimeout(150);
   const hoyInfo = await page.evaluate(() => {
@@ -16,8 +16,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
   const monthLabel = await page.evaluate(() => document.querySelector('.month-switcher .m-label').textContent);
   check('Balance abre en el mes actual (' + hoyInfo.expectedLabel + ')', monthLabel === hoyInfo.expectedLabel, { label: monthLabel, expected: hoyInfo.expectedLabel });
 
-  // 1b) Simular que una cuota futura empujó MONTHS hasta enero 2027, y confirmar que igual
-  //     currentMonthIndex() apunta al mes real de hoy, no al último mes del arreglo.
+  // 1b) Simulate a future installment pushing MONTHS out to January 2027, and confirm that
+  //     currentMonthIndex() still points at today's real month, not the last month in the array.
   const idxCheck = await page.evaluate(() => {
     const D = window.__debug;
     if (!D.MONTHS.includes('2027-01')) { D.MONTHS.push('2027-01'); D.MONTHS.sort(); }
@@ -26,7 +26,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('MONTHS ahora incluye un mes futuro (simulado)', idxCheck.months.includes('2027-01'), { lastMonth: idxCheck.lastMonth });
   check('Pero monthIndex sigue apuntando al mes actual, no se movió solo (' + hoyInfo.ym + ')', idxCheck.months[idxCheck.idx] === hoyInfo.ym);
 
-  // 2) "Por cobrar" y "Reembolso" ahora son chips separados.
+  // 2) "Por cobrar" and "Reembolso" are now separate chips.
   await page.click('[data-tab="transacciones"]');
   await page.waitForTimeout(150);
   const chipLabels = await page.evaluate(() => Array.from(document.querySelectorAll('.chip-row .chip')).map(b => b.textContent));
@@ -42,18 +42,18 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(150);
   const tagsReembolso = await page.evaluate(() => Array.from(document.querySelectorAll('.tx-state')).map(e => e.textContent));
   check('En el filtro "Reembolso" SÍ aparece la etiqueta "Reembolso" y no "Por cobrar"', tagsReembolso.includes('Reembolso') && !tagsReembolso.includes('Por cobrar'), { tagsReembolso });
-  const reembolsoCount = await page.evaluate(() => window.__debug.TX.filter(t => t.estado==='por_cobrar' && t.porCobrar.some(p=>p.tipo==='reembolso')).length);
+  const reembolsoCount = await page.evaluate(() => window.__debug.TRANSACTIONS.filter(t => t.estado==='por_cobrar' && t.porCobrar.some(p=>p.tipo==='reembolso')).length);
   check('Cantidad de transacciones tipo reembolso (esperado 2)', reembolsoCount === 2, { reembolsoCount });
 
-  // 3) El botón "Listo" vive en una barra de acciones junto al de borrar: chico y rojo el de
-  // borrar (izquierda), grande el de "Listo" (derecha) -- este layout es un pedido explícito de
-  // la usuaria (antes "Listo" era una pastilla chica y centrada sola; ahora comparte fila con
-  // borrar y debe verse como la acción principal, no como un botón secundario).
+  // 3) The "Listo" button lives in an action bar next to the delete button: small and red for
+  // delete (left), large for "Listo" (right) -- this layout is an explicit request from
+  // the user (before, "Listo" was a small pill centered alone; now it shares a row with
+  // delete and should look like the main action, not a secondary button).
   await page.click('[data-filter="todas"]');
   await page.waitForTimeout(100);
-  const tx = await page.evaluate(() => window.__debug.TX[0]);
+  const tx = await page.evaluate(() => window.__debug.TRANSACTIONS[0]);
   await page.evaluate((id) => { window.__debug.openSheetForTest && window.__debug.openSheetForTest(id); }, tx.id);
-  // abrir por click real en vez de depender de un helper que no existe:
+  // open via a real click instead of relying on a helper that doesn't exist:
   await page.click('.tx-item');
   await page.waitForTimeout(200);
   const listoInfo = await page.evaluate(() => {
@@ -74,10 +74,10 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
 
-  // 4) Presupuesto: indicador chico de si las categorías calzan con el presupuesto total.
+  // 4) Budget: small indicator of whether categories match up with the total budget.
   await page.click('[data-tab="resumen"]');
   await page.waitForTimeout(100);
-  await page.click('[data-resumen-sub="presupuesto"]');
+  await page.click('[data-summary-sub="presupuesto"]');
   await page.waitForTimeout(150);
   const calceInfo = await page.evaluate(() => {
     const el = document.querySelector('.budget-cats-calce');

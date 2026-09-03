@@ -5,15 +5,15 @@ const { openApp, check, finish } = require('./lib/test_kit');
 
   const result = await page.evaluate(() => {
     const D = window.__debug;
-    const antes = Object.keys(D.MEDIOS).length;
-    const id1 = D.ensureMedioForSugerido('****0507');
-    const despues = Object.keys(D.MEDIOS).length;
-    const medioCreado = D.MEDIOS[id1];
-    const id2 = D.ensureMedioForSugerido('****0507');
-    const totalTrasSegunda = Object.keys(D.MEDIOS).length;
-    const id3 = D.ensureMedioForSugerido('****4821');
-    const totalTrasExistente = Object.keys(D.MEDIOS).length;
-    const id4 = D.ensureMedioForSugerido(null);
+    const antes = Object.keys(D.PAYMENT_METHODS).length;
+    const id1 = D.ensurePaymentMethodForSuggestion('****0507');
+    const despues = Object.keys(D.PAYMENT_METHODS).length;
+    const medioCreado = D.PAYMENT_METHODS[id1];
+    const id2 = D.ensurePaymentMethodForSuggestion('****0507');
+    const totalTrasSegunda = Object.keys(D.PAYMENT_METHODS).length;
+    const id3 = D.ensurePaymentMethodForSuggestion('****4821');
+    const totalTrasExistente = Object.keys(D.PAYMENT_METHODS).length;
+    const id4 = D.ensurePaymentMethodForSuggestion(null);
     return { antes, despues, medioCreado, id1, id2, totalTrasSegunda, id3, totalTrasExistente, id4 };
   });
   console.log(JSON.stringify(result, null, 1));

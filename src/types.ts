@@ -1,84 +1,99 @@
-/* ===================== DATA MODEL (tipos) =====================
-   Primer paso de la migración a TypeScript: tipar el modelo de datos compartido -- lo que usa
-   Transacciones y prácticamente todo el resto de la app -- para que el compilador atrape en el
-   momento typos de nombre de categoría, campos que faltan en una transacción, o una función
-   llamada con el argumento equivocado. El resto de la app (DOM, event handlers, Supabase) sigue
-   sin tipar por ahora ("any" donde haga falta) — se va tipando función por función después,
-   empezando por las de Transacciones, sin tocar el test suite ni la arquitectura de render con
-   strings de HTML que ya existe. */
-export type TipoTx = 'gasto' | 'ingreso' | 'inversion';
-export type EstadoTx = 'confirmado' | 'pendiente' | 'por_cobrar' | 'no_es_gasto';
-export type Recurrencia = 'variable' | 'mensual';
+/* ===================== DATA MODEL (types) =====================
+   First step of the TypeScript migration: type the shared data model -- what Transactions and
+   practically the rest of the app uses -- so the compiler catches at write time a typo'd
+   category name, a missing field on a transaction, or a function called with the wrong
+   argument. The rest of the app (DOM, event handlers, Supabase) is still untyped for now ("any"
+   where needed) -- it gets typed function by function afterwards, starting with the
+   Transactions ones, without touching the test suite or the existing HTML-string render
+   architecture.
 
-export interface CategoriaAsignada { cat: string; monto: number; }
+   Note on string literal values: the union types below (TxType, TxStatus, Recurrence,
+   SplitType) keep their SPANISH literal values ('gasto', 'confirmado', 'mensual', 'iguales',
+   etc.) even though the type ALIASES and every field/variable NAME are in English. This is
+   deliberate: TxType's values are checked against a real Postgres constraint
+   (transacciones_importadas.tipo, see backend/supabase/schema_importar_correo.sql) and copied
+   verbatim from imported rows into a Transaction (see txFromEmailImport in views/menu.ts) --
+   translating them would silently break that data flow. The other unions don't have a proven
+   external contract, but are treated the same way for consistency and to avoid missing a
+   comparison site somewhere in the codebase. */
+export type TxType = 'gasto' | 'ingreso' | 'inversion';
+export type TxStatus = 'confirmado' | 'pendiente' | 'por_cobrar' | 'no_es_gasto';
+export type Recurrence = 'variable' | 'mensual';
 
-export interface PorCobrarItem {
+export interface AssignedCategory { cat: string; monto: number; }
+
+export interface ReceivableItem {
   persona: string;
   monto: number | null;
   pagado: boolean;
   tipo: 'persona' | 'reembolso';
   montoRecibido: number | null;
   linkedTxId: string | null;
-  // Presentes solo si este split nació de "Compartir con un grupo" (ver GASTOS COMPARTIDOS
-  // más abajo) — un split armado a mano entre amigos (el flujo viejo) los deja undefined.
-  // La cuenta de gastoNetoTx()/tienePorCobrarTipo() es EXACTAMENTE la misma en ambos casos:
-  // esto es solo metadata extra para poder armar la vista de grupo y el motor de balances.
-  grupoId?: string;
-  gastoCompartidoId?: string;
-  participanteId?: string;
+  // Only present if this split was born from "Share with a group" (see SHARED EXPENSES
+  // below) -- a split built by hand between friends (the old flow) leaves them undefined.
+  // The count in netExpenseTx()/hasReceivableType() is EXACTLY the same in both cases: this
+  // is just extra metadata to be able to build the group view and the balance engine.
+  groupId?: string;
+  sharedExpenseId?: string;
+  participantId?: string;
 }
 
-export interface CuotasInfo { total: number; }
+export interface InstallmentsInfo { total: number; }
 
-export interface Transaccion {
+export interface Transaction {
   id: string;
   fecha: string;    // 'YYYY-MM-DD'
   hora: string;     // 'HH:MM'
   comercio: string;
   monto: number;
-  medio: string;    // MEDIOS key
-  tipo: TipoTx;
-  recurrencia: Recurrencia;
-  estado: EstadoTx;
-  categorias: CategoriaAsignada[];
-  porCobrar: PorCobrarItem[];
+  medio: string;    // PAYMENT_METHODS key
+  tipo: TxType;
+  recurrencia: Recurrence;
+  estado: TxStatus;
+  categorias: AssignedCategory[];
+  porCobrar: ReceivableItem[];
   reglaAuto: boolean;
   nota: string;
-  cuotas?: CuotasInfo;
-  // Campos que sólo existen en las cuotas futuras que regenerateCuotasFor() genera solas a
-  // partir de la cuota 1 (root.cuotas.total>1) -- no están en una transacción normal.
+  cuotas?: InstallmentsInfo;
+  // Fields that only exist on the future installments that regenerateInstallmentsFor() generates by
+  // itself from installment 1 (root.cuotas.total>1) -- not present on a normal transaction.
   cuotaOf?: string;
   cuotaNumero?: number;
   cuotaTotal?: number;
   cuotaProyectada?: boolean;
-  // true en una transacción que llegó sola por correo (importación automática) — distinto de
-  // una cartola PDF, que se sube a mano desde Reconciliar.
+  // true on a transaction that arrived by itself via email (automatic import) -- different from
+  // a bank statement PDF, which is uploaded by hand from Reconcile.
   importadoEmail?: boolean;
-  // ---- Gastos compartidos ----
-  // grupoId: presente si ESTA transacción (tuya, real, editable) se compartió con un grupo —
-  // el reparto de los demás vive en porCobrar (arriba), igual que un split de amigos de siempre.
-  grupoId?: string;
-  // gastoCompartidoId: el id de la fila en gastos_compartidos que esta transacción originó
-  // (si grupoId está presente) o de la que "mi parte" se derivó (si compartidoAjeno es true).
-  gastoCompartidoId?: string;
-  // compartidoAjeno: true SOLO en una entrada derivada ("mi parte" de un gasto que registró
-  // OTRA persona del grupo) — nunca se persiste en app_state (buildFullStateBlob la filtra) ni
-  // se edita a mano: se recalcula sola desde gasto_reparto cada vez que carga la app o llega un
-  // cambio en vivo, así que nunca puede quedar desincronizada si el otro edita/borra el gasto.
-  compartidoAjeno?: boolean;
-  // Solo en una entrada compartidoAjeno sin categoría todavía: el texto de categoria_origen
-  // (nombre+emoji en la taxonomía de quien registró) para mostrarlo como sugerencia en
-  // catPickerGrid — nunca se usa como id de categoría propia, es solo para mostrar.
-  categoriaOrigenSugerida?: string | null;
+  // ---- Shared expenses ----
+  // groupId: present if THIS transaction (yours, real, editable) was shared with a group --
+  // everyone else's split lives in porCobrar (above), same as an old-style friends split.
+  groupId?: string;
+  // sharedExpenseId: the id of the row in gastos_compartidos that this transaction originated
+  // (if groupId is present) or that "my share" was derived from (if sharedByOthers is true).
+  sharedExpenseId?: string;
+  // sharedByOthers: true ONLY on a derived entry ("my share" of an expense that ANOTHER
+  // person in the group registered) -- never persisted to app_state (buildFullStateBlob
+  // filters it out) nor edited by hand: it's recalculated by itself from gasto_reparto every
+  // time the app loads or a live change arrives, so it can never end up out of sync if the
+  // other person edits/deletes the expense.
+  sharedByOthers?: boolean;
+  // Only on a sharedByOthers entry that has no category yet: the text of categoria_origen
+  // (name+emoji in the taxonomy of whoever registered it) to show as a suggestion in
+  // catPickerGrid -- never used as an id of your own category, it's only for display.
+  suggestedOriginCategory?: string | null;
 }
 
-/* ---- Gastos compartidos: grupos, participantes y el gasto en sí (fuera de app_state) ----
-   Estas filas viven en Supabase (ver supabase/schema_gastos_compartidos.sql), NUNCA en el
-   blob app_state (que es privado por hogar y no puede cruzar cuentas distintas) — un grupo
-   junta participantes de cualquier cuenta, o incluso gente sin cuenta. */
-export type DivisionTipo = 'iguales' | 'montos' | 'pct';
+/* ---- Shared expenses: groups, participants and the expense itself (outside app_state) ----
+   These rows live in Supabase (see supabase/schema_gastos_compartidos.sql), NEVER in the
+   app_state blob (which is private per household and can't cross different accounts) -- a
+   group brings together participants from any account, or even people with no account. */
+export type SplitType = 'iguales' | 'montos' | 'pct';
 
-export interface Grupo {
+// This interface mirrors the `grupos` table row-for-row -- supabase-js returns rows as plain
+// objects keyed by column name, so these field names ARE the actual over-the-wire column names
+// (see backend/supabase/schema_gastos_compartidos.sql) and stay Spanish/snake_case on purpose,
+// even though the interface name itself is translated.
+export interface Group {
   id: string;
   nombre: string;
   icono: string;
@@ -87,36 +102,40 @@ export interface Grupo {
   created_at: string;
 }
 
-export interface GrupoParticipante {
+// Mirrors `grupo_participantes` -- see the note on Group above.
+export interface GroupParticipant {
   id: string;
   grupo_id: string;
-  user_id: string | null;  // null = sin cuenta, lo administra otro miembro
+  user_id: string | null;  // null = no account, another member administers it
   nombre: string;
   color: string;
 }
 
-export interface GastoReparto {
+// Mirrors `gasto_reparto` -- see the note on Group above.
+export interface ExpenseSplit {
   id: string;
   gasto_compartido_id: string;
   participante_id: string;
   monto: number;
 }
 
-export interface GastoCompartido {
+// Mirrors `gastos_compartidos` -- see the note on Group above.
+export interface SharedExpense {
   id: string;
   grupo_id: string;
   descripcion: string;
   categoria_origen: string | null;
   monto: number;
   fecha: string;
-  pagado_por: string;      // GrupoParticipante.id
+  pagado_por: string;      // GroupParticipant.id
   registrado_por: string;  // auth.users.id
-  division_tipo: DivisionTipo;
+  division_tipo: SplitType;
   tx_origen_id: string | null;
-  reparto?: GastoReparto[]; // se completa al leerlo junto con su reparto (join)
+  reparto?: ExpenseSplit[]; // filled in when read together with its splits (join)
 }
 
-export interface SaldoPagado {
+// Mirrors `saldos_pagados` -- see the note on Group above.
+export interface PaidBalance {
   id: string;
   grupo_id: string;
   de_participante: string;
@@ -125,7 +144,8 @@ export interface SaldoPagado {
   fecha: string;
 }
 
-export interface MapeoCategoria {
+// Mirrors `mapeo_categorias` -- see the note on Group above.
+export interface CategoryMapping {
   id: string;
   user_id: string;
   de_participante: string;
@@ -133,43 +153,43 @@ export interface MapeoCategoria {
   categoria_propia: string;
 }
 
-// Balance neto de un participante dentro de un grupo, ya resuelto a "le deben" / "debe".
-export interface SaldoParticipante {
-  participanteId: string;
+// Net balance of a participant within a group, already resolved to "is owed" / "owes".
+export interface ParticipantBalance {
+  participantId: string;
   nombre: string;
   color: string;
-  pagado: number;
-  correspondido: number;
-  saldo: number; // positivo = le deben, negativo = debe
+  paid: number;
+  owed: number;
+  balance: number; // positive = is owed, negative = owes
 }
 
-// Una transferencia sugerida por el neteo mínimo ("quién le paga a quién para saldar todo").
-export interface TransferenciaSugerida {
-  de: string;   // participanteId
-  a: string;    // participanteId
+// A transfer suggested by the minimal settlement ("who pays whom to settle everything").
+export interface SuggestedTransfer {
+  from: string;   // participantId
+  to: string;     // participantId
   monto: number;
 }
 
-export interface Categoria {
+export interface Category {
   nombre: string;
-  tipo: TipoTx;
-  color: string;   // uno de CAT_COLOR_CHOICES
-  icon: string;     // nombre de ICONS, o un emoji suelto (ver catIconMarkup)
+  tipo: TxType;
+  color: string;   // one of CATEGORY_COLOR_CHOICES
+  icon: string;     // an ICONS name, or a bare emoji (see catIconMarkup)
 }
 
-export interface Medio {
+export interface PaymentMethod {
   nombre: string;
   corto: string;
-  icon: string;     // nombre de ICONS ('card' | 'bank' | 'cash' | ...)
+  icon: string;     // an ICONS name ('card' | 'bank' | 'cash' | ...)
 }
 
 
-/* ===================== STATE (tipos) =====================
-   El estado tiene ~80 campos -- tipar todos de una vez no era el objetivo de este primer paso.
-   Se tipan acá los que usa la pantalla de Transacciones (que es por donde se dijo que iba a
-   seguir la migración función por función); el resto queda cubierto por el índice "[key:
-   string]: any" de abajo, y se va agregando a esta interfaz a medida que se tipan más pantallas
-   -- sin que eso rompa nada mientras tanto. */
+/* ===================== STATE (types) =====================
+   The state has ~80 fields -- typing all of them at once wasn't the goal of this first step.
+   The ones the Transactions screen uses are typed here (that's the screen the migration was
+   said to keep following, function by function); the rest is covered by the "[key: string]:
+   any" index below, and gets added to this interface as more screens get typed -- without
+   breaking anything in the meantime. */
 export interface AdvFilters { cats: string[]; medios: string[]; dateFrom: string; dateTo: string; }
 
 export interface AppState {
@@ -183,6 +203,5 @@ export interface AppState {
   creatingNew: boolean;
   draftTx: any;
   confirmDeleteTxId: string | null;
-  [key: string]: any;                  // resto del estado, todavía sin tipar
+  [key: string]: any;                  // rest of the state, still untyped
 }
-

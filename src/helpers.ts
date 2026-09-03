@@ -1,178 +1,182 @@
 import { ensureMonthExists } from './shared-expenses';
 import { getTx } from './sheet';
-import { CATS, MEDIOS, TX, todayISO } from './state';
-import { Transaccion } from './types';
+import { CATEGORIES, PAYMENT_METHODS, TRANSACTIONS, todayISO } from './state';
+import { Transaction } from './types';
 /* ===================== HELPERS ===================== */
-export function txsOfMonth(m){ return TX.filter(t=>t.fecha.slice(0,7)===m); }
-export function catInfo(id){ return CATS[id] || {nombre:'Sin categoría', color:'neutral', icon:'more', tipo:'gasto'}; }
+export function txsOfMonth(m){ return TRANSACTIONS.filter(t=>t.fecha.slice(0,7)===m); }
+export function catInfo(id){ return CATEGORIES[id] || {nombre:'Sin categoría', color:'neutral', icon:'more', tipo:'gasto'}; }
 
-// Tu sueldo no manda correo (a diferencia de una compra con tarjeta), así que nunca se
-// importa solo — esto detecta que ya pasó a un mes nuevo sin que hayas registrado un
-// ingreso con categoría "sueldo" todavía, para sugerírtelo con el monto de la última vez
-// como referencia (la confirmas o la ajustas, nunca se agrega sola sin que la veas).
-export function lastSueldoTx(){
-  const candidatos = TX.filter(t=>t.categorias.some(c=>c.cat==='sueldo')).slice().sort((a,b)=> b.fecha.localeCompare(a.fecha));
-  return candidatos[0] || null;
+// Your salary doesn't send an email (unlike a card purchase), so it never gets imported by
+// itself — this detects that a new month has already started without you having registered a
+// "sueldo"-category income yet, to suggest it with the last time's amount as a reference (you
+// confirm it or adjust it, it's never added by itself without you seeing it).
+export function lastSalaryTx(){
+  const candidates = TRANSACTIONS.filter(t=>t.categorias.some(c=>c.cat==='sueldo')).slice().sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  return candidates[0] || null;
 }
-export function mesActualTieneSueldo(){
+export function currentMonthHasSalary(){
   return txsOfMonth(todayISO().slice(0,7)).some(t=>t.categorias.some(c=>c.cat==='sueldo'));
 }
 
-// Etiqueta liviana de plazo para metas y plataformas — no reestructura nada, solo te
-// deja ver de un vistazo qué es corto/medio/largo plazo dentro de la misma organización
-// por plataforma que ya tenemos.
-export const PLAZO_META = {
+// Lightweight term chip for goals and platforms — doesn't restructure anything, it just lets
+// you see at a glance what's short/medium/long term within the same per-platform organization
+// we already have.
+export const GOAL_TERM = {
   corto:{label:'Corto', color:'sky'},
   medio:{label:'Medio', color:'sage'},
   largo:{label:'Largo', color:'lavender'}
 };
-export function plazoChip(plazo){
-  if(!plazo || !PLAZO_META[plazo]) return '';
-  const p = PLAZO_META[plazo];
+export function termChip(plazo){
+  if(!plazo || !GOAL_TERM[plazo]) return '';
+  const p = GOAL_TERM[plazo];
   return '<span class="plazo-chip" style="background:var(--cat-'+p.color+'-fill);color:var(--cat-'+p.color+'-ink);">'+p.label+'</span>';
 }
-// Si una transacción quedó apuntando a un medio que ya no existe (o nunca tuvo uno, ej. datos
-// viejos de antes de que el campo fuera obligatorio), antes esto devolvía un objeto sin
-// "corto" — y como el texto de la fila se arma con medio.corto directo, JS lo mostraba
-// literalmente como la palabra "undefined" en vez de algo legible.
-export function medioInfo(id){ return MEDIOS[id] || {nombre:'Medio desconocido', corto:'Sin medio', icon:'card'}; }
-// Ícono chico junto a los últimos dígitos del medio de pago en la lista de Transacciones —
-// tarjeta si es tarjeta, bolsa de plata si es efectivo. Los demás medios (cuenta vista, etc.)
-// se quedan sin ícono acá, tal como están hoy.
-export function medioTagIcon(medio){
+// If a transaction ended up pointing at a payment method that no longer exists (or never had
+// one, e.g. old data from before the field was required), this used to return an object
+// without "corto" — and since the row's text is built directly from medio.corto, JS showed it
+// literally as the word "undefined" instead of something readable.
+export function paymentMethodInfo(id){ return PAYMENT_METHODS[id] || {nombre:'Medio desconocido', corto:'Sin medio', icon:'card'}; }
+// Small icon next to the last digits of the payment method in the Transactions list — a card
+// if it's a card, a money bag if it's cash. The other payment methods (checking account, etc.)
+// stay without an icon here, same as today.
+export function paymentMethodTagIcon(medio){
   if(medio.icon==='card') return '💳';
   if(medio.icon==='cash') return '💰';
   return '';
 }
 
-export function catTotalMonto(t){ return t.categorias.reduce((s,c)=>s+c.monto,0); }
+export function catTotalAmount(t){ return t.categorias.reduce((s,c)=>s+c.monto,0); }
 
-// Un pendiente (por cobrar de una persona, o reembolso de un gasto) puede no tener monto
-// esperado todavía (reembolsos: no siempre sabes cuánto te van a devolver hasta que llega).
-// Mientras no esté pagado, cuenta como "monto esperado" (0 si no se sabe todavía — o sea,
-// sigue siendo tu parte del gasto hasta que se resuelva). Una vez pagado/vinculado a un
-// depósito real, manda el monto que efectivamente llegó (montoRecibido), no el estimado.
-export function pendienteMontoEfectivo(p){
+// A pending item (receivable from a person, or reimbursement of an expense) may not have an
+// expected amount yet (reimbursements: you don't always know how much you'll get back until it
+// arrives). While it's not paid, it counts as "expected amount" (0 if not known yet — i.e. it's
+// still your share of the expense until it's resolved). Once paid/linked to a real deposit, it
+// reports the amount that actually arrived (montoRecibido), not the estimate.
+export function pendingEffectiveAmount(p){
   if(p.pagado) return p.montoRecibido!=null ? p.montoRecibido : (p.monto||0);
   return p.monto!=null ? p.monto : 0;
 }
-export function porCobrarTotal(t){ return t.porCobrar.reduce((s,p)=>s+pendienteMontoEfectivo(p),0); }
+export function receivableTotal(t){ return t.porCobrar.reduce((s,p)=>s+pendingEffectiveAmount(p),0); }
 
-// ---- Neteo de cuentas por cobrar (splits con amigos) vs. reembolsos ----
+// ---- Netting of receivables (splits with friends) vs. reimbursements ----
 //
-// Dos casos que se ven parecidos pero se contabilizan distinto:
-//  · tipo 'persona' (dividiste una boleta, alguien te debe su parte): esa plata NUNCA fue tu
-//    gasto — solo la adelantaste. Se descuenta de "Gastos" DESDE que la divides (no cuando te
-//    pagan), y en el mismo mes de la transacción original. Cuando te pagan, solo se salda la
-//    cuenta por cobrar: no vuelve a entrar como ingreso ni se resta de nuevo del gasto.
-//  · tipo 'reembolso' (isapre, seguro, tu empresa): ese gasto SÍ fue 100% tuyo — el reembolso
-//    es plata que vuelve después, y se muestra como crédito en el mes en que llega (tarjeta
-//    "Reembolsado este mes"), sin tocar el mes original.
-// Como el neteo ocurre al dividir (no al recibir el depósito), un mes ya cerrado no cambia
-// por un reembolso o pago que llega después — solo cambia si tú editas esa transacción vieja.
-export function gastoNetoTx(t){
-  if(t.tipo!=='gasto') return catTotalMonto(t);
-  const personaSplits = (t.porCobrar||[]).filter(p=>p.tipo==='persona').reduce((s,p)=>s+(p.monto||0),0);
-  return Math.max(catTotalMonto(t) - personaSplits, 0);
+// Two cases that look similar but are accounted for differently:
+//  · type 'persona' (you split a bill, someone owes you their share): that money was NEVER
+//    your expense — you just fronted it. It's deducted from "Expenses" AS SOON as you split it
+//    (not when you get paid), in the same month as the original transaction. When you get paid,
+//    it only settles the receivable: it doesn't come back in as income nor get subtracted from
+//    the expense again.
+//  · type 'reembolso' (health insurer, insurance, your employer): that expense WAS 100% yours —
+//    the reimbursement is money that comes back later, and is shown as a credit in the month it
+//    arrives ("Reimbursed this month" card), without touching the original month.
+// Since the netting happens when you split (not when the deposit is received), a month that's
+// already closed doesn't change because of a reimbursement or payment that arrives later — it
+// only changes if you edit that old transaction.
+export function netExpenseTx(t){
+  if(t.tipo!=='gasto') return catTotalAmount(t);
+  const personSplits = (t.porCobrar||[]).filter(p=>p.tipo==='persona').reduce((s,p)=>s+(p.monto||0),0);
+  return Math.max(catTotalAmount(t) - personSplits, 0);
 }
-// Factor para repartir el neteo proporcionalmente si el gasto está dividido en categorías.
-export function gastoNetoFactor(t){
-  const bruto = catTotalMonto(t);
-  return bruto>0 ? gastoNetoTx(t)/bruto : 1;
+// Factor to proportionally split the netting if the expense is divided across categories.
+export function netExpenseFactor(t){
+  const gross = catTotalAmount(t);
+  return gross>0 ? netExpenseTx(t)/gross : 1;
 }
-export function catMontoNeto(t, c){
+export function catNetAmount(t, c){
   if(t.tipo!=='gasto') return c.monto;
-  return c.monto * gastoNetoFactor(t);
+  return c.monto * netExpenseFactor(t);
 }
-// Un ingreso que en realidad es solo el pago de un amigo devolviéndote su parte (vinculado a
-// un pendiente tipo 'persona') no es plata nueva — ya se descontó del gasto al dividir, así
-// que no debe volver a sumar como "Ingresos" o se contaría dos veces a tu favor.
-export function ingresoEsSaldoDePersona(t){
+// An income that's actually just a friend paying you back their share (linked to a 'persona'
+// type pending item) isn't new money — it was already deducted from the expense when it was
+// split, so it must not be added again as "Income" or it would count twice in your favor.
+export function incomeIsPersonSettlement(t){
   if(t.tipo!=='ingreso') return false;
-  const vinculo = pendienteVinculadaA(t.id);
-  if(!vinculo) return false;
-  const gastoTx = getTx(vinculo.gastoTxId);
-  const p = gastoTx && gastoTx.porCobrar[vinculo.idx];
+  const link = pendingLinkedTo(t.id);
+  if(!link) return false;
+  const expenseTx = getTx(link.expenseTxId);
+  const p = expenseTx && expenseTx.porCobrar[link.idx];
   return !!(p && p.tipo==='persona');
 }
-export function ingresoNetoTx(t){
-  if(t.tipo!=='ingreso') return catTotalMonto(t);
-  return ingresoEsSaldoDePersona(t) ? 0 : catTotalMonto(t);
+export function netIncomeTx(t){
+  if(t.tipo!=='ingreso') return catTotalAmount(t);
+  return incomeIsPersonSettlement(t) ? 0 : catTotalAmount(t);
 }
-// El monto "de verdad tuyo" de una transacción para agregados de Balance/Presupuesto/Evolución
-// — reemplaza a catTotalMonto(t) en esos cálculos (nunca en la vista de la transacción misma,
-// que sigue mostrando el monto real completo que pagaste o recibiste).
-export function montoAgregadoTx(t){
-  if(t.tipo==='gasto') return gastoNetoTx(t);
-  if(t.tipo==='ingreso') return ingresoNetoTx(t);
-  return catTotalMonto(t);
+// The "really yours" amount of a transaction for Balance/Budget/Evolution aggregates — replaces
+// catTotalAmount(t) in those calculations (never in the transaction's own view, which keeps
+// showing the full real amount you paid or received).
+export function aggregatedTxAmount(t){
+  if(t.tipo==='gasto') return netExpenseTx(t);
+  if(t.tipo==='ingreso') return netIncomeTx(t);
+  return catTotalAmount(t);
 }
 
-// Todos los pendientes (persona o reembolso) de todas las transacciones que todavía no
-// están pagados — para el flujo "vincular un depósito" desde el lado del ingreso.
-export function pendientesGlobales(){
+// All the pending items (persona or reembolso) across every transaction that aren't paid yet —
+// for the "link a deposit" flow from the income side.
+export function allPendingReceivables(){
   const out = [];
-  TX.forEach(t=>{
+  TRANSACTIONS.forEach(t=>{
     (t.porCobrar||[]).forEach((p,idx)=>{
-      if(!p.pagado) out.push({gastoTxId:t.id, idx, comercio:t.comercio, fecha:t.fecha, persona:p.persona, monto:p.monto, tipo:p.tipo||'persona'});
+      if(!p.pagado) out.push({expenseTxId:t.id, idx, comercio:t.comercio, fecha:t.fecha, persona:p.persona, monto:p.monto, tipo:p.tipo||'persona'});
     });
   });
   return out.sort((a,b)=> b.fecha.localeCompare(a.fecha));
 }
-// Si este ingreso ya está vinculado a algún pendiente, lo encuentra (para poder mostrarlo
-// y ofrecer "quitar vínculo" desde el detalle del ingreso).
-export function pendienteVinculadaA(ingresoTxId){
-  for(const t of TX){
+// If this income is already linked to some pending item, finds it (so it can be shown and
+// "remove link" can be offered from the income's detail).
+export function pendingLinkedTo(incomeTxId){
+  for(const t of TRANSACTIONS){
     for(let idx=0; idx<(t.porCobrar||[]).length; idx++){
-      if(t.porCobrar[idx].linkedTxId===ingresoTxId) return {gastoTxId:t.id, idx, comercio:t.comercio, persona:t.porCobrar[idx].persona};
+      if(t.porCobrar[idx].linkedTxId===incomeTxId) return {expenseTxId:t.id, idx, comercio:t.comercio, persona:t.porCobrar[idx].persona};
     }
   }
   return null;
 }
-export function resolvePendiente(gastoTxId, idx, ingresoTxId){
-  const gastoTx = getTx(gastoTxId), ingresoTx = getTx(ingresoTxId);
-  if(!gastoTx || !ingresoTx || !gastoTx.porCobrar[idx]) return false;
-  const p = gastoTx.porCobrar[idx];
+export function resolvePending(expenseTxId, idx, incomeTxId){
+  const expenseTx = getTx(expenseTxId), incomeTx = getTx(incomeTxId);
+  if(!expenseTx || !incomeTx || !expenseTx.porCobrar[idx]) return false;
+  const p = expenseTx.porCobrar[idx];
   p.pagado = true;
-  p.montoRecibido = ingresoTx.monto;
-  p.linkedTxId = ingresoTx.id;
+  p.montoRecibido = incomeTx.monto;
+  p.linkedTxId = incomeTx.id;
   return true;
 }
-// Convierte una cuenta por cobrar (tipo 'persona') que nunca te pagaron en un gasto real del
-// MES ACTUAL — se crea una transacción nueva (no se edita la original, que ya cerró su mes con
-// el neteo aplicado) y se quita el pendiente de la transacción original.
-export function darPorPerdida(gastoTxId, idx){
-  const gastoTx = getTx(gastoTxId);
-  if(!gastoTx || !gastoTx.porCobrar[idx]) return false;
-  const p = gastoTx.porCobrar[idx];
+// Turns a receivable (type 'persona') that was never paid into a real expense in the CURRENT
+// month — a new transaction is created (the original isn't edited, since it already closed its
+// month with the netting applied) and the pending item is removed from the original transaction.
+export function writeOffReceivable(expenseTxId, idx){
+  const expenseTx = getTx(expenseTxId);
+  if(!expenseTx || !expenseTx.porCobrar[idx]) return false;
+  const p = expenseTx.porCobrar[idx];
   if(p.pagado || p.tipo!=='persona') return false;
-  const monto = Math.round(p.monto||0);
-  if(monto<=0){ gastoTx.porCobrar.splice(idx,1); return true; }
-  // Antes caía en una categoría "otros_gastos" fija que ya no existe en el set de categorías
-  // por defecto — si la transacción original no tenía categoría, esta tampoco: queda "Sin
-  // categoría" (mismo estado ya soportado en el resto de la app, con su chip para asignarle una).
-  const catId = gastoTx.categorias[0] ? gastoTx.categorias[0].cat : null;
-  const nuevaTx: Transaccion = {
+  const amount = Math.round(p.monto||0);
+  if(amount<=0){ expenseTx.porCobrar.splice(idx,1); return true; }
+  // It used to fall into a fixed "otros_gastos" category that no longer exists in the default
+  // category set — if the original transaction had no category, neither does this one: it's
+  // left "Sin categoría" (same state already supported elsewhere in the app, with its chip to
+  // assign one).
+  const catId = expenseTx.categorias[0] ? expenseTx.categorias[0].cat : null;
+  const newTx: Transaction = {
     id:'perdida-'+Date.now(), fecha: todayISO(), hora:'12:00',
     comercio: (p.persona||'Cuenta por cobrar')+' — nunca pagó',
-    monto, medio: gastoTx.medio, tipo:'gasto', recurrencia:'variable', estado:'confirmado',
-    categorias: catId ? [{cat:catId, monto}] : [], porCobrar:[], reglaAuto:false,
-    nota:'Dada por perdida: '+(p.persona||'esta persona')+' nunca pagó su parte de "'+gastoTx.comercio+'" ('+dayLabel(gastoTx.fecha)+').'
+    monto: amount, medio: expenseTx.medio, tipo:'gasto', recurrencia:'variable', estado:'confirmado',
+    categorias: catId ? [{cat:catId, monto:amount}] : [], porCobrar:[], reglaAuto:false,
+    nota:'Dada por perdida: '+(p.persona||'esta persona')+' nunca pagó su parte de "'+expenseTx.comercio+'" ('+dayLabel(expenseTx.fecha)+').'
   };
-  TX.push(nuevaTx);
-  ensureMonthExists(nuevaTx.fecha.slice(0,7));
-  gastoTx.porCobrar.splice(idx,1);
+  TRANSACTIONS.push(newTx);
+  ensureMonthExists(newTx.fecha.slice(0,7));
+  expenseTx.porCobrar.splice(idx,1);
   return true;
 }
-// Cuánto te reembolsaron en un mes dado — se cuenta en el mes en que llegó el depósito
-// (no en el mes del gasto original), porque es cuando esa plata realmente volvió a tu bolsillo.
-export function monthlyReembolsoTotal(monthKey){
+// How much you got reimbursed in a given month — counted in the month the deposit arrived (not
+// the month of the original expense), because that's when that money actually came back into
+// your pocket.
+export function monthlyReimbursementTotal(monthKey){
   let total = 0, count = 0;
-  TX.forEach(t=>{
+  TRANSACTIONS.forEach(t=>{
     (t.porCobrar||[]).forEach(p=>{
       if(p.tipo==='reembolso' && p.pagado && p.linkedTxId){
-        const ingresoTx = getTx(p.linkedTxId);
-        if(ingresoTx && ingresoTx.fecha.slice(0,7)===monthKey){
+        const incomeTx = getTx(p.linkedTxId);
+        if(incomeTx && incomeTx.fecha.slice(0,7)===monthKey){
           total += (p.montoRecibido!=null ? p.montoRecibido : 0);
           count++;
         }
@@ -188,36 +192,36 @@ export function dayLabel(fecha){
   const diff = Math.round((today.getTime()-d.getTime())/86400000);
   if(diff===0) return 'Hoy';
   if(diff===1) return 'Ayer';
-  const dias=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
-  const meses=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-  return dias[d.getDay()]+' '+d.getDate()+' de '+meses[d.getMonth()];
+  const days=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  const months=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  return days[d.getDay()]+' '+d.getDate()+' de '+months[d.getMonth()];
 }
-// Deja solo la primera letra en mayúscula ("miércoles 12 de agosto" -> "Miércoles 12 de
-// agosto") — se usa nada más en el encabezado de fecha de Transacciones; el resto de los usos
-// de dayLabel() (el detalle de una transacción, por ejemplo) se quedan tal cual, en minúscula.
+// Leaves only the first letter capitalized ("miércoles 12 de agosto" -> "Miércoles 12 de
+// agosto") — used only in the Transactions date header; the rest of dayLabel()'s uses (a
+// transaction's detail, for example) stay as-is, in lowercase.
 export function capitalizeFirst(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 
 export function applyLockRule(tx){
-  // Simula la regla: futuras (y existentes) transacciones del mismo comercio heredan categoría/tipo/recurrencia
-  // (incluyendo si quedan como "fijo" — ver bloque Fijo/Variable/Inversión en Balance).
+  // Simulates the rule: future (and existing) transactions from the same merchant inherit
+  // category/type/recurrence (including whether they end up as "fixed" — see the
+  // Fixed/Variable/Investment block in Balance).
   const cat = tx.categorias[0] ? tx.categorias[0].cat : null;
-  TX.forEach(t=>{
+  TRANSACTIONS.forEach(t=>{
     if(t.comercio===tx.comercio && t.id!==tx.id){
       t.reglaAuto = true;
       t.tipo = tx.tipo;
       t.recurrencia = tx.recurrencia;
-      if(cat) t.categorias = [{cat, monto: catTotalMonto(t) || t.monto}];
+      if(cat) t.categorias = [{cat, monto: catTotalAmount(t) || t.monto}];
     }
   });
   tx.reglaAuto = true;
 }
 
-export function allCobrado(t){
+export function allCollected(t){
   return t.porCobrar.length>0 && t.porCobrar.every(p=>p.pagado);
 }
-// 'persona' (dividiste una boleta con alguien) y 'reembolso' (isapre/seguro/empresa) se ven
-// parecidos pero son casos distintos — esto permite filtrarlos y mostrarlos por separado.
-export function tienePorCobrarTipo(t, tipo){
+// 'persona' (you split a bill with someone) and 'reembolso' (health insurer/insurance/employer)
+// look similar but are different cases — this allows filtering and showing them separately.
+export function hasReceivableType(t, tipo){
   return (t.porCobrar||[]).some(p=>p.tipo===tipo);
 }
-

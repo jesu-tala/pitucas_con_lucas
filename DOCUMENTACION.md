@@ -78,15 +78,15 @@ src/
   app.ts              — punto de entrada: importa todo lo demás y corre el arranque
   globals.d.ts        — declaraciones ambient para pdfjsLib y window.supabase (cargan como
                          <script src> externos, no son módulos)
-  types.ts            — interfaces/tipos compartidos (Transaccion, Grupo, Categoria, etc.)
+  types.ts            — interfaces/tipos compartidos (Transaction, Group, Category, etc.)
   icons.ts            — set de íconos SVG (ICONS) + helpers de ícono
-  state.ts            — el objeto `state` de UI, TODAS las variables de datos mutables (TX,
-                         CATS, MEDIOS, PRESUPUESTOS, METAS_INVERSION, PLATAFORMA_DATA,
-                         PLANIFICADOR, GRUPOS, etc. — ver sección 3) y sus setters (ver más
+  state.ts            — el objeto `state` de UI, TODAS las variables de datos mutables (TRANSACTIONS,
+                         CATEGORIES, PAYMENT_METHODS, BUDGETS, INVESTMENT_GOALS, PLATFORM_DATA,
+                         PLANNER, GROUPS, etc. — ver sección 3) y sus setters (ver más
                          abajo, "por qué hay setXxx() en vez de reasignar directo")
   helpers.ts          — formateo de moneda/fecha y demás utilidades sin estado propio
   shared-expenses.ts  — motor de balances de gastos compartidos (funciones puras) +
-                         regenerateCuotasFor (cuotas de tarjeta)
+                         regenerateInstallmentsFor (cuotas de tarjeta)
   sheet.ts            — la hoja modal inferior (detalle de transacción, nueva transacción,
                          filtros, dividir boleta, etc.) — un dispatcher grande y compartido
                          por todas las vistas, no se dividió más
@@ -106,11 +106,11 @@ src/
 Es, en conjunto, el mismo estilo de siempre (sin frameworks de UI, sin virtual DOM) que:
 
 - Guarda todo el estado de la app en un objeto `state` (tab activo, filtros, qué sheet está
-  abierto, borradores en edición, etc.) más un conjunto de variables de datos (`TX`, `CATS`,
-  `MEDIOS`, `PRESUPUESTOS`, `METAS_INVERSION`, `PLATAFORMA_DATA`, `PLANIFICADOR`,
-  `METAS_TOTAL_CHECKS`), todas definidas en `state.ts`.
+  abierto, borradores en edición, etc.) más un conjunto de variables de datos (`TRANSACTIONS`, `CATEGORIES`,
+  `PAYMENT_METHODS`, `BUDGETS`, `INVESTMENT_GOALS`, `PLATFORM_DATA`, `PLANNER`,
+  `TOTAL_GOAL_CHECKS`), todas definidas en `state.ts`.
 - Tiene una función `render()` central que redibuja lo que corresponda según `state.tab` /
-  `state.resumenSub`, más `renderSheet()` para la hoja modal inferior (detalle de transacción,
+  `state.summarySub`, más `renderSheet()` para la hoja modal inferior (detalle de transacción,
   nueva transacción, filtros, etc.).
 - Construye HTML por concatenación de strings (no hay ningún framework de componentes ni
   virtual DOM) y lo asigna a `innerHTML` de los contenedores (`#view-root`, `#resumen-content`,
@@ -121,17 +121,17 @@ Es, en conjunto, el mismo estilo de siempre (sin frameworks de UI, sin virtual D
   individuales por fila.
 
 Un detalle propio de haber pasado de una sola IIFE a módulos ES de verdad: varias de las
-variables de `state.ts` (`TX`, `PRESUPUESTOS`, `METAS_INVERSION`, `PLATAFORMA_DATA`,
-`PLANIFICADOR`, `METAS_TOTAL_CHECKS`, `GRUPOS`, `GRUPO_PARTICIPANTES`, `GASTOS_COMPARTIDOS`,
-`SALDOS_PAGADOS`, `MAPEO_CATEGORIAS`, `DATOS_TRANSFERENCIA`, `presupuestoTotalMensual`, entre
+variables de `state.ts` (`TRANSACTIONS`, `BUDGETS`, `INVESTMENT_GOALS`, `PLATFORM_DATA`,
+`PLANNER`, `TOTAL_GOAL_CHECKS`, `GROUPS`, `GROUP_PARTICIPANTS`, `SHARED_EXPENSES`,
+`PAID_BALANCES`, `CATEGORY_MAPPINGS`, `TRANSFER_INFO`, `monthlyBudgetTotal`, entre
 otras) no solo se mutan en el mismo objeto/arreglo — se **reasignan enteras** desde otros
-archivos (por ejemplo al cargar el estado real desde Supabase, o al filtrar `TX` tras borrar
-una transacción). Un `import { TX } from './state'` de ES modules es de solo lectura para quien
-importa (TypeScript lo marca como error: "Cannot assign to 'TX' because it is an import"), así
+archivos (por ejemplo al cargar el estado real desde Supabase, o al filtrar `TRANSACTIONS` tras borrar
+una transacción). Un `import { TRANSACTIONS } from './state'` de ES modules es de solo lectura para quien
+importa (TypeScript lo marca como error: "Cannot assign to 'TRANSACTIONS' because it is an import"), así
 que `state.ts` (y, para un par de contadores locales, `sheet.ts`/`views/menu.ts`) exporta
-también un `setTX(v)`/`setGRUPOS(v)`/etc. por cada una de estas variables, y los módulos que
-necesitan reemplazar el valor completo llaman al setter en vez de reasignar directo. `CATS`,
-`MEDIOS`, `MONTHS` y `MONTH_LABEL` no tienen setter porque nunca se reasignan así: se vacían y
+también un `setTransactions(v)`/`setGroups(v)`/etc. por cada una de estas variables, y los módulos que
+necesitan reemplazar el valor completo llaman al setter en vez de reasignar directo. `CATEGORIES`,
+`PAYMENT_METHODS`, `MONTHS` y `MONTH_LABEL` no tienen setter porque nunca se reasignan así: se vacían y
 se vuelven a llenar en el mismo objeto/arreglo, como siempre.
 
 `esbuild` empaqueta todos estos módulos en un único IIFE al compilar (`--format=iife`), así que
@@ -144,7 +144,7 @@ Cloudflare Pages ni de cómo corre la app (ver sección 6 y 8).
 Todo vive en memoria (variables `let`/`const` a nivel de módulo) y se serializa completo a
 Supabase (ver sección 5) o a un respaldo JSON descargable (Menú → Respaldo en JSON).
 
-- **`TX`** (array): cada transacción es
+- **`TRANSACTIONS`** (array): cada transacción es
   `{id, fecha, hora, comercio, monto, medio, tipo, recurrencia, estado, categorias:[{cat,monto}], porCobrar:[...], reglaAuto, nota}`.
   - `tipo`: `'gasto' | 'ingreso' | 'inversion'`.
   - `recurrencia`: `'variable' | 'mensual' | 'anual'` (mensual/anual cuentan como "gasto fijo"
@@ -154,33 +154,33 @@ Supabase (ver sección 5) o a un respaldo JSON descargable (Menú → Respaldo e
     mano**, así que una transacción sin categoría es invisible para cualquier filtro por
     categoría salvo que se active "Sin categoría" en Filtros.
   - `categorias`: array porque un gasto se puede dividir en varias categorías (`allowSplit` en
-    `renderCategoriaRows`); una inversión nunca se divide (siempre una sola).
+    `renderCategoryRows`); una inversión nunca se divide (siempre una sola).
   - `porCobrar`: `[{persona, monto, pagado, tipo:'persona'|'reembolso', montoRecibido,
     linkedTxId}]`. `'persona'` = alguien te debe su parte (se descuenta de Gastos al dividir,
     no cuando te pagan). `'reembolso'` = plata que vuelve después (isapre, seguro), el gasto ya
     fue 100% tuyo y el reembolso se ve como crédito en el mes en que llega.
-  - `cuotas: {total}` (opcional) — compras en cuotas; `regenerateCuotasFor(txId)` genera
+  - `cuotas: {total}` (opcional) — compras en cuotas; `regenerateInstallmentsFor(txId)` genera
     transacciones-cuota futuras (`cuotaProyectada`, `cuotaNumero`, `cuotaTotal`) y extiende
     `MONTHS` si hace falta.
-- **`CATS`** (objeto, `id → {nombre, tipo, color, icon}`): categorías. `icon` casi siempre es
+- **`CATEGORIES`** (objeto, `id → {nombre, tipo, color, icon}`): categorías. `icon` casi siempre es
   un emoji suelto (ej. `'🛒'`); las 4 categorías de tipo `'inversion'` (fintual, racional,
   banco_chile, buda) usan un nombre del set `ICONS` en vez de emoji — **son las plataformas de
   inversión reales**, no categorías libres. `catIconMarkup(name)` resuelve ambos casos (ícono
   con nombre → SVG; cualquier otra cosa → `<span class="emoji-icon">`).
-- **`MEDIOS`** (objeto, `id → {nombre, corto, icon}`): medios de pago (tarjetas, cuenta vista,
+- **`PAYMENT_METHODS`** (objeto, `id → {nombre, corto, icon}`): medios de pago (tarjetas, cuenta vista,
   efectivo). `icon` sí es siempre un nombre del set `ICONS` (`'card' | 'bank' | 'cash'`).
-- **`PRESUPUESTOS`** (objeto, `catId → {meta, alertas:{80,90,100}}`) + `presupuestoTotalMensual`.
-- **`METAS_INVERSION`** (array): metas estilo "Fintual" — `{id, nombre, montoObjetivo,
+- **`BUDGETS`** (objeto, `catId → {meta, alertas:{80,90,100}}`) + `monthlyBudgetTotal`.
+- **`INVESTMENT_GOALS`** (array): metas estilo "Fintual" — `{id, nombre, montoObjetivo,
   aporteMensualMeta, plataformaId, plazo, comision, aportadoNeto, historial:{mes:monto},
   checks:{mes:bool}}`. Cada meta vive DENTRO de una plataforma (`plataformaId`); una plataforma
   puede tener 0, 1 o varias metas.
-- **`PLATAFORMA_DATA`** (objeto, `id → {valorHistorial:{mes:monto}, fechaActualizacion,
+- **`PLATFORM_DATA`** (objeto, `id → {valorHistorial:{mes:monto}, fechaActualizacion,
   tasaAnual, comision, plazo}`): valor aproximado que la usuaria actualiza a mano de vez en
   cuando. El "aportado neto" de una plataforma **no** se guarda acá: siempre se calcula desde
   las transacciones `tipo:'inversion'` ya clasificadas con esa categoría/plataforma.
-- **`PLANIFICADOR`** (`{base, metaPcts:{metaId:pct}}`): "cuánto de mi excedente mensual mando a
+- **`PLANNER`** (`{base, metaPcts:{metaId:pct}}`): "cuánto de mi excedente mensual mando a
   cada meta", agrupado por plazo (Corto/Medio/Largo).
-- **`METAS_TOTAL_CHECKS`** (`{mes:bool}`): check manual mes a mes de "¿cumplí mi objetivo de
+- **`TOTAL_GOAL_CHECKS`** (`{mes:bool}`): check manual mes a mes de "¿cumplí mi objetivo de
   inversión TOTAL este mes?", independiente de los checks de cada meta individual.
 - **`MONTHS`** / **`MONTH_LABEL`**: lista de meses "conocidos" por la app (crece cuando una
   cuota o una transacción nueva cae en un mes que todavía no existía) — **no** es lo mismo que
@@ -196,37 +196,37 @@ Supabase (ver sección 5) o a un respaldo JSON descargable (Menú → Respaldo e
 A diferencia de todo lo anterior, estas variables **no** viven en `app_state` (que es privado
 por hogar) ni se serializan en `buildFullStateBlob()`: un grupo puede juntar participantes de
 distintas cuentas/hogares, así que viven en tablas propias de Supabase y se sincronizan aparte
-(`cargarGastosCompartidos()` + realtime, ver sección 5). Son `let` a nivel de módulo, igual que
-`TX`/`CATS`, pero su única fuente de verdad es Supabase — nunca se editan "a mano" salvo en
+(`loadSharedExpenses()` + realtime, ver sección 5). Son `let` a nivel de módulo, igual que
+`TRANSACTIONS`/`CATEGORIES`, pero su única fuente de verdad es Supabase — nunca se editan "a mano" salvo en
 tests (`window.__debug`).
 
-- **`GRUPOS`**: `{id, nombre, icono, creado_por, invite_code, created_at}`.
-- **`GRUPO_PARTICIPANTES`**: `{id, grupo_id, user_id, nombre, color}` — `user_id` es `null`
+- **`GROUPS`**: `{id, nombre, icono, creado_por, invite_code, created_at}`.
+- **`GROUP_PARTICIPANTS`**: `{id, grupo_id, user_id, nombre, color}` — `user_id` es `null`
   cuando el participante no tiene cuenta propia (alguien sin la app, administrado por otro
   miembro del grupo, ej. "Pancho" pagando en efectivo).
-- **`GASTOS_COMPARTIDOS`**: `{id, grupo_id, descripcion, categoria_origen, monto, fecha,
+- **`SHARED_EXPENSES`**: `{id, grupo_id, descripcion, categoria_origen, monto, fecha,
   pagado_por, registrado_por, division_tipo:'iguales'|'montos'|'pct', tx_origen_id, reparto:
-  [GastoReparto]}`. `categoria_origen` es el **nombre** de la categoría de quien registró (no
+  [ExpenseSplit]}`. `categoria_origen` es el **nombre** de la categoría de quien registró (no
   un id: cada usuaria tiene su propia taxonomía de categorías) — es lo que alimenta el mapeo
   aprendido, ver más abajo.
-- **`SALDOS_PAGADOS`**: `{id, grupo_id, de_participante, a_participante, monto, fecha}` — un
+- **`PAID_BALANCES`**: `{id, grupo_id, de_participante, a_participante, monto, fecha}` — un
   registro puramente contable de "ya nos pusimos al día". **Nunca crea una transacción real**:
   la plata que de verdad se transfiere debe llegar sola por cartola/correo del banco y subirse
   por los flujos normales de importación de la app (decisión explícita de la usuaria: nada de
   transacciones forzadas al saldar cuentas).
-- **`MAPEO_CATEGORIAS`**: `{id, user_id, de_participante, categoria_ajena, categoria_propia}` —
+- **`CATEGORY_MAPPINGS`**: `{id, user_id, de_participante, categoria_ajena, categoria_propia}` —
   el mapeo aprendido "la categoría que anotó tal persona → mi categoría", **escopado por
   participante de origen** (`de_participante`), no solo por nombre de categoría: así "Otros" de
   tu pareja y "Otros" de tu roomie pueden mapear cada uno a una categoría tuya distinta. Nunca
   se auto-crea una categoría nueva a partir de esto.
 
 **"Mi parte" de un gasto que registró otra persona nunca se persiste** en ningún lado propio:
-`sincronizarGastosCompartidos()` la recalcula por completo cada vez (al cargar sesión y en cada
-evento realtime) desde `GASTOS_COMPARTIDOS`/`MAPEO_CATEGORIAS`, y la agrega a `TX` **en
-memoria** como una transacción con `compartidoAjeno:true` (id `'compartido-'+gastoId`). Por eso
-`buildFullStateBlob()` filtra `TX.filter(t=>!t.compartidoAjeno)` antes de guardar — si se
+`syncSharedExpenses()` la recalcula por completo cada vez (al cargar sesión y en cada
+evento realtime) desde `SHARED_EXPENSES`/`CATEGORY_MAPPINGS`, y la agrega a `TRANSACTIONS` **en
+memoria** como una transacción con `sharedByOthers:true` (id `'compartido-'+gastoId`). Por eso
+`buildFullStateBlob()` filtra `TRANSACTIONS.filter(t=>!t.sharedByOthers)` antes de guardar — si se
 guardara, quedaría duplicada o desincronizada apenas la otra persona editara o borrara el gasto
-original. Reglas del motor (`saldoGrupo`, `transferenciasSugeridas`, ambas funciones puras
+original. Reglas del motor (`groupBalances`, `suggestedTransfers`, ambas funciones puras
 cubiertas por `audit_gastos_compartidos.js`):
 
 - Si **pagué yo**, mi propia transacción real ya lleva las partes de los demás en `porCobrar`
@@ -237,13 +237,13 @@ cubiertas por `audit_gastos_compartidos.js`):
   presupuesto) y mi propia parte me llega igual que a cualquier otro participante, vía la
   entrada derivada.
 - Si **pagó y registró otra persona**, toda mi parte llega solo como entrada derivada. Sin un
-  mapeo aprendido todavía, queda `estado:'pendiente'` con `categoriaOrigenSugerida` (la
+  mapeo aprendido todavía, queda `estado:'pendiente'` con `suggestedOriginCategory` (la
   categoría que puso quien registró, mostrada como sugerencia en el detalle) — clasificarla a
-  mano (`clasificarGastoCompartidoAjeno`) aprende el mapeo para que el próximo gasto de esa
+  mano (`classifySharedExpenseFromOthers`) aprende el mapeo para que el próximo gasto de esa
   misma persona con esa misma categoría de origen se clasifique solo.
 - El balance por participante es `pagado - correspondido +/- saldos_pagados`, neteado a la
   mínima cantidad de transferencias sugeridas con un algoritmo greedy deudor/acreedor
-  (`transferenciasSugeridas`).
+  (`suggestedTransfers`).
 
 No implementado todavía (a propósito, fuera de alcance de esta primera pasada): categorías
 propias de grupo (se prefiere el mapeo aprendido salvo que se quede corto) y metas de inversión
@@ -257,7 +257,7 @@ avanzados (categoría, medio, rango de fechas — sheet aparte, `renderFilterShe
 Tocar una fila abre el detalle (`renderSheetContent`); el botón `+` (FAB, solo visible en esta
 pestaña) abre "Nueva transacción" (`renderNewTxSheetContent`). Ambas hojas comparten estética:
 tarjetas `.sheet-block.card` por sección, y la categoría se elige con un avatar redondo +
-`<select>` nativo (`renderCategoriaRows` / `renderDraftCategoriaRow`), no con una grilla de
+`<select>` nativo (`renderCategoryRows` / `renderDraftCategoryRow`), no con una grilla de
 chips siempre abierta (esa grilla, `catPickerGrid`, solo se usa para la primera clasificación
 de un movimiento importado sin categoría).
 
@@ -271,18 +271,18 @@ Dentro del detalle de una transacción:
   categorizado (sueldo, freelance, etc.) nunca la muestra.
 - **Acciones rápidas** (solo gastos): confirmar / por cobrar a alguien / reembolso pendiente /
   no es gasto.
-- **Compartir con un grupo** (solo gastos propios, no en una entrada `compartidoAjeno`):
+- **Compartir con un grupo** (solo gastos propios, no en una entrada `sharedByOthers`):
   cerrado por defecto ("Elegir un grupo"); al abrirlo, elegir grupo, quién pagó (segmented) y
   entre quiénes se divide (checkboxes, partes iguales con vista previa en vivo del reparto y
-  chequeo de que suma el total exacto) — "Compartir" llama `compartirTransaccionExistente`.
+  chequeo de que suma el total exacto) — "Compartir" llama `shareExistingTransaction`.
   Una vez compartida, la sección pasa a una tarjeta de solo lectura ("ya se compartió con
   &lt;grupo&gt;"); para cambiar el reparto hay que hacerlo desde la vista del grupo. **Alcance
   de esta primera pasada: solo partes iguales** — "montos"/"%" (reparto personalizado) queda
   para una próxima pasada, el esquema/backend ya los soporta (`division_tipo`).
-  Una entrada `compartidoAjeno` (mi parte de un gasto que registró otra persona) reutiliza el
+  Una entrada `sharedByOthers` (mi parte de un gasto que registró otra persona) reutiliza el
   mismo flujo de clasificación de siempre (`needsClassifying` → `catPickerGrid`) cuando todavía
   no tiene categoría, mostrando además la sugerencia de la categoría de origen; tocar una
-  categoría llama `clasificarGastoCompartidoAjeno` en vez del flujo normal, que además de
+  categoría llama `classifySharedExpenseFromOthers` en vez del flujo normal, que además de
   clasificar esta transacción aprende el mapeo para la próxima vez (ver sección 3).
 - **Nota** libre.
 - Eliminar (con confirmación) y "Listo" al fondo.
@@ -292,21 +292,21 @@ Gastos compartidos estilo Tricount. Sin ningún grupo creado: pantalla vacía co
 un grupo" / "Unirme con un código". Con grupos: lista de tarjetas (una por grupo) con un
 resumen del saldo propio.
 
-Detalle de un grupo (`renderGrupoDetalle`):
+Detalle de un grupo (`renderGroupDetail`):
 - **Tarjeta de balance propio** (coloreada según el signo: te deben / debes).
 - **Desglose por persona**: avatar + nombre + saldo de cada participante, con un botón "Saldar"
-  cuando corresponde — llama `registrarSaldoPagado`, que **solo** escribe un registro contable
+  cuando corresponde — llama `registerPaidBalance`, que **solo** escribe un registro contable
   (`saldos_pagados`) y nunca crea ninguna transacción (ver sección 3, es una decisión explícita
   y no negociable).
 - **Feed de gastos del grupo**, reutilizando la estética de fila de Transacciones (`.tx-item`).
 - **Agregar un gasto** (dentro del grupo) y **agregar un participante sin cuenta propia** (solo
   nombre + color, para alguien que no usa la app).
 - Invitar a alguien más al grupo comparte el `invite_code` (uuid); unirse pide ese código + el
-  nombre con el que se quiere aparecer (`unirseAGrupo`, RPC `unirse_a_grupo` en Supabase).
+  nombre con el que se quiere aparecer (`joinGroup`, RPC `unirse_a_grupo` en Supabase).
 
 ### Resumen → Balance
 Donut de gasto por categoría del mes + card "Fijo · Variable · Inversión" con barras de
-progreso contra tus propias metas (`METAS_GASTO_PCT.fijo/variable`, más `metaInversionPct()`
+progreso contra tus propias metas (`SPENDING_GOAL_PCT.fijo/variable`, más `investmentGoalPct()`
 para Inversión — **ese % sale solo de la suma de `aporteMensualMeta` de TODAS tus metas de
 inversión, en todas las plataformas**, dividido por tu ingreso mensual de referencia; nunca se
 edita directo acá, se define agregando/editando metas en Inversiones).
@@ -382,8 +382,8 @@ que `importar_transaccion()`) porque quien se une todavía no es miembro y no pu
 política normal de insert.
 
 Sincronización en vivo: canal `postgres_changes` de Supabase Realtime suscrito a las 5 tablas
-(`suscribirseAGruposEnVivo`) — cualquier cambio (propio o de otro participante) dispara un
-refetch completo y recalcula todo (`cargarGastosCompartidos` → `sincronizarGastosCompartidos`),
+(`subscribeToGroupsLive`) — cualquier cambio (propio o de otro participante) dispara un
+refetch completo y recalcula todo (`loadSharedExpenses` → `syncSharedExpenses`),
 nunca un parche incremental.
 
 ## 6. Pipeline de build
@@ -407,12 +407,12 @@ orden:
    se dividiera en módulos.
    - **`--keep-names` y sin minificar**: el paso 4 de más abajo (inyectar `window.__debug`)
      ubica una línea del código por texto y arma un objeto literal citando decenas de nombres
-     de variables/funciones reales (`TX`, `CATS`, `state`, `render`, etc.) — si esbuild
+     de variables/funciones reales (`TRANSACTIONS`, `CATEGORIES`, `state`, `render`, etc.) — si esbuild
      minificara o renombrara identificadores de nivel superior, esos nombres dejarían de
      existir en el bundle y la inyección (y con ella, los ~45 tests de Playwright que leen
      `window.__debug.*`) se rompería.
    - **`--tree-shaking=false`**: por el mismo motivo. Algunas funciones solo las toca
-     `window.__debug` — ningún camino real de la app las llama (ej. `sumaMetasGastoPct`) — y el
+     `window.__debug` — ningún camino real de la app las llama (ej. `sumSpendingGoalPct`) — y el
      tree-shaking normal de esbuild las habría borrado del bundle por "no las usa nadie" (para
      esbuild, los tests no cuentan como "alguien").
    - **Por qué esbuild y no dejar que `tsc` compile directo a JS como antes**: el principio de
@@ -431,10 +431,10 @@ orden:
    simples a dobles, a diferencia de como reformateaba `tsc` antes) y lo reemplaza por el
    contenido recién empaquetado de `dist/app.js`.
 4. Inserta el bloque `window.__debug` justo después de una línea ancla
-   (`regenerateCuotasFor('t31');` o `regenerateCuotasFor("t31");`, según la comilla que haya
+   (`regenerateInstallmentsFor('t31');` o `regenerateInstallmentsFor("t31");`, según la comilla que haya
    usado esbuild), exponiendo las variables/funciones internas que los tests necesitan tocar
-   directamente (`TX`, `state`, `render`, `todayISO`, `metaInversionPct`, `pendientesGlobales`,
-   `GRUPOS`, `GASTOS_COMPARTIDOS`, `saldoGrupo`, etc. — la lista crece cada vez que un test
+   directamente (`TRANSACTIONS`, `state`, `render`, `todayISO`, `investmentGoalPct`, `allPendingReceivables`,
+   `GROUPS`, `SHARED_EXPENSES`, `groupBalances`, etc. — la lista crece cada vez que un test
    nuevo necesita algo que no estaba expuesto) — pero solo en las variantes de test, no en
    `public/index.html`.
 5. Genera los distintos archivos de salida, todos dentro de `public/`:
@@ -484,20 +484,20 @@ es un script Node independiente.
   septiembre 2026 — no eran parte de la suite mantenida, `run_all_tests.js` nunca los corría.
   Los PDFs y datos de ejemplo que usan los tests viven en `tests/fixtures/`.
 - **`audit_consistency.js`**: no es un test de una sola cosa — recalcula "la verdad" (sumas de
-  ingresos/gastos/inversiones por mes, totales de plataformas, etc.) directamente desde `TX` y
+  ingresos/gastos/inversiones por mes, totales de plataformas, etc.) directamente desde `TRANSACTIONS` y
   compara contra lo que la UI muestra en cada vista, para atrapar discrepancias entre vistas
   (ej. Balance vs. Evolución vs. Inversiones) que un test puntual no vería.
 - **`audit_gastos_compartidos.js`**: mismo patrón que `audit_consistency.js` pero para el motor
   de balances de grupos — fixture de 3 participantes (uno sin cuenta) inyectada directo por
-  `window.__debug` (`GRUPOS`/`GRUPO_PARTICIPANTES`/`GASTOS_COMPARTIDOS`/`SALDOS_PAGADOS`), y
-  compara a mano `saldoGrupo`/`transferenciasSugeridas`/`sincronizarGastosCompartidos` contra
+  `window.__debug` (`GROUPS`/`GROUP_PARTICIPANTS`/`SHARED_EXPENSES`/`PAID_BALANCES`), y
+  compara a mano `groupBalances`/`suggestedTransfers`/`syncSharedExpenses` contra
   lo esperado, incluyendo que el mapeo aprendido "pegue" solo en un resync y que no haya doble
   conteo en `monthTotals`.
 - **`shot_compartir_grupo.js`** / **`shot_clasificar_ajeno.js`**: la parte de UI de gastos
   compartidos (abrir/cerrar el form de "Compartir con un grupo", recalculo en vivo del reparto,
   clasificar la entrada derivada de un gasto ajeno y ver que el mapeo aprendido se aplique solo
-  a un gasto nuevo). Como la escritura real a Supabase (`compartirTransaccionExistente`,
-  `crearGrupo`, `unirseAGrupo`, etc.) depende de `sb` (bloqueado por la política de red del
+  a un gasto nuevo). Como la escritura real a Supabase (`shareExistingTransaction`,
+  `createGroup`, `joinGroup`, etc.) depende de `sb` (bloqueado por la política de red del
   sandbox de test), estos tests inyectan el estado de grupos directo por `window.__debug` —
   igual que `audit_gastos_compartidos.js` — y verifican la UI sobre ese estado, no el viaje de
   ida y vuelta a la base de datos.
@@ -555,7 +555,7 @@ public/icons/icon-512-maskable.png
 - **Tarjetas de detalle**: `.sheet-block.card` con `.sheet-block-title` como encabezado —
   mismo patrón en el detalle de una transacción existente y en "Nueva transacción".
 - **Acordeón de una sola apertura**: patrón usado en plataformas de Inversiones
-  (`state.platformAbierta`) — abrir una cierra cualquier otra que estuviera abierta.
+  (`state.openPlatformId`) — abrir una cierra cualquier otra que estuviera abierta.
 - **Rachas**: 🔥 + contador cuando hay meses seguidos cumplidos hasta hoy (mismo patrón para
   metas individuales, el combinado de una plataforma, y el objetivo total).
 - Nunca copiar código de referencia que la usuaria comparta tal cual — usarlo solo de guía e

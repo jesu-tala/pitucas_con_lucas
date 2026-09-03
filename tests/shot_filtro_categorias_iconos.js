@@ -1,11 +1,11 @@
-// Regresión: la hoja de "Filtros" (icono de embudo, en Transacciones) mostraba cada chip de
-// categoría como "undefined Hogar", "undefined Supermercado", etc. La causa: chipToggle()
-// armaba el ícono con ICONS[icon] directo, que solo sirve para íconos con nombre del set fijo
-// (los medios de pago: 'card', 'bank', 'cash') -- pero casi todas las categorías de gasto/
-// ingreso usan un emoji suelto como ícono ('🛒', '🏠', etc), así que ICONS[icon] daba
-// `undefined`. El fix usa catIconMarkup() (el mismo helper que ya resuelve esto en el resto de
-// la app) para ambos casos. Este test bloquea que la palabra "undefined" vuelva a aparecer en
-// los chips de categoría o de medio del filtro, y que cada chip muestre su ícono real.
+// Regression: the "Filters" sheet (funnel icon, in Transactions) showed every category
+// chip as "undefined Hogar", "undefined Supermercado", etc. The cause: chipToggle()
+// built the icon with ICONS[icon] directly, which only works for named icons from the fixed set
+// (payment methods: 'card', 'bank', 'cash') -- but almost all expense/income categories
+// use a loose emoji as their icon ('🛒', '🏠', etc), so ICONS[icon] returned
+// `undefined`. The fix uses catIconMarkup() (the same helper that already handles this elsewhere in
+// the app) for both cases. This test guards against the word "undefined" reappearing in
+// the filter's category or payment-method chips, and checks that every chip shows its real icon.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -17,12 +17,12 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(200);
 
   const info = await page.evaluate(() => {
-    const CATS = window.__debug.CATS;
+    const CATEGORIES = window.__debug.CATEGORIES;
     const chips = [...document.querySelectorAll('[data-toggle-filter-cat]')];
     const textos = chips.map(c => c.textContent.trim());
     const conUndefined = textos.filter(t => t.includes('undefined'));
-    // Cada chip (salvo "Sin categoría", que no lleva ícono) debe tener un ícono real: un <svg>
-    // (íconos con nombre) o un .emoji-icon (categorías con emoji suelto).
+    // Every chip (except "Sin categoría", which carries no icon) must have a real icon: an <svg>
+    // (named icons) or a .emoji-icon (categories with a loose emoji).
     const sinIcono = chips.filter(c => {
       const id = c.getAttribute('data-toggle-filter-cat');
       if (id === '__sin_cat__') return false;
@@ -30,7 +30,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
     }).map(c => c.getAttribute('data-toggle-filter-cat'));
     return {
       cantidadChips: chips.length,
-      cantidadCategoriasReales: Object.keys(CATS).length,
+      cantidadCategoriasReales: Object.keys(CATEGORIES).length,
       conUndefined,
       sinIcono,
     };
@@ -39,13 +39,13 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('Ningún chip de categoría muestra la palabra "undefined"', info.conUndefined.length === 0, info);
   check('Todos los chips de categoría muestran su ícono real (svg o emoji)', info.sinIcono.length === 0, info);
 
-  // Los chips de "medio de pago" (con íconos de nombre: card/bank/cash) tampoco deben decir
-  // "undefined" -- ya funcionaban bien, pero conviene bloquearlo junto con lo anterior.
-  const medioInfo = await page.evaluate(() => {
-    const chips = [...document.querySelectorAll('[data-toggle-filter-medio]')];
+  // The "payment method" chips (with named icons: card/bank/cash) also must not say
+  // "undefined" -- they already worked fine, but it's worth guarding this alongside the above.
+  const paymentMethodInfo = await page.evaluate(() => {
+    const chips = [...document.querySelectorAll('[data-toggle-filter-payment-method]')];
     return { textos: chips.map(c => c.textContent.trim()), conUndefined: chips.filter(c => c.textContent.includes('undefined')).length };
   });
-  check('Los chips de medio de pago tampoco muestran "undefined"', medioInfo.conUndefined === 0, medioInfo);
+  check('Los chips de medio de pago tampoco muestran "undefined"', paymentMethodInfo.conUndefined === 0, paymentMethodInfo);
 
   await finish({ context, browser, errors });
 })();

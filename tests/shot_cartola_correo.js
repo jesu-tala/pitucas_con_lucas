@@ -6,15 +6,15 @@ const fs = require('fs');
   const { context, browser, page, errors } = await openApp();
   await page.evaluate(() => { if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js'; });
 
-  // 1) parseCartolaPDF con un PDF cifrado real (la copia ORIGINAL, todavía con la clave del
-  //    banco puesta — la misma que llegaría guardada tal cual desde el correo).
+  // 1) parseStatementPDF with a real encrypted PDF (the ORIGINAL copy, still with the bank's
+  //    password set — the same one that would arrive saved as-is from the email).
   const bufEnc = fs.readFileSync(path.join(__dirname, 'fixtures', 'cartola_visa_enc.pdf'));
   const b64Enc = bufEnc.toString('base64');
 
   const sinClave = await page.evaluate(async (b64) => {
     const bin = atob(b64); const arr = new Uint8Array(bin.length);
     for (let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
-    try { await window.__debug.parseCartolaPDF(arr.buffer); return 'no lanzó error (mal)'; }
+    try { await window.__debug.parseStatementPDF(arr.buffer); return 'no lanzó error (mal)'; }
     catch(e){ return e.message; }
   }, b64Enc);
   check('Sin clave, lanza PDF_PASSWORD_REQUERIDA', sinClave === 'PDF_PASSWORD_REQUERIDA', sinClave);
@@ -22,7 +22,7 @@ const fs = require('fs');
   const claveMala = await page.evaluate(async (b64) => {
     const bin = atob(b64); const arr = new Uint8Array(bin.length);
     for (let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
-    try { await window.__debug.parseCartolaPDF(arr.buffer, '0000'); return 'no lanzó error (mal)'; }
+    try { await window.__debug.parseStatementPDF(arr.buffer, '0000'); return 'no lanzó error (mal)'; }
     catch(e){ return e.message; }
   }, b64Enc);
   check('Con clave mala, también PDF_PASSWORD_REQUERIDA', claveMala === 'PDF_PASSWORD_REQUERIDA', claveMala);
@@ -30,14 +30,14 @@ const fs = require('fs');
   const claveBuena = await page.evaluate(async (b64) => {
     const bin = atob(b64); const arr = new Uint8Array(bin.length);
     for (let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
-    const res = await window.__debug.parseCartolaPDF(arr.buffer, '1196');
+    const res = await window.__debug.parseStatementPDF(arr.buffer, '1196');
     return { tipo: res.tipo, n: res.movimientos.length };
   }, b64Enc);
   console.log('Con la clave correcta (1196), se lee el PDF cifrado:', JSON.stringify(claveBuena));
   check('tipo === tarjeta_nacional', claveBuena.tipo === 'tarjeta_nacional');
   check('mismo número de movimientos que la copia ya descifrada (47)', claveBuena.n === 47, claveBuena.n);
 
-  // 2) pgBytesToArrayBuffer: el mismo PDF, como vendría de Supabase en formato hex "\x...".
+  // 2) pgBytesToArrayBuffer: the same PDF, as it would come from Supabase in hex format "\x...".
   const hexOk = await page.evaluate((b64) => {
     const bin = atob(b64); const bytes = new Uint8Array(bin.length);
     for (let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
@@ -50,8 +50,8 @@ const fs = require('fs');
   }, b64Enc);
   check('pgBytesToArrayBuffer reconstruye los bytes exactos desde el formato hex de Postgres', hexOk);
 
-  // 3) UI: renderCartolasDisponiblesBlock — se prueba fijando el estado a mano (sin red real),
-  //    ya que "sb" es una conexión real a Supabase y no se puede simular en este sandbox.
+  // 3) UI: renderCartolasDisponiblesBlock — tested by setting state by hand (no real network),
+  //    since "sb" is a real connection to Supabase and can't be simulated in this sandbox.
   await page.click('[data-tab="menu"]');
   await page.waitForTimeout(120);
   await page.click('[data-menu-open="reconciliar"]');
@@ -66,20 +66,20 @@ const fs = require('fs');
   await page.waitForTimeout(120);
   const listado = await page.evaluate(() => Array.from(document.querySelectorAll('.section-title')).some(e => e.textContent.includes('Llegaron solas por correo')));
   check('Aparece la sección "Llegaron solas por correo"', listado);
-  const botonesUsar = await page.evaluate(() => document.querySelectorAll('[data-cartola-usar]').length);
+  const botonesUsar = await page.evaluate(() => document.querySelectorAll('[data-statement-use]').length);
   check('Hay un botón "Usar esta" por cada cartola disponible (esperado 2)', botonesUsar === 2, botonesUsar);
 
-  await page.click('[data-cartola-usar="c2"]');
+  await page.click('[data-statement-use="c2"]');
   await page.waitForTimeout(120);
-  const promptVisible = await page.evaluate(() => !!document.querySelector('[data-cartola-password-input]'));
+  const promptVisible = await page.evaluate(() => !!document.querySelector('[data-statement-password-input]'));
   check('Al apretar "Usar esta" aparece el campo para la clave', promptVisible);
-  await page.fill('[data-cartola-password-input]', '9999');
+  await page.fill('[data-statement-password-input]', '9999');
   const draftGuardado = await page.evaluate(() => window.__debug.state.reconciliar.passwordDraft);
   check('Lo que escribes en la clave se guarda en el draft (sin loguearlo en ningún lado)', draftGuardado === '9999');
 
-  await page.click('[data-cartola-cancelar]');
+  await page.click('[data-statement-cancel]');
   await page.waitForTimeout(120);
-  const promptCerrado = await page.evaluate(() => !document.querySelector('[data-cartola-password-input]') && window.__debug.state.reconciliar.usandoId===null);
+  const promptCerrado = await page.evaluate(() => !document.querySelector('[data-statement-password-input]') && window.__debug.state.reconciliar.usandoId===null);
   check('"Cancelar" cierra el campo de clave sin dejar nada abierto', promptCerrado);
 
   await finish({ context, browser, errors });

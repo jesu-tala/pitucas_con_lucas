@@ -3,18 +3,18 @@ const { openApp, check, finish } = require('./lib/test_kit');
 (async () => {
   const { context, browser, page, errors } = await openApp();
 
-  // Antes de tocar nada: "este mes" debe tener un sueldo registrado (el banner no debería
-  // verse). Los datos de demo tienen fechas FIJAS (p.ej. sueldo fechado 2026-08-25), así que
-  // con el paso de los meses reales dejan de caer en "el mes actual" -- en vez de asumir que
-  // el demo ya lo cubre, nos aseguramos nosotros mismos, agregando uno si hace falta.
+  // Before touching anything: "this month" must have a salary registered (the banner
+  // shouldn't show). The demo data has FIXED dates (e.g. salary dated 2026-08-25), so
+  // as real months pass they stop falling in "the current month" -- instead of assuming
+  // the demo already covers it, we make sure ourselves, adding one if needed.
   await page.click('[data-tab="transacciones"]');
   await page.waitForTimeout(150);
   const setupInfo = await page.evaluate(() => {
     const D = window.__debug;
     const ym = D.todayISO().slice(0,7);
-    const yaHaySueldo = D.TX.some(t => t.fecha.slice(0,7) === ym && t.categorias.some(c => c.cat === 'sueldo'));
+    const yaHaySueldo = D.TRANSACTIONS.some(t => t.fecha.slice(0,7) === ym && t.categorias.some(c => c.cat === 'sueldo'));
     if (!yaHaySueldo) {
-      D.TX.push({ id: 't_sueldo_este_mes_test', fecha: ym + '-05', hora: '09:00', comercio: 'Sueldo Test',
+      D.TRANSACTIONS.push({ id: 't_sueldo_este_mes_test', fecha: ym + '-05', hora: '09:00', comercio: 'Sueldo Test',
         monto: 1000000, medio: 'cuenta_vista', tipo: 'ingreso', recurrencia: 'mensual', estado: 'confirmado',
         categorias: [{ cat: 'sueldo', monto: 1000000 }], porCobrar: [], reglaAuto: false, nota: '' });
     }
@@ -25,21 +25,21 @@ const { openApp, check, finish } = require('./lib/test_kit');
   const bannerAntes = await page.evaluate(() => !!document.querySelector('.sueldo-suggestion'));
   check('Con el sueldo de este mes ya registrado, el banner NO aparece', bannerAntes === false, bannerAntes);
 
-  // Ahora sacamos ese sueldo del mes actual (simulando que aún no llega) y re-renderizamos.
+  // Now we remove that salary from the current month (simulating it hasn't arrived yet) and re-render.
   const removed = await page.evaluate(() => {
     const D = window.__debug;
     const ym = D.todayISO().slice(0,7);
-    const before = D.TX.length;
-    // Mutamos el arreglo EN EL LUGAR (splice), no lo reasignamos — window.__debug.TX es una
-    // referencia capturada una sola vez al cargar la página; reasignarla (TX = TX.filter(...))
-    // la dejaría apuntando a un arreglo viejo, sin reflejar el cambio real (bug ya conocido
-    // de este arnés de pruebas).
-    for(let i=D.TX.length-1;i>=0;i--){
-      const t = D.TX[i];
-      if(t.fecha.slice(0,7)===ym && t.categorias.some(c=>c.cat==='sueldo')) D.TX.splice(i,1);
+    const before = D.TRANSACTIONS.length;
+    // We mutate the array IN PLACE (splice), we don't reassign it — window.__debug.TRANSACTIONS is a
+    // reference captured once when the page loads; reassigning it (TRANSACTIONS = TRANSACTIONS.filter(...))
+    // would leave it pointing at a stale array, not reflecting the real change (a known bug
+    // in this test harness).
+    for(let i=D.TRANSACTIONS.length-1;i>=0;i--){
+      const t = D.TRANSACTIONS[i];
+      if(t.fecha.slice(0,7)===ym && t.categorias.some(c=>c.cat==='sueldo')) D.TRANSACTIONS.splice(i,1);
     }
     D.render();
-    return before - D.TX.length;
+    return before - D.TRANSACTIONS.length;
   });
   await page.waitForTimeout(150);
   console.log('Se sacó el sueldo del mes actual (transacciones eliminadas):', removed);
@@ -50,13 +50,13 @@ const { openApp, check, finish } = require('./lib/test_kit');
   });
   check('Ahora SÍ aparece el banner de sugerencia', bannerDespues !== null, bannerDespues);
 
-  // Apretar "Confirmar o ajustar" debe abrir la hoja de nueva transacción, pre-llena con el
-  // monto/medio/categoría del último sueldo registrado (el de julio, en este caso).
+  // Pressing "Confirm or adjust" should open the new-transaction sheet, pre-filled with the
+  // amount/method/category of the last registered salary (July's, in this case).
   const lastSueldoAntes = await page.evaluate(() => {
     const D = window.__debug;
-    return D.lastSueldoTx();
+    return D.lastSalaryTx();
   });
-  await page.click('[data-confirm-sueldo-suggestion]');
+  await page.click('[data-confirm-salary-suggestion]');
   await page.waitForTimeout(250);
   const draft = await page.evaluate(() => window.__debug.state.draftTx);
   console.log('Draft pre-llenado:', JSON.stringify(draft));
@@ -65,7 +65,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('categoría = sueldo', draft.categorias.some(c => c.cat === 'sueldo'), draft.categorias);
   check('comercio menciona "Sueldo"', /sueldo/i.test(draft.comercio), draft.comercio);
 
-  // Guardar esa transacción pre-llena y verificar que el banner desaparece.
+  // Save that pre-filled transaction and verify the banner disappears.
   const saveBtn = await page.$('[data-save-draft]');
   check('Existe el botón "Guardar transacción" en el sheet', saveBtn !== null);
   if (saveBtn) {
@@ -75,23 +75,23 @@ const { openApp, check, finish } = require('./lib/test_kit');
     check('Tras guardar, el banner desaparece', bannerFinal === false, bannerFinal);
   }
 
-  // Probar también el botón "Todavía no": debe ocultar el banner sin agregar nada.
+  // Also test the "Not yet" button: it should hide the banner without adding anything.
   await page.evaluate(() => {
     const D = window.__debug;
     const ym = D.todayISO().slice(0,7);
-    for(let i=D.TX.length-1;i>=0;i--){
-      const t = D.TX[i];
-      if(t.fecha.slice(0,7)===ym && t.categorias.some(c=>c.cat==='sueldo')) D.TX.splice(i,1);
+    for(let i=D.TRANSACTIONS.length-1;i>=0;i--){
+      const t = D.TRANSACTIONS[i];
+      if(t.fecha.slice(0,7)===ym && t.categorias.some(c=>c.cat==='sueldo')) D.TRANSACTIONS.splice(i,1);
     }
-    D.state.sueldoBannerDescartadoMes = null;
+    D.state.salaryBannerDismissedMonth = null;
     D.render();
   });
   await page.waitForTimeout(150);
-  const countBefore = await page.evaluate(() => window.__debug.TX.length);
-  await page.click('[data-dismiss-sueldo-suggestion]');
+  const countBefore = await page.evaluate(() => window.__debug.TRANSACTIONS.length);
+  await page.click('[data-dismiss-salary-suggestion]');
   await page.waitForTimeout(150);
   const bannerTrasDismiss = await page.evaluate(() => !!document.querySelector('.sueldo-suggestion'));
-  const countAfter = await page.evaluate(() => window.__debug.TX.length);
+  const countAfter = await page.evaluate(() => window.__debug.TRANSACTIONS.length);
   check('Tras "Todavía no": banner desaparece', bannerTrasDismiss === false, bannerTrasDismiss);
   check('Tras "Todavía no": no se agregó nada', countAfter === countBefore, { countBefore, countAfter });
 
