@@ -1058,9 +1058,9 @@ phone.addEventListener('click', function(e: any){
   if(grupoCrearConfirmarBtn){
     const d = state.grupoDraft;
     if(d.nombre.trim()){
-      crearGrupo(d.nombre.trim(), d.icono).then(function(g){
+      crearGrupo(d.nombre.trim(), d.icono).then(function(res){
         state.creandoGrupo = false;
-        toast(g ? 'Grupo "'+g.nombre+'" creado' : 'No se pudo crear el grupo — revisa tu conexión');
+        toast(res.data ? 'Grupo "'+res.data.nombre+'" creado' : 'No se pudo crear el grupo — ' + (res.error ? res.error.message : 'revisa tu conexión'));
         renderGruposView();
       });
     }

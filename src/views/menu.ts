@@ -1220,11 +1220,11 @@ export function suscribirseAGruposEnVivo(){
 }
 
 export async function crearGrupo(nombre, icono){
-  if(!sb || !currentUser) return null;
+  if(!sb || !currentUser) return {data:null, error:null};
   const { data, error } = await sb.from('grupos').insert({nombre, icono: icono||'👥', creado_por: currentUser.id}).select().single();
-  if(error){ console.error('Pitucas sin lucas — error creando grupo:', error); return null; }
+  if(error){ console.error('Pitucas sin lucas — error creando grupo:', error); return {data:null, error}; }
   await cargarGastosCompartidos();
-  return data;
+  return {data, error:null};
 }
 
 export async function unirseAGrupo(inviteCode, nombre){
