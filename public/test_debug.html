@@ -2818,8 +2818,10 @@
       const currentUserId = currentUser.id;
       sb.auth.getUser().then(function(res) {
         const quienSoy = res && res.data && res.data.user;
-        toast("Diagn\xF3stico \u2014 app: " + currentUserId + " \xB7 servidor: " + (quienSoy ? quienSoy.id : "sin sesi\xF3n"));
-      }).catch(function() {
+        const detalleServidor = quienSoy ? quienSoy.id : "sin sesi\xF3n (" + (res && res.error ? res.error.message : "sin detalle") + ")";
+        toast("Diagn\xF3stico \u2014 app: " + currentUserId + " \xB7 servidor: " + detalleServidor);
+      }).catch(function(err) {
+        toast("Diagn\xF3stico fall\xF3: " + (err && err.message ? err.message : String(err)));
       });
       return { data: null, error };
     }
