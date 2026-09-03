@@ -4,16 +4,42 @@ import sys
 
 SRC = 'src/plata-clara.html'
 
-# ---- 1) Compilar app.ts (TypeScript) a dist/app.js con tsc ----
-# noEmitOnError:true en tsconfig.json hace que esto falle fuerte (dist/app.js no se toca) si hay
-# CUALQUIER error de tipos -- justo el punto de haber migrado a TypeScript: un typo de categoría,
-# un campo que falta en una transacción o una función llamada con el argumento equivocado se
-# atrapan acá, antes de llegar siquiera a correr el test suite.
-tsc = subprocess.run(['npx', 'tsc', '-p', 'tsconfig.json'], capture_output=True, text=True)
+# ---- 1) Chequear tipos de src/**/*.ts con tsc (sin emitir nada) ----
+# noEmitOnError:true en tsconfig.json ya haría que tsc no emita nada si hay errores, pero acá
+# ni siquiera se le pide emitir (--noEmit): desde que src/app.ts se separó en muchos módulos
+# (ver DOCUMENTACION.md sección 2) el que arma el JS final es esbuild, no tsc -- tsc queda
+# como un paso puramente de chequeo, corrido ANTES, para no perder la propiedad que tenía
+# antes de la migración a TypeScript: un typo de categoría, un campo que falta en una
+# transacción o una función llamada con el argumento equivocado se atrapan acá, antes de
+# llegar siquiera a empaquetar nada (esbuild no chequea tipos -- solo los borra y empaqueta).
+tsc = subprocess.run(['npx', 'tsc', '-p', 'tsconfig.json', '--noEmit'], capture_output=True, text=True)
 if tsc.returncode != 0:
     print("ERROR DE TYPESCRIPT — no se generó nada. Arregla esto antes de seguir:\n")
     print(tsc.stdout)
     print(tsc.stderr)
+    sys.exit(1)
+
+# ---- 2) Empaquetar src/app.ts (y todo lo que importa) con esbuild a dist/app.js ----
+# --bundle sigue los imports entre los módulos de src/ y arma un único archivo; --format=iife
+# lo envuelve en una única IIFE (mismo resultado final que la IIFE manual que tenía el
+# app.ts de una sola pieza); --target=es2019 mantiene el mismo nivel de sintaxis que usaba
+# tsc antes. Sin minificar y con --keep-names a propósito: rebuild.py más abajo ubica la línea
+# ancla regenerateCuotasFor(...) por texto y arma window.__debug con los nombres reales de
+# variables/funciones (TX, CATS, state, render, etc.) -- minificar o dejar que esbuild
+# renombre identificadores de nivel superior rompería esa inyección y, con ella, los ~45
+# tests de Playwright que leen window.__debug.*. --tree-shaking=false por el mismo motivo:
+# alguna función solo la toca window.__debug (nada del código de la app la llama de verdad,
+# ej. sumaMetasGastoPct) y el tree-shaking normal de esbuild la habría borrado del bundle por
+# "no la usa nadie" -- acá "nadie" incluye a los tests, así que se desactiva.
+esbuild = subprocess.run(
+    ['npx', 'esbuild', 'src/app.ts', '--bundle', '--format=iife', '--target=es2019',
+     '--outfile=dist/app.js', '--keep-names', '--tree-shaking=false'],
+    capture_output=True, text=True
+)
+if esbuild.returncode != 0:
+    print("ERROR DE ESBUILD — no se generó nada. Arregla esto antes de seguir:\n")
+    print(esbuild.stdout)
+    print(esbuild.stderr)
     sys.exit(1)
 
 with open('dist/app.js', encoding='utf-8') as f:
@@ -30,13 +56,16 @@ assert m, "no se encontró el <script> inline al final del archivo"
 prefix = src[:m.start()]  # everything before "<script>\n"
 suffix = src[m.end():]    # everything after "\n</script>" (should be empty/whitespace)
 
-# El anchor se busca sin asumir una indentación fija -- tsc reformatea el código al compilar
-# (por ejemplo 2 espacios pasan a 4), así que se captura la indentación real de esa línea.
-anchor_re = re.compile(r'^([ \t]*)regenerateCuotasFor\(\'t31\'\);[ \t]*$', re.M)
+# El anchor se busca sin asumir una indentación fija -- el compilador reformatea el código
+# (tsc pasaba 2 espacios a 4; esbuild los deja en 2 pero además normaliza comillas simples a
+# dobles), así que se captura la indentación real de esa línea y se acepta cualquiera de las
+# dos comillas.
+anchor_re = re.compile(r'''^([ \t]*)regenerateCuotasFor\((['"])t31\2\);[ \t]*$''', re.M)
 anchor_matches = list(anchor_re.finditer(inline_js))
 assert len(anchor_matches) == 1, f"ancla encontrada {len(anchor_matches)} veces (se esperaba 1)"
 indent = anchor_matches[0].group(1)
-anchor = indent + "regenerateCuotasFor('t31');"
+quote = anchor_matches[0].group(2)
+anchor = indent + "regenerateCuotasFor(" + quote + "t31" + quote + ");"
 
 debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  TX: TX, CATS: CATS, MEDIOS: MEDIOS, PRESUPUESTOS: PRESUPUESTOS,

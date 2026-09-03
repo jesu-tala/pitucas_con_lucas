@@ -2,7 +2,8 @@
 
 App de finanzas personales (Chile, pesos CLP), originalmente para uso individual y ahora
 también con gastos compartidos entre grupos (pareja, familia, roomies). El código fuente vive
-en `src/app.ts` (TypeScript), compilado con `tsc` e insertado en el HTML de
+en `src/*.ts` (TypeScript, organizado en módulos por vista/sección — ver sección 2), chequeado
+con `tsc` y empaquetado con `esbuild` en un único script, que se inserta en el HTML de
 `src/plata-clara.html` (ver sección 2 y 6) — pensado para que cualquier sesión de Claude (o
 cualquier desarrollador) pueda retomarla, entenderla y seguir extendiéndola sin tener que
 releer miles de líneas desde cero.
@@ -12,7 +13,8 @@ releer miles de líneas desde cero.
 Estructura del repo:
 
 ```
-src/            código fuente: app.ts (TypeScript) + plata-clara.html (HTML/CSS de la vitrina)
+src/            código fuente: *.ts (TypeScript, en módulos -- ver sección 2) + plata-clara.html
+                (HTML/CSS de la vitrina)
 public/         lo que genera rebuild.py (index.html, test.html, test_debug.html, extracted*.js)
                 más lo que ya iba tal cual (sw.js, manifest.json, icons/, pdf.min.js, pdf.worker.min.js)
                 -- este directorio completo es lo que se sube a Cloudflare Pages (ver sección 8)
@@ -21,7 +23,7 @@ backend/        supabase/ (esquema SQL), cloudflare-worker/ (push notifications)
 tests/          suite de Playwright: lib/test_kit.js, run_all_tests.js, shot_*.js, audit_*.js,
                 smoke_test.js, fixtures/ (PDFs y datos de ejemplo)
 preview/        preview.html generado por rebuild_preview.py, nunca se sube a producción
-dist/           salida de tsc (dist/app.js), generado, no se versiona (.gitignore)
+dist/           salida de esbuild (dist/app.js), generado, no se versiona (.gitignore)
 ```
 
 ## 1. Qué es la app
@@ -45,21 +47,68 @@ Cuatro pestañas principales:
 
 ## 2. Arquitectura
 
-El código fuente es `src/app.ts` (TypeScript). `rebuild.py` lo compila con `tsc` (usa
-`tsconfig.json`, con `noEmitOnError:true`: cualquier error de tipos aborta el rebuild sin tocar
-nada) a `dist/app.js`, y ese JS compilado se inserta dentro de `src/plata-clara.html` — que ya
-no lleva el `<script>` de la app escrito a mano, solo el HTML/CSS de la "vitrina" (el marco de
-teléfono, los estilos) más un placeholder que dice "esto se genera solo" — para producir
-`public/index.html`, `public/test.html`, `public/test_debug.html`, etc. (ver sección 6 para el
-detalle completo del pipeline). **Nunca se edita `dist/app.js` ni el `<script>` de
-`src/plata-clara.html` a mano — el único archivo que se edita es `src/app.ts`.**
+El código fuente vive en `src/` como varios módulos TypeScript (ES modules de verdad, con
+`import`/`export`) organizados principalmente por vista/pantalla — ver el árbol completo más
+abajo. Hasta septiembre 2026 todo esto era un único archivo `src/app.ts` de ~7500 líneas (una
+sola IIFE, sin módulos); se partió en archivos más chicos por legibilidad y para que cada
+pantalla se pueda tocar sin desplazarse por miles de líneas de las otras, pero el
+comportamiento en tiempo de ejecución es idéntico — es literalmente el mismo código, solo
+reorganizado en archivos. `src/app.ts` sigue existiendo, pero ahora es solo el punto de
+entrada delgado: importa cada módulo y corre el arranque (registrar listeners, el primer
+render() con los datos de ejemplo, recién después conectar Supabase).
 
-Es una IIFE (sin frameworks de UI, sin virtual DOM) que:
+`rebuild.py` hace dos pasos para convertir `src/*.ts` en JS: primero `tsc -p tsconfig.json
+--noEmit` chequea tipos sobre TODOS los módulos de una (con `noEmitOnError:true` de todos
+modos en `tsconfig.json`: cualquier error de tipos aborta el rebuild sin tocar nada de
+`public/`); recién si eso pasa limpio, **esbuild** empaqueta `src/app.ts` y todo lo que
+importa (`--bundle --format=iife`) en un único `dist/app.js` — esa es la única razón por la
+que hay un bundler en este proyecto ahora (ver sección 6, punto 2, para el detalle de esa
+decisión). Ese `dist/app.js` se inserta dentro de `src/plata-clara.html`
+— que no lleva el `<script>` de la app escrito a mano, solo el HTML/CSS de la "vitrina" (el
+marco de teléfono, los estilos) más un placeholder que dice "esto se genera solo" — para
+producir `public/index.html`, `public/test.html`, `public/test_debug.html`, etc. (ver sección 6
+para el detalle completo del pipeline). **Nunca se edita `dist/app.js` ni el `<script>` de
+`src/plata-clara.html` a mano — los únicos archivos que se editan son los de `src/`.**
+
+Árbol de `src/` (cada archivo exporta lo que otros módulos necesitan; ver los propios archivos
+para el detalle función por función):
+
+```
+src/
+  app.ts              — punto de entrada: importa todo lo demás y corre el arranque
+  globals.d.ts        — declaraciones ambient para pdfjsLib y window.supabase (cargan como
+                         <script src> externos, no son módulos)
+  types.ts            — interfaces/tipos compartidos (Transaccion, Grupo, Categoria, etc.)
+  icons.ts            — set de íconos SVG (ICONS) + helpers de ícono
+  state.ts            — el objeto `state` de UI, TODAS las variables de datos mutables (TX,
+                         CATS, MEDIOS, PRESUPUESTOS, METAS_INVERSION, PLATAFORMA_DATA,
+                         PLANIFICADOR, GRUPOS, etc. — ver sección 3) y sus setters (ver más
+                         abajo, "por qué hay setXxx() en vez de reasignar directo")
+  helpers.ts          — formateo de moneda/fecha y demás utilidades sin estado propio
+  shared-expenses.ts  — motor de balances de gastos compartidos (funciones puras) +
+                         regenerateCuotasFor (cuotas de tarjeta)
+  sheet.ts            — la hoja modal inferior (detalle de transacción, nueva transacción,
+                         filtros, dividir boleta, etc.) — un dispatcher grande y compartido
+                         por todas las vistas, no se dividió más
+  events.ts           — todos los handlers delegados (click/change/input/focusout/pointer*)
+                         sobre el contenedor `phone` — mismo motivo que sheet.ts
+  render.ts           — el dispatcher central render()
+  supabase.ts         — cliente de Supabase, auth, guardado automático, indicador de sync
+  ui/
+    toasts.ts, tabbar.ts, donut.ts  — widgets chicos compartidos por varias vistas
+  views/
+    transacciones.ts, presupuesto.ts, evolucion.ts, inversiones.ts, menu.ts, grupos.ts
+                       — una vista/sub-vista por archivo (menu.ts queda grande, ~1600 líneas,
+                         porque la pestaña Menú es así de grande — no se forzó una
+                         subdivisión artificial)
+```
+
+Es, en conjunto, el mismo estilo de siempre (sin frameworks de UI, sin virtual DOM) que:
 
 - Guarda todo el estado de la app en un objeto `state` (tab activo, filtros, qué sheet está
   abierto, borradores en edición, etc.) más un conjunto de variables de datos (`TX`, `CATS`,
   `MEDIOS`, `PRESUPUESTOS`, `METAS_INVERSION`, `PLATAFORMA_DATA`, `PLANIFICADOR`,
-  `METAS_TOTAL_CHECKS`).
+  `METAS_TOTAL_CHECKS`), todas definidas en `state.ts`.
 - Tiene una función `render()` central que redibuja lo que corresponda según `state.tab` /
   `state.resumenSub`, más `renderSheet()` para la hoja modal inferior (detalle de transacción,
   nueva transacción, filtros, etc.).
@@ -67,12 +116,28 @@ Es una IIFE (sin frameworks de UI, sin virtual DOM) que:
   virtual DOM) y lo asigna a `innerHTML` de los contenedores (`#view-root`, `#resumen-content`,
   `#sheet-content`, etc.).
 - Todos los clics/inputs se manejan con **event delegation** sobre un único contenedor
-  (`phone.addEventListener('click'|'change'|'input'|'focusout'|..., …)`), leyendo atributos
-  `data-*` de los elementos para decidir qué hacer. No hay listeners individuales por fila.
+  (`phone.addEventListener('click'|'change'|'input'|'focusout'|..., …)`, todo en `events.ts`),
+  leyendo atributos `data-*` de los elementos para decidir qué hacer. No hay listeners
+  individuales por fila.
 
-El único paso de build es local (compilar TypeScript con `tsc`) — no hay bundler, no hay
-`npm run dev`, y en el servidor de hosting (Cloudflare Pages) no corre nada: se sube el
-`index.html` ya generado, tal cual (ver sección 6 y 8).
+Un detalle propio de haber pasado de una sola IIFE a módulos ES de verdad: varias de las
+variables de `state.ts` (`TX`, `PRESUPUESTOS`, `METAS_INVERSION`, `PLATAFORMA_DATA`,
+`PLANIFICADOR`, `METAS_TOTAL_CHECKS`, `GRUPOS`, `GRUPO_PARTICIPANTES`, `GASTOS_COMPARTIDOS`,
+`SALDOS_PAGADOS`, `MAPEO_CATEGORIAS`, `DATOS_TRANSFERENCIA`, `presupuestoTotalMensual`, entre
+otras) no solo se mutan en el mismo objeto/arreglo — se **reasignan enteras** desde otros
+archivos (por ejemplo al cargar el estado real desde Supabase, o al filtrar `TX` tras borrar
+una transacción). Un `import { TX } from './state'` de ES modules es de solo lectura para quien
+importa (TypeScript lo marca como error: "Cannot assign to 'TX' because it is an import"), así
+que `state.ts` (y, para un par de contadores locales, `sheet.ts`/`views/menu.ts`) exporta
+también un `setTX(v)`/`setGRUPOS(v)`/etc. por cada una de estas variables, y los módulos que
+necesitan reemplazar el valor completo llaman al setter en vez de reasignar directo. `CATS`,
+`MEDIOS`, `MONTHS` y `MONTH_LABEL` no tienen setter porque nunca se reasignan así: se vacían y
+se vuelven a llenar en el mismo objeto/arreglo, como siempre.
+
+`esbuild` empaqueta todos estos módulos en un único IIFE al compilar (`--format=iife`), así que
+el archivo final que corre en el navegador es, otra vez, un solo script autocontenido — la
+división en módulos es solo para editar el código, no cambia nada de lo que se sube a
+Cloudflare Pages ni de cómo corre la app (ver sección 6 y 8).
 
 ## 3. Modelo de datos
 
@@ -321,37 +386,69 @@ Sincronización en vivo: canal `postgres_changes` de Supabase Realtime suscrito 
 refetch completo y recalcula todo (`cargarGastosCompartidos` → `sincronizarGastosCompartidos`),
 nunca un parche incremental.
 
-## 6. Pipeline de build (todo corre localmente, sin bundlers)
+## 6. Pipeline de build
 
-Dos fuentes: **`src/app.ts`** (todo el código de la app, en TypeScript) y
-**`src/plata-clara.html`** (el HTML/CSS de la vitrina — marco de teléfono, estilos, el
-`<script>` final es solo un placeholder). `rebuild.py` hace, en orden:
+Dos fuentes: **`src/*.ts`** (todo el código de la app, en TypeScript, como módulos — ver
+sección 2 para el árbol completo) y **`src/plata-clara.html`** (el HTML/CSS de la vitrina —
+marco de teléfono, estilos, el `<script>` final es solo un placeholder). `rebuild.py` hace, en
+orden:
 
-1. Compila `src/app.ts` con `tsc -p tsconfig.json` a `dist/app.js`. `tsconfig.json` tiene
-   `noEmitOnError:true`: **cualquier** error de tipos aborta acá mismo, sin tocar ningún archivo
-   de salida — un typo de categoría, un campo que falta en una transacción, una función llamada
-   con el argumento equivocado, todo se atrapa antes de llegar siquiera a correr los tests.
-2. Lee `src/plata-clara.html`, ubica el `<script>` final (por regex, sin asumir indentación
-   fija — `tsc` reformatea el código) y lo reemplaza por el contenido recién compilado de
-   `dist/app.js`.
-3. Inserta el bloque `window.__debug` justo después de una línea ancla
-   (`regenerateCuotasFor('t31');`), exponiendo las variables/funciones internas que los tests
-   necesitan tocar directamente (`TX`, `state`, `render`, `todayISO`, `metaInversionPct`,
-   `pendientesGlobales`, `GRUPOS`, `GASTOS_COMPARTIDOS`, `saldoGrupo`, etc. — la lista crece
-   cada vez que un test nuevo necesita algo que no estaba expuesto) — pero solo en las variantes
-   de test, no en `public/index.html`.
-4. Genera los distintos archivos de salida, todos dentro de `public/`:
+1. Chequea tipos con `tsc -p tsconfig.json --noEmit` sobre `src/**/*.ts` (así lo dice
+   `"include"` en `tsconfig.json`, que hasta septiembre 2026 apuntaba solo a `src/app.ts`).
+   **Cualquier** error de tipos aborta acá mismo, sin tocar ningún archivo de salida — un typo
+   de categoría, un campo que falta en una transacción, una función llamada con el argumento
+   equivocado, todo se atrapa antes de llegar siquiera a empaquetar nada. `tsc` no emite: solo
+   chequea. `tsconfig.json` sigue teniendo `noEmitOnError:true` por las dudas, pero con
+   `--noEmit` ni siquiera llega a intentar emitir.
+2. Empaqueta con **esbuild** (`npx esbuild src/app.ts --bundle --format=iife --target=es2019
+   --outfile=dist/app.js --keep-names --tree-shaking=false`): sigue los `import` desde
+   `src/app.ts` a través de todos los módulos y arma un único `dist/app.js`, envuelto en una
+   sola IIFE — el mismo resultado final que tenía el `app.ts` de una sola pieza, antes de que
+   se dividiera en módulos.
+   - **`--keep-names` y sin minificar**: el paso 4 de más abajo (inyectar `window.__debug`)
+     ubica una línea del código por texto y arma un objeto literal citando decenas de nombres
+     de variables/funciones reales (`TX`, `CATS`, `state`, `render`, etc.) — si esbuild
+     minificara o renombrara identificadores de nivel superior, esos nombres dejarían de
+     existir en el bundle y la inyección (y con ella, los ~45 tests de Playwright que leen
+     `window.__debug.*`) se rompería.
+   - **`--tree-shaking=false`**: por el mismo motivo. Algunas funciones solo las toca
+     `window.__debug` — ningún camino real de la app las llama (ej. `sumaMetasGastoPct`) — y el
+     tree-shaking normal de esbuild las habría borrado del bundle por "no las usa nadie" (para
+     esbuild, los tests no cuentan como "alguien").
+   - **Por qué esbuild y no dejar que `tsc` compile directo a JS como antes**: el principio de
+     "sin bundlers" documentado en la sección 6 original ya no aplica tal cual — se relajó a
+     propósito para esta reorganización en módulos. Con el código repartido en ~20 archivos que
+     se importan entre sí, algo tiene que resolver esos `import`/`export` a un único script
+     (el navegador no va a cargar 20 `<script type="module">` por separado con rutas relativas
+     servidas desde un HTML estático); esbuild hace exactamente eso, rápido y sin configuración
+     casi ninguna. `tsc` con `module: "ES2022"` también podría emitir JS con `import`/`export`
+     nativos, pero eso obligaría a servir 20 archivos `.js` sueltos (o a otra herramienta aparte
+     para juntarlos) — esbuild deja el resultado final idéntico a como era antes (un solo
+     `<script>` inline, autocontenido), que es lo que el resto del pipeline (y Cloudflare Pages,
+     que no corre nada) espera.
+3. Lee `src/plata-clara.html`, ubica el `<script>` final (por regex, sin asumir indentación
+   fija ni tipo de comilla — esbuild deja 2 espacios de indentación pero normaliza comillas
+   simples a dobles, a diferencia de como reformateaba `tsc` antes) y lo reemplaza por el
+   contenido recién empaquetado de `dist/app.js`.
+4. Inserta el bloque `window.__debug` justo después de una línea ancla
+   (`regenerateCuotasFor('t31');` o `regenerateCuotasFor("t31");`, según la comilla que haya
+   usado esbuild), exponiendo las variables/funciones internas que los tests necesitan tocar
+   directamente (`TX`, `state`, `render`, `todayISO`, `metaInversionPct`, `pendientesGlobales`,
+   `GRUPOS`, `GASTOS_COMPARTIDOS`, `saldoGrupo`, etc. — la lista crece cada vez que un test
+   nuevo necesita algo que no estaba expuesto) — pero solo en las variantes de test, no en
+   `public/index.html`.
+5. Genera los distintos archivos de salida, todos dentro de `public/`:
 
 | Archivo | Para qué | Diferencia con la fuente |
 |---|---|---|
-| `public/index.html` | **Producción** (lo que se sube a Cloudflare Pages) | El JS recién compilado, sin nada de depuración |
+| `public/index.html` | **Producción** (lo que se sube a Cloudflare Pages) | El JS recién empaquetado, sin nada de depuración |
 | `public/test.html` | Mismo contenido que `index.html` | Usado por algunos tests que no necesitan `window.__debug` |
 | `public/test_debug.html` | Toda la suite de Playwright corre contra este archivo | pdf.js local (no CDN) + bloque `window.__debug` inyectado |
 | `public/extracted.js` / `public/extracted_debug.js` | Solo el JS, para `node --check` (verificar sintaxis rápido) | — |
 
 **Nunca se edita `dist/app.js` a mano ni el `<script>` dentro de `src/plata-clara.html`** — son
-generados, se pisan enteros en cada `rebuild.py`. El único archivo fuente que se edita es
-`src/app.ts`.
+generados, se pisan enteros en cada `rebuild.py`. Los únicos archivos fuente que se editan son
+los de `src/*.ts` (ver el árbol en sección 2) y `src/plata-clara.html`.
 
 `rebuild_preview.py` genera `preview/preview.html` a partir de `public/index.html`: el mismo
 archivo pero con el `auth-gate` oculto desde el propio marcado (`hidden` en el HTML, no algo
@@ -361,13 +458,13 @@ así que "Cerrar sesión" en esta vista previa simplemente recarga la página en
 un logout real (que dejaría el auth-gate visible para siempre, sin forma de volver a entrar).
 **Este archivo nunca se sube a producción.**
 
-Comando típico después de editar `src/app.ts` (o el CSS/HTML de `src/plata-clara.html`):
+Comando típico después de editar algo bajo `src/` (o el CSS/HTML de `src/plata-clara.html`):
 
 ```bash
-npx tsc -p tsconfig.json         # chequeo rápido de tipos, sin generar nada más (opcional, rebuild.py ya lo hace)
-python3 rebuild.py               # compila src/app.ts y regenera public/index.html, public/test.html, public/test_debug.html, public/extracted*.js
-python3 rebuild_preview.py       # regenera preview/preview.html (para mostrarla en el chat)
-node tests/run_all_tests.js      # corre toda la batería de regresión
+npx tsc -p tsconfig.json --noEmit   # chequeo rápido de tipos, sin generar nada (opcional, rebuild.py ya lo hace)
+python3 rebuild.py                  # tsc --noEmit -> esbuild -> regenera public/index.html, public/test.html, public/test_debug.html, public/extracted*.js
+python3 rebuild_preview.py          # regenera preview/preview.html (para mostrarla en el chat)
+node tests/run_all_tests.js         # corre toda la batería de regresión
 ```
 
 ## 7. Testing
@@ -468,11 +565,15 @@ public/icons/icon-512-maskable.png
 
 - Prioridad #1: **robustez** — que un cambio no rompa otra parte de la app; por eso la
   disciplina de agregar un test por cada fix.
-- Se migró el código a TypeScript (`app.ts`, compilado con `tsc`, ver sección 2 y 6) para tener
-  chequeo de tipos en un archivo que ya venía creciendo mucho — **sin** adoptar React, Tailwind
-  ni ningún bundler: se mantiene la arquitectura de un solo archivo + render por concatenación
-  de strings + `window.__debug`, solo que ahora el JS se escribe tipado y se compila antes de
-  insertarse en el HTML.
+- Se migró el código a TypeScript (`src/*.ts`, chequeado con `tsc`, ver sección 2 y 6) para
+  tener chequeo de tipos en un archivo que ya venía creciendo mucho — **sin** adoptar React ni
+  Tailwind: se mantiene la arquitectura de render por concatenación de strings + `window.__debug`.
+  El principio de "nada de bundlers" que regía en un inicio sí se relajó, a propósito, en
+  septiembre 2026: cuando el código se reorganizó en módulos por vista (ver sección 2), algo
+  tenía que resolver los `import`/`export` entre archivos a un único script — se eligió
+  **esbuild** por ser mínimo (sin configuración propia más allá de un comando en `rebuild.py`)
+  y porque deja el resultado final idéntico a como era antes: un solo `<script>` inline,
+  autocontenido, sin `npm run dev` ni nada corriendo en el servidor de hosting.
 - Gastos compartidos estilo Tricount (uso entre pareja/roomies/familia, cálculo de quién le
   debe a quién) ya está implementado (ver secciones 3, 4 y 5). Roadmap declarado, no
   implementado todavía: categorías propias de grupo (se prefiere el mapeo aprendido salvo que
