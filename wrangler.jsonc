@@ -1,0 +1,11 @@
+{
+  // Le dice a Cloudflare Workers Builds dónde están los archivos estáticos a publicar --
+  // sin esto, "npx wrangler versions upload" no sabe qué subir y el deploy falla antes de
+  // arrancar (ver DOCUMENTACION.md sección 8). "public/" es exactamente lo que python3
+  // rebuild.py regenera en cada build: index.html, manifest.json, sw.js, icons/, etc.
+  "name": "plata-clara",
+  "compatibility_date": "2026-09-03",
+  "assets": {
+    "directory": "./public"
+  }
+}
