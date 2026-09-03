@@ -1607,6 +1607,12 @@
     const { data, error } = await sb.from("grupos").insert({ nombre, icono: icono || "\u{1F465}", creado_por: currentUser.id }).select().single();
     if (error) {
       console.error("Pitucas sin lucas \u2014 error creando grupo:", error);
+      const currentUserId = currentUser.id;
+      sb.auth.getUser().then(function(res) {
+        const quienSoy = res && res.data && res.data.user;
+        toast("Diagn\xF3stico \u2014 app: " + currentUserId + " \xB7 servidor: " + (quienSoy ? quienSoy.id : "sin sesi\xF3n"));
+      }).catch(function() {
+      });
       return { data: null, error };
     }
     await cargarGastosCompartidos();
