@@ -2,6 +2,8 @@
   "compilerOptions": {
     "target": "ES2019",
     "lib": ["ES2019", "DOM"],
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
     "outDir": "dist",
     "rootDir": "src",
     "strict": false,
@@ -13,5 +15,5 @@
     "noEmitOnError": true,
     "newLine": "lf"
   },
-  "include": ["src/app.ts"]
+  "include": ["src/**/*.ts"]
 }
