@@ -1232,8 +1232,14 @@ export async function crearGrupo(nombre, icono){
     const currentUserId = currentUser.id;
     sb.auth.getUser().then(function(res){
       const quienSoy = res && res.data && res.data.user;
-      toast('Diagnóstico — app: ' + currentUserId + ' · servidor: ' + (quienSoy ? quienSoy.id : 'sin sesión'));
-    }).catch(function(){ /* diagnóstico best-effort, no hay más que hacer si esto falla */ });
+      const detalleServidor = quienSoy ? quienSoy.id : ('sin sesión (' + (res && res.error ? res.error.message : 'sin detalle') + ')');
+      toast('Diagnóstico — app: ' + currentUserId + ' · servidor: ' + detalleServidor);
+    }).catch(function(err){
+      // La primera versión de este diagnóstico se tragaba este error en silencio -- si
+      // sb.auth.getUser() directamente rechaza (en vez de resolver con un error adentro), eso
+      // también es información: probablemente no hay sesión utilizable en absoluto.
+      toast('Diagnóstico falló: ' + (err && err.message ? err.message : String(err)));
+    });
     return {data:null, error};
   }
   await cargarGastosCompartidos();
