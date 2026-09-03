@@ -2812,17 +2812,16 @@
   __name(suscribirseAGruposEnVivo, "suscribirseAGruposEnVivo");
   async function crearGrupo(nombre, icono) {
     if (!sb || !currentUser) return { data: null, error: null };
-    const { data, error } = await sb.from("grupos").insert({ nombre, icono: icono || "\u{1F465}", creado_por: currentUser.id }).select().single();
+    const insertRes = await sb.from("grupos").insert({ nombre, icono: icono || "\u{1F465}", creado_por: currentUser.id });
+    if (insertRes.error) {
+      console.error("Pitucas sin lucas \u2014 error creando grupo (insert puro):", insertRes.error);
+      toast("Diagn\xF3stico \u2014 fall\xF3 el INSERT: " + insertRes.error.message);
+      return { data: null, error: insertRes.error };
+    }
+    const { data, error } = await sb.from("grupos").select("*").eq("creado_por", currentUser.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (error) {
-      console.error("Pitucas sin lucas \u2014 error creando grupo:", error);
-      const currentUserId = currentUser.id;
-      sb.auth.getUser().then(function(res) {
-        const quienSoy = res && res.data && res.data.user;
-        const detalleServidor = quienSoy ? quienSoy.id : "sin sesi\xF3n (" + (res && res.error ? res.error.message : "sin detalle") + ")";
-        toast("Diagn\xF3stico \u2014 app: " + currentUserId + " \xB7 servidor: " + detalleServidor);
-      }).catch(function(err) {
-        toast("Diagn\xF3stico fall\xF3: " + (err && err.message ? err.message : String(err)));
-      });
+      console.error("Pitucas sin lucas \u2014 el INSERT funcion\xF3 pero el select-back fall\xF3:", error);
+      toast("Diagn\xF3stico \u2014 el INSERT funcion\xF3, fall\xF3 el SELECT de vuelta: " + error.message);
       return { data: null, error };
     }
     await cargarGastosCompartidos();

@@ -1221,25 +1221,22 @@ export function suscribirseAGruposEnVivo(){
 
 export async function crearGrupo(nombre, icono){
   if(!sb || !currentUser) return {data:null, error:null};
-  const { data, error } = await sb.from('grupos').insert({nombre, icono: icono||'👥', creado_por: currentUser.id}).select().single();
+  // Diagnóstico temporal (ver DOCUMENTACION.md / historial de este archivo): política, trigger
+  // y función ya confirmados correctos a mano en Supabase, pero seguía fallando -- separamos acá
+  // el INSERT puro (sin pedir la fila de vuelta) del SELECT que normalmente se hace junto por el
+  // .select().single(), porque Postgres usa el MISMO mensaje genérico de RLS para ambos casos.
+  // Si el insert sin .select() funciona, el problema real es la política de SELECT
+  // ("ver mis grupos" / is_grupo_member), no la de INSERT ("crear grupo").
+  const insertRes = await sb.from('grupos').insert({nombre, icono: icono||'👥', creado_por: currentUser.id});
+  if(insertRes.error){
+    console.error('Pitucas sin lucas — error creando grupo (insert puro):', insertRes.error);
+    toast('Diagnóstico — falló el INSERT: ' + insertRes.error.message);
+    return {data:null, error: insertRes.error};
+  }
+  const { data, error } = await sb.from('grupos').select('*').eq('creado_por', currentUser.id).order('created_at', {ascending:false}).limit(1).maybeSingle();
   if(error){
-    console.error('Pitucas sin lucas — error creando grupo:', error);
-    // Diagnóstico temporal (ver DOCUMENTACION.md / historial de este archivo): un error de RLS acá
-    // significa que auth.uid() en el servidor no coincide con currentUser.id que usa la app --
-    // sb.auth.getUser() pregunta directo al servidor quién es de verdad, para comparar los dos.
-    // Va sin esperar (no bloquea el toast del error principal ni cambia el timing de este
-    // return) y se muestra en un segundo toast aparte cuando responde.
-    const currentUserId = currentUser.id;
-    sb.auth.getUser().then(function(res){
-      const quienSoy = res && res.data && res.data.user;
-      const detalleServidor = quienSoy ? quienSoy.id : ('sin sesión (' + (res && res.error ? res.error.message : 'sin detalle') + ')');
-      toast('Diagnóstico — app: ' + currentUserId + ' · servidor: ' + detalleServidor);
-    }).catch(function(err){
-      // La primera versión de este diagnóstico se tragaba este error en silencio -- si
-      // sb.auth.getUser() directamente rechaza (en vez de resolver con un error adentro), eso
-      // también es información: probablemente no hay sesión utilizable en absoluto.
-      toast('Diagnóstico falló: ' + (err && err.message ? err.message : String(err)));
-    });
+    console.error('Pitucas sin lucas — el INSERT funcionó pero el select-back falló:', error);
+    toast('Diagnóstico — el INSERT funcionó, falló el SELECT de vuelta: ' + error.message);
     return {data:null, error};
   }
   await cargarGastosCompartidos();
