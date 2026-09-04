@@ -41,6 +41,14 @@ function setAppHeight(){
   document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
 }
 setAppHeight();
+// The "leftover strip of space until the app repaints" from the note above happens because on
+// the very first paint of a freshly-opened PWA, window.innerHeight sometimes hasn't settled
+// into the real full screen height yet -- it corrects itself a moment later, but if nothing in
+// that session ever fires the events below (resize, switching tabs, etc.), that first wrong
+// value stays stuck. These two short retries (50ms and 300ms; if it hasn't settled by 300ms it
+// won't on its own) cover that gap without depending on the user doing anything.
+setTimeout(setAppHeight, 50);
+setTimeout(setAppHeight, 300);
 ['resize','orientationchange','pageshow','visibilitychange'].forEach(function(ev){
   window.addEventListener(ev, setAppHeight);
 });
