@@ -530,7 +530,7 @@
     if (state.editingSpendingGoals) {
       return '<div class="card metas-gasto-card editing"><div class="budget-total-label">Metas de Fijo / Variable (% de tus ingresos)</div><div class="metas-gasto-inputs"><label class="metas-gasto-input-row"><span>Fijo</span><input type="text" inputmode="decimal" class="draft-input tabular" data-spending-goals-input="fijo" value="' + state.spendingGoalsDraft.fijo + '" placeholder="0">%</label><label class="metas-gasto-input-row"><span>Variable</span><input type="text" inputmode="decimal" class="draft-input tabular" data-spending-goals-input="variable" value="' + state.spendingGoalsDraft.variable + '" placeholder="0">%</label></div><div class="metas-gasto-inversion-note muted">+ Inversi\xF3n: ' + Math.round(metaInvPct) + '% (desde Inversiones, no se edita ac\xE1)</div><div style="display:flex;gap:10px;margin-top:12px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-spending-goals>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-spending-goals>Guardar</button></div></div>';
     }
-    return '<div class="card metas-gasto-card"><div class="budget-total-head"><span class="budget-total-label">Metas de Fijo / Variable / Inversi\xF3n</span><button class="budget-edit-btn" data-edit-spending-goals aria-label="Editar metas de Fijo/Variable">' + ICONS.edit + '</button></div><div class="metas-gasto-figs"><span class="metas-gasto-fig"><b class="tabular">' + SPENDING_GOAL_PCT.fijo + "%</b> Fijo" + (fijoCLP != null ? '<span class="metas-gasto-fig-abs tabular">' + money(fijoCLP) + "</span>" : "") + '</span><span class="metas-gasto-fig"><b class="tabular">' + SPENDING_GOAL_PCT.variable + "%</b> Variable" + (variableCLP != null ? '<span class="metas-gasto-fig-abs tabular">' + money(variableCLP) + "</span>" : "") + '</span><span class="metas-gasto-fig"><b class="tabular">' + Math.round(metaInvPct) + "%</b> Inversi\xF3n" + (inversionCLP > 0 ? '<span class="metas-gasto-fig-abs tabular">' + money(inversionCLP) + "</span>" : "") + '</span></div><div class="' + (suma > 100 ? "budget-cats-calce warn" : "budget-cats-calce") + '" style="border-top:none;padding-top:0;">' + (suma > 100 ? "Suman " + Math.round(suma) + "% de tus ingresos \u2014 m\xE1s del 100%, no calzan." : "Suman " + Math.round(suma) + "% de tus ingresos.") + "</div></div>";
+    return '<div class="card metas-gasto-card"><div class="budget-total-head"><span class="budget-total-label">Metas de Fijo / Variable / Inversi\xF3n</span><button class="budget-edit-btn" data-edit-spending-goals aria-label="Editar metas de Fijo/Variable">' + ICONS.edit + '</button></div><div class="metas-gasto-figs"><span class="metas-gasto-fig"><b class="tabular">' + SPENDING_GOAL_PCT.fijo + "%</b> Fijo" + (fijoCLP != null ? '<span class="metas-gasto-fig-abs tabular">' + money(fijoCLP) + "</span>" : "") + '</span><span class="metas-gasto-fig"><b class="tabular">' + SPENDING_GOAL_PCT.variable + "%</b> Variable" + (variableCLP != null ? '<span class="metas-gasto-fig-abs tabular">' + money(variableCLP) + "</span>" : "") + '</span><span class="metas-gasto-fig"><b class="tabular">' + Math.round(metaInvPct) + "%</b> Inversi\xF3n" + (inversionCLP > 0 ? '<span class="metas-gasto-fig-abs tabular">' + money(inversionCLP) + "</span>" : "") + '</span></div><div class="' + (Math.round(suma) > 100 ? "budget-cats-calce warn" : "budget-cats-calce") + '" style="border-top:none;padding-top:0;">' + (Math.round(suma) > 100 ? "Suman " + Math.round(suma) + "% de tus ingresos \u2014 m\xE1s del 100%, no calzan." : "Suman " + Math.round(suma) + "% de tus ingresos.") + "</div></div>";
   }
   __name(renderMetasGastoCard, "renderMetasGastoCard");
   function renderBudgetView() {
@@ -4520,12 +4520,39 @@
     if (txFieldMonto) {
       const tx = getTx(txFieldMonto.getAttribute("data-tx"));
       if (tx) {
-        tx.monto = parseInt(txFieldMonto.value.replace(/\D/g, ""), 10) || 0;
+        const newMonto = parseInt(txFieldMonto.value.replace(/\D/g, ""), 10) || 0;
+        tx.monto = newMonto;
+        if (tx.categorias.length === 1) {
+          tx.categorias[0].monto = newMonto;
+        } else if (tx.categorias.length > 1) {
+          const oldTotal = tx.categorias.reduce((s, c) => s + c.monto, 0);
+          if (oldTotal > 0) {
+            let asignado = 0;
+            tx.categorias.forEach((c, idx) => {
+              if (idx === tx.categorias.length - 1) {
+                c.monto = newMonto - asignado;
+              } else {
+                c.monto = Math.round(c.monto / oldTotal * newMonto);
+                asignado += c.monto;
+              }
+            });
+          }
+        }
         const echoEl = txFieldMonto.closest(".edit-amount-row").querySelector(".edit-amount-echo");
         const txt = (tx.tipo === "ingreso" ? "+" : "") + money(tx.monto);
         if (echoEl) echoEl.textContent = txt;
         const headEl = document.querySelector(".sheet-amount");
         if (headEl) headEl.textContent = txt;
+      }
+      return;
+    }
+    const txFieldComercio = e.target.closest('[data-tx-field="comercio"]');
+    if (txFieldComercio) {
+      const tx = getTx(txFieldComercio.getAttribute("data-tx"));
+      if (tx) {
+        tx.comercio = txFieldComercio.value;
+        const titleEl = document.getElementById("sheet-title-el");
+        if (titleEl) titleEl.textContent = tx.comercio;
       }
       return;
     }
@@ -4694,6 +4721,11 @@
     }
   });
   phone.addEventListener("focusout", function(e) {
+    const txFieldStale = e.target.closest('[data-tx-field="monto"], [data-tx-field="fecha"], [data-tx-field="comercio"]');
+    if (txFieldStale) {
+      render();
+      return;
+    }
     const amtInput = e.target.closest("[data-cat-amount]");
     if (amtInput) {
       const t = getTx(state.openTxId);
@@ -5478,7 +5510,7 @@
     }).join("");
     const importedBlock = !t.importadoEmail ? "" : '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Importada desde tu correo</div><p class="muted" style="font-size:12.5px;margin:0;">Esta transacci\xF3n se agreg\xF3 sola a partir de un correo de tu banco.</p></div>';
     const tipoRecurrenciaCard = isInvest ? '<div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + tipoSelector + "</div>" : '<div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + tipoSelector + '<div class="draft-label" style="margin:16px 0 7px;">Recurrencia</div>' + recurrenciaSelector + '<p class="cat-picker-hint" style="margin-top:8px;">"Mensual" y "Anual" cuentan como <b>gasto fijo</b> en tus metas de Resumen \xB7 Balance \u2014 "Variable" es todo lo dem\xE1s. No existe una opci\xF3n separada llamada "Fijo".</p></div>';
-    return '<div class="sheet-top"><div class="merchant" id="sheet-title-el">' + t.comercio + '</div><div class="meta">' + dayLabel(t.fecha) + " \xB7 " + t.hora + " \xB7 " + paymentMethodInfo(t.medio).nombre + '</div><div class="sheet-amount ' + (isIncome ? "pos" : "") + ' tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</div><div class="meta" data-note-echo style="margin-top:6px;' + (t.nota ? "" : "display:none;") + '">' + (t.nota || "") + '</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Monto y fecha</div><div class="draft-field"><label class="draft-label">Monto</label><div class="edit-amount-row"><input type="text" inputmode="decimal" class="draft-input tabular" data-tx-field="monto" data-tx="' + t.id + '" value="' + t.monto + '"><span class="edit-amount-echo tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</span></div></div><div class="edit-field-pair"><div class="edit-field-col draft-field"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-tx-field="fecha" data-tx="' + t.id + '" value="' + t.fecha + '"></div><div class="edit-field-col draft-field"><label class="draft-label">Hora</label><input type="time" class="draft-input" data-tx-field="hora" data-tx="' + t.id + '" value="' + t.hora + '"></div></div><div class="muted edit-day-hint">' + dayLabel(t.fecha) + '</div><div class="draft-field" style="margin:14px 0 0;"><label class="draft-label">Con qu\xE9 pagaste</label><select class="draft-select" data-tx-payment-method-select="' + t.id + '">' + medioOptsExisting + "</select></div></div>" + tipoRecurrenciaCard + cuotaBlock + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa' + (cats.length > 1 ? "s" : "") + "</div>" + categoriaSection + "</div>" + (isInvest ? "" : '<div class="sheet-block card lock-card' + (t.reglaAuto ? " active-rule" : "") + '" style="padding:14px 16px;"><div class="lock-row"><span class="lock-icon">' + ICONS.lock + '</span><span class="lock-text">' + (t.reglaAuto ? "Ya clasificamos siempre as\xED lo de <b>" + t.comercio + "</b>" : "Clasificar siempre as\xED los gastos de <b>" + t.comercio + "</b>") + '</span><button class="switch ' + (t.reglaAuto ? "on" : "") + '" data-toggle-lock="' + t.id + '" aria-label="Activar regla autom\xE1tica" aria-pressed="' + (t.reglaAuto ? "true" : "false") + '"></button></div></div>') + (isInvest ? "" : isIncome ? (function() {
+    return '<div class="sheet-top"><div class="merchant" id="sheet-title-el">' + t.comercio + '</div><div class="meta">' + dayLabel(t.fecha) + " \xB7 " + t.hora + " \xB7 " + paymentMethodInfo(t.medio).nombre + '</div><div class="sheet-amount ' + (isIncome ? "pos" : "") + ' tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</div><div class="meta" data-note-echo style="margin-top:6px;' + (t.nota ? "" : "display:none;") + '">' + (t.nota || "") + '</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nombre, monto y fecha</div><div class="draft-field"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-tx-field="comercio" data-tx="' + t.id + '" value="' + t.comercio.replace(/"/g, "&quot;") + '"></div><div class="draft-field"><label class="draft-label">Monto</label><div class="edit-amount-row"><input type="text" inputmode="decimal" class="draft-input tabular" data-tx-field="monto" data-tx="' + t.id + '" value="' + t.monto + '"><span class="edit-amount-echo tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</span></div></div><div class="edit-field-pair"><div class="edit-field-col draft-field"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-tx-field="fecha" data-tx="' + t.id + '" value="' + t.fecha + '"></div><div class="edit-field-col draft-field"><label class="draft-label">Hora</label><input type="time" class="draft-input" data-tx-field="hora" data-tx="' + t.id + '" value="' + t.hora + '"></div></div><div class="muted edit-day-hint">' + dayLabel(t.fecha) + '</div><div class="draft-field" style="margin:14px 0 0;"><label class="draft-label">Con qu\xE9 pagaste</label><select class="draft-select" data-tx-payment-method-select="' + t.id + '">' + medioOptsExisting + "</select></div></div>" + tipoRecurrenciaCard + cuotaBlock + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa' + (cats.length > 1 ? "s" : "") + "</div>" + categoriaSection + "</div>" + (isInvest ? "" : '<div class="sheet-block card lock-card' + (t.reglaAuto ? " active-rule" : "") + '" style="padding:14px 16px;"><div class="lock-row"><span class="lock-icon">' + ICONS.lock + '</span><span class="lock-text">' + (t.reglaAuto ? "Ya clasificamos siempre as\xED lo de <b>" + t.comercio + "</b>" : "Clasificar siempre as\xED los gastos de <b>" + t.comercio + "</b>") + '</span><button class="switch ' + (t.reglaAuto ? "on" : "") + '" data-toggle-lock="' + t.id + '" aria-label="Activar regla autom\xE1tica" aria-pressed="' + (t.reglaAuto ? "true" : "false") + '"></button></div></div>') + (isInvest ? "" : isIncome ? (function() {
       const vinculo = pendingLinkedTo(t.id);
       if (!vinculo && (t.categorias.length > 0 || allPendingReceivables().length === 0)) return "";
       return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos</div>' + (vinculo ? '<div class="cobro-banner-done">' + ICONS.checkCircle + "<span>Vinculado a " + (vinculo.persona || "un pendiente") + " \xB7 " + vinculo.comercio + '</span></div><button class="split-toggle-link" data-unlink-income="' + t.id + '">Quitar v\xEDnculo</button>' : '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Si este dep\xF3sito corresponde a un cobro o reembolso pendiente, vinc\xFAlalo para tacharlo de la lista.</p><button class="action-btn" data-open-link-income="' + t.id + '">' + ICONS.inbox + " Vincular a un pendiente</button>") + "</div>";

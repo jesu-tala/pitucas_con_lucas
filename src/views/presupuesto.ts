@@ -182,8 +182,8 @@ export function renderMetasGastoCard(){
       '<span class="metas-gasto-fig"><b class="tabular">'+SPENDING_GOAL_PCT.variable+'%</b> Variable'+(variableCLP!=null?'<span class="metas-gasto-fig-abs tabular">'+money(variableCLP)+'</span>':'')+'</span>'+
       '<span class="metas-gasto-fig"><b class="tabular">'+Math.round(metaInvPct)+'%</b> Inversión'+(inversionCLP>0?'<span class="metas-gasto-fig-abs tabular">'+money(inversionCLP)+'</span>':'')+'</span>'+
     '</div>'+
-    '<div class="'+(suma>100?'budget-cats-calce warn':'budget-cats-calce')+'" style="border-top:none;padding-top:0;">'+
-      (suma>100
+    '<div class="'+(Math.round(suma)>100?'budget-cats-calce warn':'budget-cats-calce')+'" style="border-top:none;padding-top:0;">'+
+      (Math.round(suma)>100
         ? 'Suman '+Math.round(suma)+'% de tus ingresos — más del 100%, no calzan.'
         : 'Suman '+Math.round(suma)+'% de tus ingresos.')+
     '</div>'+

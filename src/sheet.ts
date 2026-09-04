@@ -237,7 +237,9 @@ export function renderSheetContent(t){
       '<div class="meta" data-note-echo style="margin-top:6px;'+(t.nota?'':'display:none;')+'">'+(t.nota||'')+'</div>'+
     '</div>'+
 
-    '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Monto y fecha</div>'+
+    '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nombre, monto y fecha</div>'+
+      '<div class="draft-field"><label class="draft-label">Nombre</label>'+
+        '<input type="text" class="draft-input" data-tx-field="comercio" data-tx="'+t.id+'" value="'+t.comercio.replace(/"/g,'&quot;')+'"></div>'+
       '<div class="draft-field"><label class="draft-label">Monto</label>'+
         '<div class="edit-amount-row">'+
           '<input type="text" inputmode="decimal" class="draft-input tabular" data-tx-field="monto" data-tx="'+t.id+'" value="'+t.monto+'">'+

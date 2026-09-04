@@ -1622,12 +1622,41 @@ phone.addEventListener('input', function(e: any){
   if(txFieldMonto){
     const tx = getTx(txFieldMonto.getAttribute('data-tx'));
     if(tx){
-      tx.monto = parseInt(txFieldMonto.value.replace(/\D/g,''),10) || 0;
+      const newMonto = parseInt(txFieldMonto.value.replace(/\D/g,''),10) || 0;
+      tx.monto = newMonto;
+      // catTotalAmount() -- lo que usan Balance/Presupuesto/Evolución para sus agregados --
+      // suma desde tx.categorias[].monto, no desde tx.monto: si no se mantienen sincronizadas
+      // acá, el monto nuevo se ve bien en el detalle y en la lista, pero esas otras vistas
+      // siguen calculando con el monto viejo. Con una sola categoría (el caso común) se le pone
+      // el monto nuevo directo; con varias, se reescala cada una proporcionalmente preservando
+      // el reparto (la última absorbe el resto del redondeo para que la suma calce exacto).
+      if(tx.categorias.length===1){
+        tx.categorias[0].monto = newMonto;
+      } else if(tx.categorias.length>1){
+        const oldTotal = tx.categorias.reduce((s,c)=>s+c.monto,0);
+        if(oldTotal>0){
+          let asignado = 0;
+          tx.categorias.forEach((c,idx)=>{
+            if(idx===tx.categorias.length-1){ c.monto = newMonto - asignado; }
+            else { c.monto = Math.round(c.monto/oldTotal*newMonto); asignado += c.monto; }
+          });
+        }
+      }
       const echoEl = txFieldMonto.closest('.edit-amount-row').querySelector('.edit-amount-echo');
       const txt = (tx.tipo==='ingreso'?'+':'')+money(tx.monto);
       if(echoEl) echoEl.textContent = txt;
       const headEl = document.querySelector('.sheet-amount');
       if(headEl) headEl.textContent = txt;
+    }
+    return;
+  }
+  const txFieldComercio = e.target.closest('[data-tx-field="comercio"]');
+  if(txFieldComercio){
+    const tx = getTx(txFieldComercio.getAttribute('data-tx'));
+    if(tx){
+      tx.comercio = txFieldComercio.value;
+      const titleEl = document.getElementById('sheet-title-el');
+      if(titleEl) titleEl.textContent = tx.comercio;
     }
     return;
   }
@@ -1798,6 +1827,14 @@ phone.addEventListener('input', function(e: any){
 // Normalizes fields with expressions (Tricount-style) when leaving the input,
 // so the user sees the final number instead of the expression they typed.
 phone.addEventListener('focusout', function(e: any){
+  // Monto/Fecha/Nombre de una transacción ya existente se parchan a mano en vivo (ver el
+  // listener de 'input' de arriba) para no perder el foco del campo mientras se sigue
+  // escribiendo -- pero eso deja el resto de la app (la lista de Transacciones, Balance,
+  // Presupuesto, Evolución) con datos viejos hasta el próximo render() completo, que antes no
+  // pasaba hasta cambiar de vista a mano. Acá, recién cuando se sale del campo (ya no hay foco
+  // que perder), se hace ese render() completo para que todo lo demás se ponga al día solo.
+  const txFieldStale = e.target.closest('[data-tx-field="monto"], [data-tx-field="fecha"], [data-tx-field="comercio"]');
+  if(txFieldStale){ render(); return; }
   const amtInput = e.target.closest('[data-cat-amount]');
   if(amtInput){
     const t = getTx(state.openTxId);
