@@ -2607,7 +2607,7 @@
     const metaPct = totalObjetivo > 0 ? totalAcumulado / totalObjetivo * 100 : 0;
     const goalBlock = INVESTMENT_GOALS.length ? '<div class="platform-total-goal-block"><div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversi\xF3n ' + todayISO().slice(0, 4) + ' (todas tus metas)</div><div class="platform-total-value tabular" style="font-size:20px;">' + money(totalAcumulado) + '<span class="of-text"> de ' + money(totalObjetivo) + '</span></div><div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, metaPct)) + '%;background:var(--accent);"></div></div><div class="platform-total-sub"><span>' + Math.round(metaPct) + "% completado entre " + INVESTMENT_GOALS.length + " " + (INVESTMENT_GOALS.length === 1 ? "meta" : "metas") + '</span></div><div class="platform-total-sub" style="margin-top:2px;color:var(--text-tertiary);font-size:11.5px;">Aporte mensual objetivo: <b class="tabular">' + money(monthlyInvestmentGoalCLP()) + "</b> \xB7 " + Math.round(investmentGoalPct()) + "% de tus ingresos</div>" + renderTotalChecksGrid() + "</div>" : "";
     const proy = projectedContributions(3, 20);
-    const proyeccionCard = proy.meses.length >= 2 ? '<div class="card proyeccion-card"><div class="proyeccion-head"><span class="proyeccion-icon">' + ICONS.sparkle + '</span><span class="proyeccion-title">Simulador</span></div><div class="proyeccion-value tabular" data-proj-total>' + money(proy.proyectadoConRetorno) + '</div><div class="proyeccion-sub">en ' + proy.anios + ' a\xF1os \xB7 pesos de hoy</div><div class="proyeccion-text">Aportando <input type="text" inputmode="numeric" class="proy-inline-input proy-aporte-input" data-proj-contribution-input placeholder="' + moneyPlain(Math.round(proy.promedioMensual)) + '" value="' + (state.simulatedContribution != null ? moneyPlain(state.simulatedContribution) : "") + '">/mes al <input type="text" inputmode="decimal" class="proy-inline-input" data-proj-return-input value="' + proy.retornoAnual + '">% anual, \u2212<input type="text" inputmode="decimal" class="proy-inline-input" data-proj-inflation-input value="' + proy.inflacionAnual + '">% inflaci\xF3n.</div><div class="proyeccion-caption">Promedio de tus \xFAltimas 3 inversiones mensuales: <b class="tabular">' + money(proy.promedioMensual) + "</b></div></div>" : "";
+    const proyeccionCard = proy.meses.length >= 2 ? '<div class="card proyeccion-card"><div class="proyeccion-head"><span class="proyeccion-icon">' + ICONS.sparkle + '</span><span class="proyeccion-title">Simulador</span></div><div class="proyeccion-value tabular" data-proj-total>' + money(proy.proyectadoConRetorno) + '</div><div class="proyeccion-sub">en ' + proy.anios + ' a\xF1os \xB7 pesos nominales (sin descontar inflaci\xF3n)</div><div class="proyeccion-text">Aportando <input type="text" inputmode="numeric" class="proy-inline-input proy-aporte-input" data-proj-contribution-input placeholder="' + moneyPlain(Math.round(proy.promedioMensual)) + '" value="' + (state.simulatedContribution != null ? moneyPlain(state.simulatedContribution) : "") + '">/mes al <input type="text" inputmode="decimal" class="proy-inline-input" data-proj-return-input value="' + proy.retornoAnual + '">% anual.</div><div class="proyeccion-caption">Promedio de tus \xFAltimas 3 inversiones mensuales: <b class="tabular">' + money(proy.promedioMensual) + "</b></div></div>" : "";
     const html = '<div class="card platform-total-card"><div class="platform-total-label">Total invertido</div><div class="platform-total-value tabular">' + money(totalValor) + '</div><div class="stat-grid stat-grid-compact" style="margin-top:14px;margin-bottom:0;"><div class="stat-tile stat-inversiones"><div class="stat-label">Aportado neto</div><div class="stat-value tabular">' + money(totalAportado) + "</div></div></div>" + goalBlock + '</div><div class="section-title" style="margin-top:4px;">Mis plataformas</div>' + ids.map(renderPlatformGroup).join("") + (state.creatingPlatform ? renderNewPlatformForm() : '<button class="budget-add-link" data-add-platform style="margin:4px 0 2px;margin-bottom:16px;">+ Agregar nueva plataforma</button>') + renderArchivedPlatformsBlock() + '<div class="section-title">Aportado vs. valor mes a mes</div><div class="card evo-card"><div class="evo-legend-row"><span class="evo-legend-item"><span class="evo-line-sample" style="background:var(--invest-ink);"></span>Aportado</span><span class="evo-legend-item"><span class="evo-line-sample dashed" style="border-color:var(--accent);"></span>Valor estimado</span></div>' + buildDualLineChart(invMonths, aportadoSerie, valorSerie, "var(--invest-ink)", "var(--accent)") + '<div class="evo-caption muted">El valor es una aproximaci\xF3n manual: sube y baja solo cuando t\xFA lo actualizas, o con tus aportes y retiros.</div></div>' + renderPlanificadorSection() + proyeccionCard + '<div class="plan-disclaimer">Herramienta de orden personal, no asesor\xEDa financiera formal. Para decisiones grandes, val\xEDdalo con una persona profesional licenciada.</div><div style="height:12px;"></div>';
     document.getElementById("resumen-content").innerHTML = html;
     updatePlanCompute();
@@ -2688,7 +2688,7 @@
     };
   }
   __name(yearTotals, "yearTotals");
-  var PROJECTION_ASSUMPTIONS = { retornoAnual: 6, inflacionAnual: 3 };
+  var PROJECTION_ASSUMPTIONS = { retornoAnual: 6 };
   function projectedContributions(mesesPromedio, aniosProyeccion) {
     const mesActual = todayISO().slice(0, 7);
     const mesesConDatos = MONTHS.filter((m) => m <= mesActual).slice(-mesesPromedio);
@@ -2698,13 +2698,12 @@
     const aporteAnual = aporteMensualUsado * 12;
     const proyectadoSinRetorno = totalActual + aporteAnual * aniosProyeccion;
     const retornoAnual = PROJECTION_ASSUMPTIONS.retornoAnual;
-    const inflacionAnual = PROJECTION_ASSUMPTIONS.inflacionAnual;
-    const rReal = (1 + retornoAnual / 100) / (1 + inflacionAnual / 100) - 1;
-    const factor = Math.pow(1 + rReal, aniosProyeccion);
+    const r = retornoAnual / 100;
+    const factor = Math.pow(1 + r, aniosProyeccion);
     const valorFuturoActual = totalActual * factor;
-    const valorFuturoAportes = Math.abs(rReal) < 1e-4 ? aporteAnual * aniosProyeccion : aporteAnual * ((factor - 1) / rReal);
+    const valorFuturoAportes = Math.abs(r) < 1e-4 ? aporteAnual * aniosProyeccion : aporteAnual * ((factor - 1) / r);
     const proyectadoConRetorno = valorFuturoActual + valorFuturoAportes;
-    return { promedioMensual, aporteMensualUsado, totalActual, proyectadoSinRetorno, proyectadoConRetorno, retornoAnual, inflacionAnual, rReal, meses: mesesConDatos, anios: aniosProyeccion };
+    return { promedioMensual, aporteMensualUsado, totalActual, proyectadoSinRetorno, proyectadoConRetorno, retornoAnual, meses: mesesConDatos, anios: aniosProyeccion };
   }
   __name(projectedContributions, "projectedContributions");
   function buildSparkline(values, w, h, color) {
@@ -5235,13 +5234,6 @@
     if (projReturnInput) {
       const v = parseFloat(projReturnInput.value.replace(",", "."));
       PROJECTION_ASSUMPTIONS.retornoAnual = isNaN(v) ? 0 : v;
-      updateProyeccionCompute();
-      return;
-    }
-    const projInflationInput = e.target.closest("[data-proj-inflation-input]");
-    if (projInflationInput) {
-      const v = parseFloat(projInflationInput.value.replace(",", "."));
-      PROJECTION_ASSUMPTIONS.inflacionAnual = isNaN(v) ? 0 : v;
       updateProyeccionCompute();
       return;
     }
