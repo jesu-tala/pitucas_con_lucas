@@ -82,5 +82,38 @@ const { openApp, check, finish } = require('./lib/test_kit');
     trasEscribirEnMedio.valor === '19.234.567', trasEscribirEnMedio);
   check('   y el cursor queda cerca de donde se escribió, no salta al final', trasEscribirEnMedio.cursor <= 3, trasEscribirEnMedio);
 
+  // (e) Bug real reportado ("puse 483000 y se me pasó a 48.3"): page.fill() de arriba deja el
+  // valor final de una sola vez y no alcanza a reproducirlo -- el bug solo aparece cuando el "."
+  // que liveFormatThousands() dejó en el campo en un dígito anterior SIGUE ahí cuando se lee el
+  // valor para guardarlo (se leía como separador decimal en vez de miles). Hay que tipear
+  // dígito a dígito con keyboard.type() para que cada uno dispare su propio evento 'input', igual
+  // que escribiría una persona de verdad.
+  await page.click('[data-goal-field="montoObjetivo"]');
+  await page.evaluate(() => {
+    const el = document.querySelector('[data-goal-field="montoObjetivo"]');
+    el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.keyboard.type('483000', { delay: 20 });
+  await page.waitForTimeout(100);
+  const goalDraftTrasTipear = await page.evaluate(() => window.__debug.state.goalDraft.montoObjetivo);
+  check('(e) Tecleando "483000" dígito a dígito, el borrador guarda "483000" (el "." de miles no se cuela como decimal)',
+    goalDraftTrasTipear === '483000', goalDraftTrasTipear);
+  await page.click('[data-close-sheet-done]').catch(()=>{});
+
+  // (f) Mismo bug, en el campo de monto de una transacción nueva (el caso reportado -- "agregar
+  // un ingreso extra").
+  await page.click('[data-tab="transacciones"]');
+  await page.waitForTimeout(150);
+  await page.click('#fab-add');
+  await page.waitForTimeout(200);
+  await page.click('[data-seg="draft-tipo"] [data-seg-val="ingreso"]');
+  await page.waitForTimeout(100);
+  await page.click('[data-draft-field="monto"]');
+  await page.keyboard.type('483000', { delay: 20 });
+  await page.waitForTimeout(100);
+  const draftMontoTrasTipear = await page.evaluate(() => window.__debug.state.draftTx.monto);
+  check('(f) Un ingreso nuevo tecleado "483000" dígito a dígito guarda 483000 (no 48.3)',
+    draftMontoTrasTipear === 483000, draftMontoTrasTipear);
+
   await finish({ context, browser, errors });
 })();
