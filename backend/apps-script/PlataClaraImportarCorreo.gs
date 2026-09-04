@@ -114,6 +114,34 @@ var RULES = [
     }
   },
   {
+    id: 'banco_chile_transferencia_recibida',
+    // Esta es la plata que LE LLEGA (ella aparece como "Nombre Beneficiario", no como quien
+    // manda) -- a diferencia de la regla de arriba, el asunto acá lo pone quien envía y varía
+    // según el motivo del pago ("Pago de tu corredor", etc.), así que NO se puede filtrar por
+    // asunto fijo. Al buscar solo por remitente, esta regla también recibe en el mismo barrido
+    // los correos de "Transferencia a Terceros" de arriba -- por eso el parse() exige el bloque
+    // "Datos de Destino / Nombre Beneficiario" propio de esta otra plantilla y devuelve null si
+    // no lo encuentra, para no terminar importando el mismo correo dos veces bajo dos ids.
+    // OJO: el regex de acá se armó a partir de UN solo correo de ejemplo (plantilla de
+    // transferencia recibida desde una cuenta de empresa) -- si después de este cambio sigue sin
+    // aparecer alguno, revisa el Logger de la ejecución: si dice "encontró el correo pero NO
+    // logró leer los datos", es que ese correo tiene alguna etiqueta distinta a las de abajo.
+    query: 'from:serviciodetransferencias@bancochile.cl',
+    parse: function(bodyText){
+      if (!/Datos\s+de\s+Destino/i.test(bodyText) || !/Nombre\s+Beneficiario/i.test(bodyText)) return null;
+      var origenM = bodyText.match(/Te informamos que\s+(.+?)\s+ha instruido/i);
+      var montoM = bodyText.match(/Monto\s+Operaci[oó]n\s*\|?\s*\$([\d.,]+)/i);
+      var fechaM = bodyText.match(/Fecha\s+y\s+hora:\s*(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/i);
+      if (!montoM || !fechaM) return null;
+      return {
+        fecha: fechaM[3] + '-' + fechaM[2] + '-' + fechaM[1], hora: fechaM[4],
+        comercio: origenM ? origenM[1].trim() : 'Transferencia recibida',
+        // Le llega a su cuenta corriente/vista, no a una tarjeta ni a efectivo.
+        monto: montoCLP_(montoM[1]), tipo: 'ingreso', medio_sugerido: 'cuenta_vista'
+      };
+    }
+  },
+  {
     id: 'racional_orden',
     query: 'from:racional@racional.cl (subject:"Invertiste en" OR subject:"Vendiste")',
     // Este correo viene armado en una tabla HTML de dos columnas (vista compra / vista

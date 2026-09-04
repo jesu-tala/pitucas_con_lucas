@@ -135,6 +135,25 @@ export function liveFormatThousands(el){
   el.setSelectionRange(pos, pos);
 }
 
+// liveFormatThousands() above inserts a "." into the input's DOM value purely for display, as
+// the user types -- every place that also feeds that same value into safeEvalExpr(), or stores
+// it in a draft string that gets safeEvalExpr()'d later at save time, needs the mark stripped
+// first. Without this, typing "483000" ends up read back as "483.000" and misparsed as the
+// decimal 483 (or worse, a mark landing mid-typing turns "483000" into "48.3000" -> 48.3 --
+// exactly the "escribí 483000 y quedó en 48.3" bug this fixes). A real arithmetic expression
+// ("22000-5000") is never touched by liveFormatThousands in the first place (see its own
+// early-return above), so a "." only ever needs stripping when the rest of the string is a
+// plain number -- this mirrors that same check.
+export function stripThousandsMarks(raw){
+  const negative = raw.trim().charAt(0)==='-';
+  const digitsOnly = raw.replace(/[^\d]/g,'');
+  const plainNumber = (negative ? '-' : '') + digitsOnly;
+  return (digitsOnly && raw.replace(/\./g,'')===plainNumber) ? plainNumber : raw;
+}
+export function safeEvalMoneyExpr(raw){
+  return safeEvalExpr(stripThousandsMarks(raw));
+}
+
 /* ----- months (for installment projections) ----- */
 export function monthAddStr(ym, n){
   const [y,m] = ym.split('-').map(Number);

@@ -73,13 +73,22 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('Apretar "Por cobrar a alguien" de nuevo también lo deselecciona', trasDeseleccionar2.estado === 'confirmado' && trasDeseleccionar2.n === 0, trasDeseleccionar2);
 
   // "No es gasto" can also be deselected by pressing it again
+  // Force a category on it first: a category no longer applies to anything once the
+  // transaction stops counting as a real expense, and it must be cleared when marking this
+  // (bug reported: a category picked before toggling "No es gasto" stayed stuck on the
+  // transaction, still counting in Balance/Presupuesto even though it no longer showed as spent).
+  await page.evaluate((id) => { window.__debug.TRANSACTIONS.find(t => t.id === id).categorias = [{cat:'restoranes', monto:100}]; }, txId);
+  await page.evaluate(() => window.__debug.render());
+  await page.waitForTimeout(100);
   await page.click('[data-action="noesgasto"]');
   await page.waitForTimeout(150);
-  const noEsGastoOn = await page.evaluate((id) => window.__debug.TRANSACTIONS.find(t => t.id === id).estado, txId);
+  const noEsGastoOn = await page.evaluate((id) => window.__debug.TRANSACTIONS.find(t => t.id === id), txId);
+  check('"No es gasto" se marca', noEsGastoOn.estado === 'no_es_gasto', noEsGastoOn.estado);
+  check('   y le quita la categoría que tenía asignada (ya no corresponde a ninguna)', noEsGastoOn.categorias.length === 0, noEsGastoOn.categorias);
   await page.click('[data-action="noesgasto"]');
   await page.waitForTimeout(150);
   const noEsGastoOff = await page.evaluate((id) => window.__debug.TRANSACTIONS.find(t => t.id === id).estado, txId);
-  check('"No es gasto" se marca y luego se deselecciona (vuelve a confirmado)', noEsGastoOn === 'no_es_gasto' && noEsGastoOff === 'confirmado', { noEsGastoOn, noEsGastoOff });
+  check('"No es gasto" se puede deseleccionar (vuelve a "pendiente" al quedar sin categoría)', noEsGastoOff === 'pendiente', noEsGastoOff);
 
   // ---------- 6) "Sin categoría" is now a row with a <select>, always editable ----------
   // (before you had to tap a chip to enter an "edit mode" with the icon grid;

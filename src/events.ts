@@ -1,6 +1,6 @@
 import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
-import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, splitEqually, safeEvalExpr, groupBalances } from './shared-expenses';
+import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, splitEqually, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, groupBalances } from './shared-expenses';
 import { RECEIPT_EXAMPLES, receiptItemIdCounter, receiptTotal, closeSheet, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
 import { CATEGORIES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
@@ -803,6 +803,11 @@ phone.addEventListener('click', function(e: any){
           t.estado = t.categorias.length>0 ? 'confirmado' : 'pendiente';
           toast('Ya no está marcado como "no es gasto"');
         } else {
+          // Una categoría ya asignada no corresponde a nada una vez que la transacción deja
+          // de contar como gasto real (mismo criterio que ya usa classifySharedExpenseFromOthers()
+          // en menu.ts al marcar este mismo estado) -- si no se limpia, queda una categoría
+          // "fantasma" que ya no debería sumar en ningún lado.
+          t.categorias = [];
           t.estado='no_es_gasto'; toast('Marcado como no es gasto');
         }
       }
@@ -1679,7 +1684,7 @@ phone.addEventListener('input', function(e: any){
   const boletaItemMonto = e.target.closest('[data-receipt-item-amount]');
   if(boletaItemMonto && state.boleta){
     const idx = parseInt(boletaItemMonto.getAttribute('data-receipt-item-amount'),10);
-    const v = safeEvalExpr(boletaItemMonto.value);
+    const v = safeEvalMoneyExpr(boletaItemMonto.value);
     if(v!==null){
       state.boleta.items[idx].monto = Math.round(v);
       liveFormatThousands(boletaItemMonto);
@@ -1788,13 +1793,16 @@ phone.addEventListener('input', function(e: any){
 
   const budgetGoalInput = e.target.closest('[data-budget-goal-input]');
   if(budgetGoalInput){
-    state.budgetDraft.meta = budgetGoalInput.value;
+    // stripThousandsMarks() first: liveFormatThousands() below leaves a "." in the field for
+    // display, and storing that raw would make the safeEvalExpr() at save time misread it as a
+    // decimal point (see stripThousandsMarks()'s own comment in shared-expenses.ts).
+    state.budgetDraft.meta = stripThousandsMarks(budgetGoalInput.value);
     liveFormatThousands(budgetGoalInput);
     return;
   }
   const budgetTotalInput = e.target.closest('[data-budget-total-input]');
   if(budgetTotalInput){
-    state.budgetTotalDraft = budgetTotalInput.value;
+    state.budgetTotalDraft = stripThousandsMarks(budgetTotalInput.value);
     liveFormatThousands(budgetTotalInput);
     return;
   }
@@ -1816,22 +1824,28 @@ phone.addEventListener('input', function(e: any){
   const goalField = e.target.closest('[data-goal-field]');
   if(goalField){
     const goalFieldName = goalField.getAttribute('data-goal-field');
-    state.goalDraft[goalFieldName] = goalField.value;
-    if(goalFieldName==='montoObjetivo' || goalFieldName==='aporteMensualMeta' || goalFieldName==='aportadoInicial') liveFormatThousands(goalField);
+    const esMonto = goalFieldName==='montoObjetivo' || goalFieldName==='aporteMensualMeta' || goalFieldName==='aportadoInicial';
+    // Only the money fields go through stripThousandsMarks() -- the rest (comisión, tasa, etc.)
+    // never get liveFormatThousands() applied to them, so their raw value never has a stray "."
+    // to strip in the first place, and comisión in particular needs to keep real decimals.
+    state.goalDraft[goalFieldName] = esMonto ? stripThousandsMarks(goalField.value) : goalField.value;
+    if(esMonto) liveFormatThousands(goalField);
     return;
   }
   const platformField = e.target.closest('[data-platform-field]');
   if(platformField){
     const platformFieldName = platformField.getAttribute('data-platform-field');
-    state.platformDraft[platformFieldName] = platformField.value;
-    if(platformFieldName==='valor') liveFormatThousands(platformField);
+    const esValor = platformFieldName==='valor';
+    state.platformDraft[platformFieldName] = esValor ? stripThousandsMarks(platformField.value) : platformField.value;
+    if(esValor) liveFormatThousands(platformField);
     return;
   }
   const newPlatformField = e.target.closest('[data-newplatform-field]');
   if(newPlatformField){
     const newPlatformFieldName = newPlatformField.getAttribute('data-newplatform-field');
-    state.newPlatformDraft[newPlatformFieldName] = newPlatformField.value;
-    if(newPlatformFieldName==='valor') liveFormatThousands(newPlatformField);
+    const esValor = newPlatformFieldName==='valor';
+    state.newPlatformDraft[newPlatformFieldName] = esValor ? stripThousandsMarks(newPlatformField.value) : newPlatformField.value;
+    if(esValor) liveFormatThousands(newPlatformField);
     return;
   }
   const catDraftField = e.target.closest('[data-cat-draft-field]');
@@ -1905,7 +1919,7 @@ phone.addEventListener('input', function(e: any){
     if(field==='comercio'){ state.draftTx.comercio = draftField.value; }
     else if(field==='fecha'){ state.draftTx.fecha = draftField.value; }
     else if(field==='monto'){
-      const v = safeEvalExpr(draftField.value);
+      const v = safeEvalMoneyExpr(draftField.value);
       if(v!==null){
         state.draftTx.monto = v;
         if(state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = v;

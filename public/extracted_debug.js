@@ -3933,6 +3933,7 @@
             t.estado = t.categorias.length > 0 ? "confirmado" : "pendiente";
             toast('Ya no est\xE1 marcado como "no es gasto"');
           } else {
+            t.categorias = [];
             t.estado = "no_es_gasto";
             toast("Marcado como no es gasto");
           }
@@ -4890,7 +4891,7 @@
     const boletaItemMonto = e.target.closest("[data-receipt-item-amount]");
     if (boletaItemMonto && state.boleta) {
       const idx = parseInt(boletaItemMonto.getAttribute("data-receipt-item-amount"), 10);
-      const v = safeEvalExpr(boletaItemMonto.value);
+      const v = safeEvalMoneyExpr(boletaItemMonto.value);
       if (v !== null) {
         state.boleta.items[idx].monto = Math.round(v);
         liveFormatThousands(boletaItemMonto);
@@ -4996,13 +4997,13 @@
     }
     const budgetGoalInput = e.target.closest("[data-budget-goal-input]");
     if (budgetGoalInput) {
-      state.budgetDraft.meta = budgetGoalInput.value;
+      state.budgetDraft.meta = stripThousandsMarks(budgetGoalInput.value);
       liveFormatThousands(budgetGoalInput);
       return;
     }
     const budgetTotalInput = e.target.closest("[data-budget-total-input]");
     if (budgetTotalInput) {
-      state.budgetTotalDraft = budgetTotalInput.value;
+      state.budgetTotalDraft = stripThousandsMarks(budgetTotalInput.value);
       liveFormatThousands(budgetTotalInput);
       return;
     }
@@ -5024,22 +5025,25 @@
     const goalField = e.target.closest("[data-goal-field]");
     if (goalField) {
       const goalFieldName = goalField.getAttribute("data-goal-field");
-      state.goalDraft[goalFieldName] = goalField.value;
-      if (goalFieldName === "montoObjetivo" || goalFieldName === "aporteMensualMeta" || goalFieldName === "aportadoInicial") liveFormatThousands(goalField);
+      const esMonto = goalFieldName === "montoObjetivo" || goalFieldName === "aporteMensualMeta" || goalFieldName === "aportadoInicial";
+      state.goalDraft[goalFieldName] = esMonto ? stripThousandsMarks(goalField.value) : goalField.value;
+      if (esMonto) liveFormatThousands(goalField);
       return;
     }
     const platformField = e.target.closest("[data-platform-field]");
     if (platformField) {
       const platformFieldName = platformField.getAttribute("data-platform-field");
-      state.platformDraft[platformFieldName] = platformField.value;
-      if (platformFieldName === "valor") liveFormatThousands(platformField);
+      const esValor = platformFieldName === "valor";
+      state.platformDraft[platformFieldName] = esValor ? stripThousandsMarks(platformField.value) : platformField.value;
+      if (esValor) liveFormatThousands(platformField);
       return;
     }
     const newPlatformField = e.target.closest("[data-newplatform-field]");
     if (newPlatformField) {
       const newPlatformFieldName = newPlatformField.getAttribute("data-newplatform-field");
-      state.newPlatformDraft[newPlatformFieldName] = newPlatformField.value;
-      if (newPlatformFieldName === "valor") liveFormatThousands(newPlatformField);
+      const esValor = newPlatformFieldName === "valor";
+      state.newPlatformDraft[newPlatformFieldName] = esValor ? stripThousandsMarks(newPlatformField.value) : newPlatformField.value;
+      if (esValor) liveFormatThousands(newPlatformField);
       return;
     }
     const catDraftField = e.target.closest("[data-cat-draft-field]");
@@ -5112,7 +5116,7 @@
       } else if (field === "fecha") {
         state.draftTx.fecha = draftField.value;
       } else if (field === "monto") {
-        const v = safeEvalExpr(draftField.value);
+        const v = safeEvalMoneyExpr(draftField.value);
         if (v !== null) {
           state.draftTx.monto = v;
           if (state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = v;
@@ -6445,6 +6449,17 @@
     el.setSelectionRange(pos, pos);
   }
   __name(liveFormatThousands, "liveFormatThousands");
+  function stripThousandsMarks(raw) {
+    const negative = raw.trim().charAt(0) === "-";
+    const digitsOnly = raw.replace(/[^\d]/g, "");
+    const plainNumber = (negative ? "-" : "") + digitsOnly;
+    return digitsOnly && raw.replace(/\./g, "") === plainNumber ? plainNumber : raw;
+  }
+  __name(stripThousandsMarks, "stripThousandsMarks");
+  function safeEvalMoneyExpr(raw) {
+    return safeEvalExpr(stripThousandsMarks(raw));
+  }
+  __name(safeEvalMoneyExpr, "safeEvalMoneyExpr");
   function monthAddStr(ym, n) {
     const [y, m] = ym.split("-").map(Number);
     const total = y * 12 + (m - 1) + n;
