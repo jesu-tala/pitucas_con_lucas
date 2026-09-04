@@ -20,6 +20,16 @@ export type TxType = 'gasto' | 'ingreso' | 'inversion';
 export type TxStatus = 'confirmado' | 'pendiente' | 'por_cobrar' | 'no_es_gasto';
 export type Recurrence = 'variable' | 'mensual';
 
+// Where a transaction came from -- the non-negotiable rule behind automatic reconciliation
+// (see reconcile.ts) is that it can ONLY ever touch 'auto-mail'/'auto-cartola' transactions,
+// never 'manual' ones. Left OPTIONAL on purpose: the ~90 fixture/demo transactions in state.ts
+// predate this field entirely, and a couple of derived/system transactions (see the comments
+// next to each TRANSACTIONS.push(...) call, e.g. writeOffReceivable in helpers.ts) don't fit
+// neatly into any of the three buckets either. A transaction with origen missing/undefined is
+// treated as PROTECTED, exactly like 'manual' -- reconcile.ts's isAutomaticOrigin()/isProtectedOrigin()
+// are the single source of truth for that safety rule, never a raw `=== 'manual'` check.
+export type TxOrigen = 'manual' | 'auto-mail' | 'auto-cartola';
+
 export interface AssignedCategory { cat: string; monto: number; }
 
 export interface ReceivableItem {
@@ -64,6 +74,17 @@ export interface Transaction {
   // true on a transaction that arrived by itself via email (automatic import) -- different from
   // a bank statement PDF, which is uploaded by hand from Reconcile.
   importadoEmail?: boolean;
+  // ---- Automatic reconciliation against a bank statement (see reconcile.ts) ----
+  // origen: see the note on TxOrigen above -- who/what created this transaction, and therefore
+  // whether reconcile.ts is even allowed to consider proposing to delete it.
+  origen?: TxOrigen;
+  // fuenteLineaId: a stable id built from a statement line's own fields (fecha+monto+detalle+
+  // its position in the statement) -- see reconcile.ts's movementLineId(). Stamped on a
+  // transaction created FROM that line (by createTxFromMovement, or by the diff's bulk "agregar")
+  // so re-processing the exact same statement can never propose adding the same line twice, even
+  // if fuzzy matching (matchConfidence) would fail to recognize it a second time -- this is the
+  // hard guarantee idempotency needs; fuzzy matching alone is only ever a probabilistic signal.
+  fuenteLineaId?: string;
   // ---- Shared expenses ----
   // groupId: present if THIS transaction (yours, real, editable) was shared with a group --
   // everyone else's split lives in porCobrar (above), same as an old-style friends split.

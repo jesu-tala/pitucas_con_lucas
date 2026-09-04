@@ -174,7 +174,15 @@ export function regenerateInstallmentsFor(rootId){
         medio: root.medio, tipo: root.tipo, recurrencia: root.recurrencia, estado:'confirmado',
         categorias: root.categorias.map(c=>({cat:c.cat, monto:c.monto})),
         porCobrar:[], reglaAuto:false, nota: root.nota,
-        cuotaOf: root.id, cuotaNumero:k, cuotaTotal: root.cuotas.total, cuotaProyectada:true
+        cuotaOf: root.id, cuotaNumero:k, cuotaTotal: root.cuotas.total, cuotaProyectada:true,
+        // Same purchase as the root (installment 1), just a future month's charge -- inherits
+        // its origen so reconcile.ts protects/allows it exactly like the root would be
+        // protected/allowed (a manual cuota purchase's future installments stay manual too; an
+        // auto-imported one's future installments stay reconcilable). No fuenteLineaId: unlike
+        // the root, this row isn't (yet) backed by any specific statement line -- it only
+        // becomes "backed" once a real future statement is reconciled against it, purely via
+        // matchConfidence (fecha/monto/comercio), the same as any other automatic transaction.
+        origen: root.origen
       });
     }
   }

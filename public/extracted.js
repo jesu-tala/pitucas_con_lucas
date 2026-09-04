@@ -221,7 +221,10 @@
       categorias: catId ? [{ cat: catId, monto: amount }] : [],
       porCobrar: [],
       reglaAuto: false,
-      nota: "Dada por perdida: " + (p.persona || "esta persona") + ' nunca pag\xF3 su parte de "' + expenseTx.comercio + '" (' + dayLabel(expenseTx.fecha) + ")."
+      nota: "Dada por perdida: " + (p.persona || "esta persona") + ' nunca pag\xF3 su parte de "' + expenseTx.comercio + '" (' + dayLabel(expenseTx.fecha) + ").",
+      // An explicit action she took in the app (tapping "dar por perdida"), not an automated
+      // import -- treated as 'manual' so reconciliation against a bank statement never touches it.
+      origen: "manual"
     };
     TRANSACTIONS.push(newTx);
     ensureMonthExists(newTx.fecha.slice(0, 7));
@@ -440,6 +443,173 @@
     return '<div class="month-switcher"><button data-month-nav="-1" ' + (state.monthIndex <= 0 ? "disabled" : "") + ' aria-label="Mes anterior">' + ICONS.chevL + '</button><span class="m-label">' + MONTH_LABEL[month] + '</span><button data-month-nav="1" ' + (state.monthIndex >= MONTHS.length - 1 ? "disabled" : "") + ' aria-label="Mes siguiente">' + ICONS.chevR + "</button></div>";
   }
   __name(monthSwitcherHtml, "monthSwitcherHtml");
+
+  // src/reconcile.ts
+  function isAutomaticOrigin(t) {
+    return t.origen === "auto-mail" || t.origen === "auto-cartola";
+  }
+  __name(isAutomaticOrigin, "isAutomaticOrigin");
+  function isProtectedOrigin(t) {
+    return !isAutomaticOrigin(t);
+  }
+  __name(isProtectedOrigin, "isProtectedOrigin");
+  function hashString(s) {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) {
+      h = (h * 33 ^ s.charCodeAt(i)) >>> 0;
+    }
+    return h.toString(36);
+  }
+  __name(hashString, "hashString");
+  function movementLineId(m, idx) {
+    const detalle = (m.detalle || m.comercioSugerido || "").trim();
+    return "ln" + hashString([m.fecha, Math.round(m.monto), detalle, idx].join("|"));
+  }
+  __name(movementLineId, "movementLineId");
+  function normalizeComercio(s) {
+    return normalize(s || "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+  __name(normalizeComercio, "normalizeComercio");
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (m === 0) return n;
+    if (n === 0) return m;
+    const dp = new Array(n + 1);
+    for (let j = 0; j <= n; j++) dp[j] = j;
+    for (let i = 1; i <= m; i++) {
+      let prev = dp[0];
+      dp[0] = i;
+      for (let j = 1; j <= n; j++) {
+        const tmp = dp[j];
+        dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+        prev = tmp;
+      }
+    }
+    return dp[n];
+  }
+  __name(levenshtein, "levenshtein");
+  function comerciosSonParecidos(na, nb) {
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    if (na.length >= 3 && nb.length >= 3 && (na.indexOf(nb) !== -1 || nb.indexOf(na) !== -1)) return true;
+    const dist = levenshtein(na, nb);
+    const umbral = Math.max(2, Math.floor(Math.min(na.length, nb.length) * 0.3));
+    return dist <= umbral;
+  }
+  __name(comerciosSonParecidos, "comerciosSonParecidos");
+  function daysBetween(fechaA, fechaB) {
+    const d1 = (/* @__PURE__ */ new Date(fechaA + "T00:00:00")).getTime();
+    const d2 = (/* @__PURE__ */ new Date(fechaB + "T00:00:00")).getTime();
+    return Math.abs(d1 - d2) / 864e5;
+  }
+  __name(daysBetween, "daysBetween");
+  function matchConfidence(mov, tx) {
+    if (tx.tipo !== mov.tipoMov) return null;
+    const montoAbs = Math.abs(mov.monto);
+    const montoDiff = Math.abs(tx.monto - montoAbs);
+    const diffDias = daysBetween(tx.fecha, mov.fecha);
+    const movComercioTxt = mov.comercioSugerido || mov.detalle || "";
+    const na = normalizeComercio(movComercioTxt), nb = normalizeComercio(tx.comercio);
+    const comercioClose = comerciosSonParecidos(na, nb);
+    if (montoDiff === 0 && diffDias <= 2 && comercioClose) return "alta";
+    if (montoDiff === 0 && diffDias <= 2) return "media";
+    if (montoDiff <= 2 && diffDias <= 5) return "baja";
+    return null;
+  }
+  __name(matchConfidence, "matchConfidence");
+  function nivel(c) {
+    return c === "alta" ? 3 : c === "media" ? 2 : 1;
+  }
+  __name(nivel, "nivel");
+  function statementPeriod(movimientos) {
+    const fechas = movimientos.map((m) => m.fecha).filter(Boolean).sort();
+    if (!fechas.length) return null;
+    return { desde: fechas[0], hasta: fechas[fechas.length - 1] };
+  }
+  __name(statementPeriod, "statementPeriod");
+  function pareceAnulado(mov) {
+    const t = ((mov.detalle || "") + " " + (mov.comercioSugerido || "")).toUpperCase();
+    return /ANULAD|ANULACION|REVERS/.test(t);
+  }
+  __name(pareceAnulado, "pareceAnulado");
+  function medioFamiliaCoincide(tx, tipoCartola) {
+    const pm = PAYMENT_METHODS[tx.medio];
+    if (!pm) return false;
+    if (tipoCartola === "tarjeta_nacional") return pm.icon === "card";
+    if (tipoCartola === "cuenta_corriente") return pm.icon === "bank";
+    return false;
+  }
+  __name(medioFamiliaCoincide, "medioFamiliaCoincide");
+  function buildTxPropuesta(mov, tipoCartola) {
+    const origen = "auto-cartola";
+    return {
+      fecha: mov.fecha,
+      comercio: mov.comercioSugerido || mov.detalle,
+      monto: Math.abs(mov.monto),
+      tipo: mov.tipoMov,
+      origen,
+      fuenteLineaId: mov.fuenteLineaId
+    };
+  }
+  __name(buildTxPropuesta, "buildTxPropuesta");
+  function buildReconcileDiff(movimientos, tipoCartola) {
+    const normales = movimientos.filter((m) => m.esEspecial !== "pago_tarjeta" && m.esEspecial !== "pago_recibido");
+    const periodo = statementPeriod(movimientos);
+    const agregar = [];
+    const revisar = [];
+    const eliminarPropuesto = [];
+    const manualesIgnoradas = [];
+    normales.forEach((mov) => {
+      if (mov.fuenteLineaId && TRANSACTIONS.some((t) => t.fuenteLineaId === mov.fuenteLineaId)) return;
+      const candidatosAlta = [], candidatosMedia = [], candidatosBaja = [];
+      TRANSACTIONS.forEach((t) => {
+        const c = matchConfidence(mov, t);
+        if (c === "alta") candidatosAlta.push(t);
+        else if (c === "media") candidatosMedia.push(t);
+        else if (c === "baja") candidatosBaja.push(t);
+      });
+      if (candidatosAlta.length === 1) return;
+      if (candidatosAlta.length > 1) {
+        revisar.push({ movimiento: mov, confianza: "alta", candidatos: candidatosAlta });
+        return;
+      }
+      if (candidatosMedia.length === 1) return;
+      if (candidatosMedia.length > 1) {
+        revisar.push({ movimiento: mov, confianza: "media", candidatos: candidatosMedia });
+        return;
+      }
+      if (candidatosBaja.length >= 1) {
+        revisar.push({ movimiento: mov, confianza: "baja", candidatos: candidatosBaja });
+        return;
+      }
+      agregar.push({ movimiento: mov, confianza: "alta", txPropuesta: buildTxPropuesta(mov, tipoCartola) });
+    });
+    if (periodo) {
+      TRANSACTIONS.filter((t) => medioFamiliaCoincide(t, tipoCartola) && t.fecha >= periodo.desde && t.fecha <= periodo.hasta).forEach((t) => {
+        let mejor = null;
+        let anulado = false;
+        normales.forEach((mov) => {
+          const c = matchConfidence(mov, t);
+          if (c && (!mejor || nivel(c) > nivel(mejor))) mejor = c;
+          if (c && (c === "alta" || c === "media") && pareceAnulado(mov)) anulado = true;
+        });
+        if (mejor && !anulado) return;
+        if (isAutomaticOrigin(t)) {
+          eliminarPropuesto.push({
+            tx: t,
+            motivo: anulado ? "La cartola muestra este cargo anulado o revertido." : "Esta cartola no muestra este movimiento en su per\xEDodo \u2014 puede que se haya anulado o que no corresponda."
+          });
+        } else {
+          manualesIgnoradas.push({
+            tx: t,
+            motivo: anulado ? "La cartola la muestra anulada, pero es manual: nunca se toca ni se elimina." : "No aparece en esta cartola, pero es manual: nunca se toca."
+          });
+        }
+      });
+    }
+    return { agregar, eliminarPropuesto, revisar, manualesIgnoradas };
+  }
+  __name(buildReconcileDiff, "buildReconcileDiff");
 
   // src/views/presupuesto.ts
   function catMonthExpense(catId, monthKey) {
@@ -802,7 +972,12 @@
         categorias,
         porCobrar: [],
         reglaAuto: !!(regla && regla.cat),
-        nota: "Importado desde cartola CSV"
+        nota: "Importado desde cartola CSV",
+        // Came from a cartola CSV upload -- same family as a PDF statement's "auto-cartola",
+        // reconcilable the same way (this older CSV path doesn't go through the diff engine's
+        // idempotency, but a transaction it created still needs the right origen so a LATER PDF
+        // reconciliation of the same period treats it correctly instead of as protected/manual).
+        origen: "auto-cartola"
       });
     });
     return { creadas: rows.length, conRegla, pendientes };
@@ -1117,9 +1292,13 @@
       throw err;
     }
     const tipo = detectarTipoCartola(pagesWords);
-    if (tipo === "cuenta_corriente") return { tipo, movimientos: parseCuentaCorrienteMovs(pagesWords) };
-    if (tipo === "tarjeta_nacional") return { tipo, movimientos: parseTarjetaNacionalMovs(pagesWords) };
-    return { tipo: null, movimientos: [] };
+    let movimientos = [];
+    if (tipo === "cuenta_corriente") movimientos = parseCuentaCorrienteMovs(pagesWords);
+    else if (tipo === "tarjeta_nacional") movimientos = parseTarjetaNacionalMovs(pagesWords);
+    movimientos.forEach(function(m, idx) {
+      m.fuenteLineaId = movementLineId(m, idx);
+    });
+    return { tipo, movimientos };
   }
   __name(parseStatementPDF, "parseStatementPDF");
   function pgBytesToArrayBuffer(val) {
@@ -1171,6 +1350,7 @@
       state.reconciliar.tipo = res.tipo;
       state.reconciliar.movimientos = res.movimientos;
       state.reconciliar.usandoId = null;
+      state.reconciliar.eliminarSeleccionados = [];
       renderMenuView();
       sb.from("cartolas_importadas").update({ procesado: true }).eq("id", id).then(function() {
       }, function() {
@@ -1207,6 +1387,7 @@
       });
       state.reconciliar.tipo = res.tipo;
       state.reconciliar.movimientos = res.movimientos;
+      state.reconciliar.eliminarSeleccionados = [];
       renderMenuView();
     } catch (err) {
       state.reconciliar.cargando = false;
@@ -1302,9 +1483,50 @@
     const listaHtml = normales.map(function(m, idx) {
       return filaHtml(m, idx, !!m.__match);
     }).join("");
-    document.getElementById("view-root").innerHTML = head + '<div class="card placeholder-card" style="padding:14px;margin-bottom:14px;"><p class="muted" style="margin:0;">' + R.archivo + " \u2014 " + normales.length + " movimiento" + (normales.length === 1 ? "" : "s") + ", " + conMatch.length + " ya registrado" + (conMatch.length === 1 ? "" : "s") + ", " + sinMatch.length + " para revisar.</p></div>" + resumenTarjeta + (sinMatch.length ? '<button class="budget-add-link" data-reconcile-add-all style="margin-bottom:10px;">Agregar los ' + sinMatch.length + " que faltan</button>" : "") + listaHtml + '<button class="budget-add-link" data-reconcile-reset style="margin-top:10px;">Probar con otro archivo</button>';
+    document.getElementById("view-root").innerHTML = head + '<div class="card placeholder-card" style="padding:14px;margin-bottom:14px;"><p class="muted" style="margin:0;">' + R.archivo + " \u2014 " + normales.length + " movimiento" + (normales.length === 1 ? "" : "s") + ", " + conMatch.length + " ya registrado" + (conMatch.length === 1 ? "" : "s") + ", " + sinMatch.length + " para revisar.</p></div>" + resumenTarjeta + (sinMatch.length ? '<button class="budget-add-link" data-reconcile-add-all style="margin-bottom:10px;">Agregar los ' + sinMatch.length + " que faltan</button>" : "") + listaHtml + renderReconcileDiffSection(R) + '<button class="budget-add-link" data-reconcile-reset style="margin-top:10px;">Probar con otro archivo</button>';
   }
   __name(renderMenuReconciliar, "renderMenuReconciliar");
+  function renderReconcileDiffSection(R) {
+    if (!R.movimientos.length) return "";
+    const diff = buildReconcileDiff(R.movimientos, R.tipo);
+    const totalAltas = diff.agregar.filter(function(i) {
+      return i.confianza === "alta";
+    }).length;
+    if (!diff.agregar.length && !diff.eliminarPropuesto.length && !diff.revisar.length && !diff.manualesIgnoradas.length) {
+      return "";
+    }
+    let html = '<div class="section-title">Revisi\xF3n autom\xE1tica de este per\xEDodo</div>';
+    if (diff.agregar.length) {
+      html += '<div class="card" style="padding:14px;margin-bottom:10px;"><div class="sheet-block-title" style="margin-bottom:6px;">Faltan en la app (' + diff.agregar.length + ')</div><p class="muted" style="margin-bottom:10px;">Est\xE1n en la cartola pero ninguna transacci\xF3n registrada calza con ellos.</p>' + (totalAltas ? '<button class="budget-add-link" data-reconcile-diff-add-altas style="margin-bottom:8px;">Agregar las ' + totalAltas + " de confianza alta</button>" : "") + diff.agregar.map(function(item) {
+        const m = item.movimiento;
+        return '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--border);"><div style="min-width:0;"><div style="font-weight:600;font-size:13px;">' + (m.comercioSugerido || m.detalle) + '</div><div class="muted" style="font-size:11.5px;">' + dayLabel(m.fecha) + " \xB7 confianza " + item.confianza + '</div></div><span class="tabular" style="font-weight:600;flex-shrink:0;">' + (m.tipoMov === "ingreso" ? "+" : "") + money(Math.abs(m.monto)) + "</span></div>";
+      }).join("") + "</div>";
+    }
+    if (diff.eliminarPropuesto.length) {
+      html += '<div class="card" style="padding:14px;margin-bottom:10px;"><div class="sheet-block-title" style="margin-bottom:6px;">Posibles a eliminar (' + diff.eliminarPropuesto.length + ')</div><p class="muted" style="margin-bottom:10px;">Registradas autom\xE1ticamente, pero esta cartola no las respalda (o las muestra anuladas). Marca las que quieras eliminar \u2014 nunca se borran solas.</p>' + diff.eliminarPropuesto.map(function(item) {
+        const t = item.tx;
+        const checked = R.eliminarSeleccionados.indexOf(t.id) !== -1;
+        return '<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--border);cursor:pointer;"><input type="checkbox" data-reconcile-diff-elim-check="' + t.id + '" ' + (checked ? "checked" : "") + ' style="margin-top:3px;"><div style="min-width:0;flex:1;"><div style="font-weight:600;font-size:13px;">' + t.comercio + " \u2014 " + money(t.monto) + '</div><div class="muted" style="font-size:11.5px;">' + dayLabel(t.fecha) + '</div><div class="muted" style="font-size:11.5px;margin-top:2px;">' + item.motivo + "</div></div></label>";
+      }).join("") + '<button class="save-tx-btn" data-reconcile-diff-elim-confirmar style="margin-top:10px;width:100%;" ' + (R.eliminarSeleccionados.length ? "" : "disabled") + ">Eliminar seleccionadas (" + R.eliminarSeleccionados.length + ")</button></div>";
+    }
+    if (diff.revisar.length) {
+      html += '<div class="card" style="padding:14px;margin-bottom:10px;"><div class="sheet-block-title" style="margin-bottom:6px;">Para revisar a mano (' + diff.revisar.length + ')</div><p class="muted" style="margin-bottom:10px;">Coincidencia dudosa, o hay m\xE1s de una candidata \u2014 no se toca nada autom\xE1ticamente, decide t\xFA.</p>' + diff.revisar.map(function(item) {
+        const m = item.movimiento;
+        const candidatosTxt = item.candidatos.map(function(t) {
+          return t.comercio + " (" + dayLabel(t.fecha) + ", " + money(t.monto) + ")";
+        }).join(" \xB7 ");
+        return '<div style="padding:8px 0;border-top:1px solid var(--border);"><div style="font-weight:600;font-size:13px;">' + (m.comercioSugerido || m.detalle) + " \u2014 " + money(Math.abs(m.monto)) + " (" + dayLabel(m.fecha) + ')</div><div class="muted" style="font-size:11.5px;">confianza ' + item.confianza + " \xB7 posibles: " + candidatosTxt + "</div></div>";
+      }).join("") + "</div>";
+    }
+    if (diff.manualesIgnoradas.length) {
+      html += '<details class="card" style="padding:14px;margin-bottom:10px;"><summary style="font-weight:700;font-size:13.5px;cursor:pointer;">Manuales que no se tocan (' + diff.manualesIgnoradas.length + ')</summary><p class="muted" style="margin:8px 0;">Son transacciones manuales \u2014 la reconciliaci\xF3n autom\xE1tica nunca las modifica ni elimina, aunque la cartola no las respalde.</p>' + diff.manualesIgnoradas.map(function(item) {
+        const t = item.tx;
+        return '<div style="padding:6px 0;border-top:1px solid var(--border);"><div style="font-weight:600;font-size:12.5px;">' + t.comercio + " \u2014 " + money(t.monto) + " (" + dayLabel(t.fecha) + ')</div><div class="muted" style="font-size:11px;">' + item.motivo + "</div></div>";
+      }).join("") + "</details>";
+    }
+    return html;
+  }
+  __name(renderReconcileDiffSection, "renderReconcileDiffSection");
   function createTxFromMovement(m, opts) {
     opts = opts || {};
     const reglaByComercio = {};
@@ -1327,7 +1549,15 @@
       categorias: !opts.noEsGasto && catId ? [{ cat: catId, monto: Math.abs(m.monto) }] : [],
       porCobrar: [],
       reglaAuto: false,
-      nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola \u2014 marcada como "no es gasto"' : "Agregada al reconciliar con la cartola"
+      nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola \u2014 marcada como "no es gasto"' : "Agregada al reconciliar con la cartola",
+      // Came straight from a bank statement line, whether through the movement-by-movement
+      // "+ Agregar" flow or the diff's bulk "agregar" -- reconcile.ts is allowed to later propose
+      // deleting it (never a manual transaction). fuenteLineaId (when the movement has one, i.e.
+      // it went through parseStatementPDF's line-id assignment) is the hard idempotency guarantee:
+      // re-reconciling the exact same statement recognizes this line is already covered even if
+      // matchConfidence's fuzzy comparison would somehow miss it a second time.
+      origen: "auto-cartola",
+      fuenteLineaId: m.fuenteLineaId
     });
     ensureMonthExists(m.fecha.slice(0, 7));
   }
@@ -1476,7 +1706,10 @@
       porCobrar: [],
       reglaAuto: !!(regla && regla.cat),
       nota: "Importado autom\xE1ticamente desde tu correo",
-      importadoEmail: true
+      importadoEmail: true,
+      // Arrived by itself from the Apps Script email import -- reconcile.ts is allowed to later
+      // propose deleting it (e.g. if a card statement shows the underlying charge was reversed).
+      origen: "auto-mail"
     };
   }
   __name(txFromEmailImport, "txFromEmailImport");
@@ -1549,6 +1782,10 @@
         sharedExpenseId: g.id,
         sharedByOthers: true,
         suggestedOriginCategory: mapeo ? null : g.categoria_origen || null
+        // origen deliberately left unset: this is a derived, never-persisted entry (see the note
+        // on sharedByOthers in types.ts) reflecting ANOTHER person's real transaction, not
+        // something a cartola of yours could ever back or contradict -- reconcile.ts's
+        // isProtectedOrigin() already treats "no origen" as protected, which is exactly right here.
       };
       TRANSACTIONS.push(tx);
       ensureMonthExists(tx.fecha.slice(0, 7));
@@ -1688,7 +1925,8 @@
       porCobrar: otrosSplits.map((s) => ({ ...s, sharedExpenseId: void 0 })),
       reglaAuto: false,
       nota: "",
-      groupId: opts.groupId
+      groupId: opts.groupId,
+      origen: "manual"
     } : {
       id: "gasto-" + Date.now(),
       fecha: opts.fecha,
@@ -1703,7 +1941,8 @@
       porCobrar: [],
       reglaAuto: false,
       nota: "Registrado por ti para el grupo, pero lo pag\xF3 otra persona \u2014 no cuenta en tu presupuesto.",
-      groupId: opts.groupId
+      groupId: opts.groupId,
+      origen: "manual"
     };
     TRANSACTIONS.push(txOrigen);
     ensureMonthExists(txOrigen.fecha.slice(0, 7));
@@ -4323,7 +4562,8 @@
         passwordDraft: "",
         errorPassword: null,
         archivoBuffer: null,
-        archivoNombrePendiente: null
+        archivoNombrePendiente: null,
+        eliminarSeleccionados: []
       };
       renderMenuView();
       return;
@@ -4412,6 +4652,41 @@
       toast(n === 1 ? "Se agreg\xF3 1 transacci\xF3n" : "Se agregaron " + n + " transacciones");
       return;
     }
+    const reconciliarDiffAddAltas = e.target.closest("[data-reconcile-diff-add-altas]");
+    if (reconciliarDiffAddAltas) {
+      const diff = buildReconcileDiff(state.reconciliar.movimientos, state.reconciliar.tipo);
+      const altas = diff.agregar.filter(function(item) {
+        return item.confianza === "alta";
+      });
+      altas.forEach(function(item) {
+        createTxFromMovement(item.movimiento);
+        item.movimiento.__match = findSimilarTx(item.movimiento);
+      });
+      renderMenuView();
+      renderIfListVisible();
+      toast(altas.length === 1 ? "Se agreg\xF3 1 transacci\xF3n" : "Se agregaron " + altas.length + " transacciones");
+      return;
+    }
+    const reconciliarDiffElimConfirmar = e.target.closest("[data-reconcile-diff-elim-confirmar]");
+    if (reconciliarDiffElimConfirmar) {
+      const diff = buildReconcileDiff(state.reconciliar.movimientos, state.reconciliar.tipo);
+      const idsPropuestos = diff.eliminarPropuesto.map(function(item) {
+        return item.tx.id;
+      });
+      const aEliminar = state.reconciliar.eliminarSeleccionados.filter(function(id) {
+        return idsPropuestos.indexOf(id) !== -1;
+      });
+      if (aEliminar.length) {
+        setTransactions(TRANSACTIONS.filter(function(t) {
+          return aEliminar.indexOf(t.id) === -1;
+        }));
+        state.reconciliar.eliminarSeleccionados = [];
+        renderMenuView();
+        renderIfListVisible();
+        toast(aEliminar.length === 1 ? "Se elimin\xF3 1 transacci\xF3n" : "Se eliminaron " + aEliminar.length + " transacciones");
+      }
+      return;
+    }
     const gotoPendingBtn = e.target.closest("[data-goto-pending]");
     if (gotoPendingBtn) {
       state.filter = "pendientes";
@@ -4494,6 +4769,16 @@
       if (compartirIncluirBox.checked && idx === -1) d.participantesIncluidos.push(pid);
       else if (!compartirIncluirBox.checked && idx !== -1) d.participantesIncluidos.splice(idx, 1);
       renderSheet();
+      return;
+    }
+    const reconciliarElimCheck = e.target.closest("[data-reconcile-diff-elim-check]");
+    if (reconciliarElimCheck) {
+      const txId = reconciliarElimCheck.getAttribute("data-reconcile-diff-elim-check");
+      const sel2 = state.reconciliar.eliminarSeleccionados;
+      const idx = sel2.indexOf(txId);
+      if (reconciliarElimCheck.checked && idx === -1) sel2.push(txId);
+      else if (!reconciliarElimCheck.checked && idx !== -1) sel2.splice(idx, 1);
+      renderMenuView();
       return;
     }
     const filterDate = e.target.closest("[data-filter-date]");
@@ -5958,7 +6243,9 @@
       categorias: d.categorias.length > 0 ? [{ cat: d.categorias[0].cat, monto: Math.round(d.monto) }] : [],
       porCobrar: [],
       reglaAuto: false,
-      nota: ""
+      nota: "",
+      origen: "manual"
+      // typed by hand right here -- the reconciliation engine (reconcile.ts) can never touch this
     };
     TRANSACTIONS.push(tx);
     ensureMonthExists(tx.fecha.slice(0, 7));
@@ -6212,7 +6499,15 @@
           cuotaOf: root.id,
           cuotaNumero: k,
           cuotaTotal: root.cuotas.total,
-          cuotaProyectada: true
+          cuotaProyectada: true,
+          // Same purchase as the root (installment 1), just a future month's charge -- inherits
+          // its origen so reconcile.ts protects/allows it exactly like the root would be
+          // protected/allowed (a manual cuota purchase's future installments stay manual too; an
+          // auto-imported one's future installments stay reconcilable). No fuenteLineaId: unlike
+          // the root, this row isn't (yet) backed by any specific statement line -- it only
+          // becomes "backed" once a real future statement is reconciled against it, purely via
+          // matchConfidence (fecha/monto/comercio), the same as any other automatic transaction.
+          origen: root.origen
         });
       }
     }
@@ -6641,8 +6936,12 @@
       errorPassword: null,
       archivoBuffer: null,
       // ArrayBuffer of a manually chosen PDF that asked for a password, while waiting for it to be typed
-      archivoNombrePendiente: null
+      archivoNombrePendiente: null,
       // name of that file, or null if none is pending a password
+      // ids of eliminarPropuesto transactions checked in the automatic-reconciliation review
+      // (see reconcile.ts/renderReconcileDiffSection) -- "Eliminar seleccionadas" only acts on
+      // these, and only after this per-item confirmation; reset whenever a (new) statement loads.
+      eliminarSeleccionados: []
     },
     // ---- Pending charges and reimbursements (link a deposit to a pending item, or vice versa) ----
     linkFlow: null,

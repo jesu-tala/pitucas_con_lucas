@@ -193,7 +193,10 @@ export function writeOffReceivable(expenseTxId, idx){
     comercio: (p.persona||'Cuenta por cobrar')+' — nunca pagó',
     monto: amount, medio: expenseTx.medio, tipo:'gasto', recurrencia:'variable', estado:'confirmado',
     categorias: catId ? [{cat:catId, monto:amount}] : [], porCobrar:[], reglaAuto:false,
-    nota:'Dada por perdida: '+(p.persona||'esta persona')+' nunca pagó su parte de "'+expenseTx.comercio+'" ('+dayLabel(expenseTx.fecha)+').'
+    nota:'Dada por perdida: '+(p.persona||'esta persona')+' nunca pagó su parte de "'+expenseTx.comercio+'" ('+dayLabel(expenseTx.fecha)+').',
+    // An explicit action she took in the app (tapping "dar por perdida"), not an automated
+    // import -- treated as 'manual' so reconciliation against a bank statement never touches it.
+    origen:'manual'
   };
   TRANSACTIONS.push(newTx);
   ensureMonthExists(newTx.fecha.slice(0,7));

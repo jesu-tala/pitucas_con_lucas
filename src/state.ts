@@ -421,7 +421,11 @@ export const state: AppState = {
     passwordDraft:'',
     errorPassword:null,
     archivoBuffer:null,          // ArrayBuffer of a manually chosen PDF that asked for a password, while waiting for it to be typed
-    archivoNombrePendiente:null  // name of that file, or null if none is pending a password
+    archivoNombrePendiente:null, // name of that file, or null if none is pending a password
+    // ids of eliminarPropuesto transactions checked in the automatic-reconciliation review
+    // (see reconcile.ts/renderReconcileDiffSection) -- "Eliminar seleccionadas" only acts on
+    // these, and only after this per-item confirmation; reset whenever a (new) statement loads.
+    eliminarSeleccionados:[]
   },
 
   // ---- Pending charges and reimbursements (link a deposit to a pending item, or vice versa) ----
