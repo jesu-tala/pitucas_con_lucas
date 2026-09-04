@@ -1,10 +1,43 @@
 import { ensureMonthExists } from './shared-expenses';
 import { getTx } from './sheet';
-import { CATEGORIES, PAYMENT_METHODS, TRANSACTIONS, todayISO } from './state';
+import { CATEGORIES, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, todayISO } from './state';
 import { Transaction } from './types';
 /* ===================== HELPERS ===================== */
 export function txsOfMonth(m){ return TRANSACTIONS.filter(t=>t.fecha.slice(0,7)===m); }
-export function catInfo(id){ return CATEGORIES[id] || {nombre:'Sin categoría', color:'neutral', icon:'more', tipo:'gasto'}; }
+// An investment-type transaction never categorizes to a Platform id directly anymore (see the
+// note on INVESTMENT_GOALS in state.ts) -- its categorias[].cat is either a Goal's id, or that
+// Goal's platform's "<platformId>__general" catch-all bucket. catInfo() resolves all three
+// shapes (plain category, Goal, General bucket) so every existing caller (Transactions list,
+// Balance/Budget donuts, the classification-rules editor, filters...) keeps working without
+// having to know which kind of id it got.
+export function catInfo(id){
+  if(CATEGORIES[id]) return CATEGORIES[id];
+  const goal = INVESTMENT_GOALS.find(m=>m.id===id);
+  if(goal){
+    const plat = CATEGORIES[goal.plataformaId] || {color:'neutral', icon:'trending'};
+    return {nombre:goal.nombre, tipo:'inversion', color:plat.color, icon:plat.icon, plataformaId:goal.plataformaId, goalId:goal.id};
+  }
+  if(typeof id==='string' && id.endsWith('__general')){
+    const platId = id.slice(0, -'__general'.length);
+    const plat = CATEGORIES[platId];
+    if(plat) return {nombre:plat.nombre+' · General', tipo:'inversion', color:plat.color, icon:plat.icon, plataformaId:platId, general:true};
+  }
+  return {nombre:'Sin categoría', color:'neutral', icon:'more', tipo:'gasto'};
+}
+// "Ver transacciones →" on a platform card wants every transaction that rolls up into that
+// platform -- any of its goals, or its General bucket -- not just an exact id match (a bare
+// platform id is never itself a transaction's category anymore, see catInfo() above). `catId` is
+// what's actually stored on the transaction; `filterId` is what's being filtered by (may be a
+// platform id, from data-platform-see-more, or a Goal/General id, from a donut legend click).
+export function categoryFilterMatches(catId, filterId){
+  if(catId===filterId) return true;
+  if(CATEGORIES[filterId] && CATEGORIES[filterId].tipo==='inversion'){
+    if(catId===filterId+'__general') return true;
+    const goal = INVESTMENT_GOALS.find(m=>m.id===catId);
+    if(goal && goal.plataformaId===filterId) return true;
+  }
+  return false;
+}
 
 // Your salary doesn't send an email (unlike a card purchase), so it never gets imported by
 // itself — this detects that a new month has already started without you having registered a

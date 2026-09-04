@@ -4,13 +4,20 @@ const { openApp, check, finish } = require('./lib/test_kit');
   const { context, browser, page, errors } = await openApp();
 
   // Investment Goal: should come purely from the sum of aporteMensualMeta in INVESTMENT_GOALS
-  // (150000 + 300000 = 450000), not from a made-up %.
+  // (150000 fondo emergencia + 300000 pie depto + 100000 APV Fintual + 50000 Portafolio
+  // Racional + 20000 Cripto especulativo = 620000), not from a made-up %. Computed from the
+  // fixture's own goals (rather than hardcoded) so this doesn't drift every time a goal is
+  // added/removed from the demo data -- the fixed number is still cross-checked below.
   const invMeta = await page.evaluate(() => {
     const D = window.__debug;
-    return { totalCLP: D.monthlyInvestmentGoalCLP(), pct: D.investmentGoalPct(), ref: D.referenceMonthlyIncome() };
+    return {
+      totalCLP: D.monthlyInvestmentGoalCLP(), pct: D.investmentGoalPct(), ref: D.referenceMonthlyIncome(),
+      sumaAportes: D.INVESTMENT_GOALS.reduce((s,m)=>s+(m.aporteMensualMeta||0),0)
+    };
   });
-  console.log('Meta inversión mensual (CLP, esperado 450.000):', invMeta.totalCLP);
-  check('Meta inversión mensual (CLP) === 450.000', invMeta.totalCLP === 450000, invMeta.totalCLP);
+  console.log('Meta inversión mensual (CLP, esperado 620.000):', invMeta.totalCLP);
+  check('Meta inversión mensual (CLP) === 620.000', invMeta.totalCLP === 620000, invMeta.totalCLP);
+  check('Meta inversión mensual (CLP) === suma de aporteMensualMeta de las metas', invMeta.totalCLP === invMeta.sumaAportes, invMeta);
   console.log('Meta inversión %:', invMeta.pct.toFixed(1), '| ingreso de referencia:', invMeta.ref);
   check('Meta inversión % coincide con totalCLP/ingreso', Math.abs(invMeta.pct - (invMeta.totalCLP/invMeta.ref)*100) < 0.01, invMeta);
 

@@ -74,26 +74,56 @@ export let TRANSFER_INFO = {nombre:'', rut:'', banco:'', tipoCuenta:'', numeroCu
 
 // Fintual-style investment goals (Phase 3): target + monthly goal contribution + accumulated
 // amount history per month + manual completion check per month.
-export let goalIdCounter = 3;
+export let goalIdCounter = 5;
 export let importIdCounter = 0; // id counter for transactions created via "Import statement CSV" (Menu)
 // Still untyped (left for a future pass of the migration, as discussed -- this first pass
 // focused on the Transactions data model). "any[]" is explicit on purpose, so an inferred type
 // from the sample data doesn't sneak in by accident.
+//
+// Investment-category redesign: a transaction never categorizes directly to a Platform anymore
+// -- it points at a specific Goal's id, or at that platform's "<platformId>__general" catch-all
+// bucket (see investmentCatOptions() in views/inversiones.ts). Because of that, a Goal's progress
+// is no longer a manually-typed running total (the old aportadoNeto/historial fields) -- it's
+// computed straight from whichever transactions are categorized to it (see metaAportadoNeto()/
+// metaHistorialAt() in views/evolucion.ts). What DOES still need to be stored by hand is the seed
+// for "money I'd already put in before I started tracking this in the app": startMonth (which
+// month this goal starts counting transactions from) + startingAmount (the balance at the start
+// of that month, before any of the transactions on record). historial/checks used to be a single
+// object seeded once at creation; checks (the manual "did I make my planned contribution this
+// month?" mark) is untouched, still hand-ticked -- it's a habit tracker, not something that could
+// ever be inferred from a transaction.
 export let INVESTMENT_GOALS: any[] = [
   {
     id:'m1', nombre:'Fondo de emergencia', montoObjetivo:3000000, aporteMensualMeta:150000, plataformaId:'banco_chile', plazo:'corto', comision:null,
-    // aportadoNeto: how much of what's accumulated is money YOU put in (unlike the platforms,
-    // there are no transactions per goal here to calculate it on its own, so it's stored
-    // directly) — the difference with "accumulated" is this goal's real profit.
-    aportadoNeto:2150000,
-    historial:{'2026-04':1700000,'2026-05':1850000,'2026-06':1900000,'2026-07':2050000,'2026-08':2200000},
+    // This goal predates the app by a few months (per the user's own account) -- startingAmount
+    // is what she'd already saved before April 2026 (2150000, the old aportadoNeto minus the
+    // 70000 that t44+t69 below now contribute for real), so the total keeps landing in the same
+    // place as before the redesign instead of jumping.
+    startMonth:'2026-04', startingAmount:2080000,
     checks:{'2026-04':true,'2026-05':true,'2026-06':false,'2026-07':true,'2026-08':true}
   },
   {
     id:'m2', nombre:'Pie departamento', montoObjetivo:8000000, aporteMensualMeta:300000, plataformaId:'banco_chile', plazo:'medio', comision:null,
-    aportadoNeto:3200000,
-    historial:{'2026-04':2000000,'2026-05':2300000,'2026-06':2600000,'2026-07':2950000,'2026-08':3300000},
+    // Same idea: old aportadoNeto (3200000) minus the 80000 that t17+t57 now contribute for real.
+    startMonth:'2026-04', startingAmount:3120000,
     checks:{'2026-04':true,'2026-05':true,'2026-06':true,'2026-07':true,'2026-08':true}
+  },
+  // fintual/racional/buda didn't have any goal of their own before this redesign -- their old
+  // "Aporte X" transactions categorized straight to the platform. Rather than dumping all of
+  // that history into an anonymous "General" bucket, each platform gets one plausible goal to
+  // receive it (see the categorias reassignment on the transactions below), starting from
+  // scratch (startingAmount:0) since there's no pre-app history to seed for these three.
+  {
+    id:'m3', nombre:'APV Fintual', montoObjetivo:3000000, aporteMensualMeta:100000, plataformaId:'fintual', plazo:'largo', comision:null,
+    startMonth:'2026-04', startingAmount:0, checks:{}
+  },
+  {
+    id:'m4', nombre:'Portafolio Racional', montoObjetivo:1500000, aporteMensualMeta:50000, plataformaId:'racional', plazo:'largo', comision:null,
+    startMonth:'2026-04', startingAmount:0, checks:{}
+  },
+  {
+    id:'m5', nombre:'Cripto especulativo', montoObjetivo:300000, aporteMensualMeta:20000, plataformaId:'buda', plazo:'corto', comision:null,
+    startMonth:'2026-04', startingAmount:0, checks:{}
   }
 ];
 
@@ -179,8 +209,8 @@ export let TRANSACTIONS: Transaction[] = [
   {id:'t6',fecha:'2026-08-25',hora:'07:50',comercio:'Sueldo Agosto',monto:1250000,medio:'cuenta_vista',tipo:'ingreso',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'sueldo',monto:1250000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t7',fecha:'2026-08-24',hora:'19:00',comercio:'Netflix',monto:7990,medio:'visa_bch',tipo:'gasto',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'suscripciones',monto:7990}],porCobrar:[],reglaAuto:true,nota:''},
   {id:'t8',fecha:'2026-08-23',hora:'12:30',comercio:'Farmacias Ahumada',monto:15200,medio:'debito_bci',tipo:'gasto',recurrencia:'variable',estado:'por_cobrar',categorias:[{cat:'salud',monto:15200}],porCobrar:[{persona:'Isapre',monto:null,pagado:false,tipo:'reembolso',montoRecibido:null,linkedTxId:null}],reglaAuto:false,nota:'Espero reembolso de la isapre'},
-  {id:'t9',fecha:'2026-08-22',hora:'10:00',comercio:'Aporte Fintual',monto:100000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'fintual',monto:100000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t70',fecha:'2026-08-16',hora:'11:40',comercio:'Retiro parcial Buda',monto:-20000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'buda',monto:-20000}],porCobrar:[],reglaAuto:false,nota:'Retiro'},
+  {id:'t9',fecha:'2026-08-22',hora:'10:00',comercio:'Aporte Fintual',monto:100000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m3',monto:100000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t70',fecha:'2026-08-16',hora:'11:40',comercio:'Retiro parcial Buda',monto:-20000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'m5',monto:-20000}],porCobrar:[],reglaAuto:false,nota:'Retiro'},
   {id:'t71',fecha:'2026-07-20',hora:'10:00',comercio:'Reembolso Isapre',monto:7500,medio:'cuenta_vista',tipo:'ingreso',recurrencia:'variable',estado:'confirmado',categorias:[],porCobrar:[],reglaAuto:false,nota:''},
   // Fran transferred you her share of Restobar Lastarria (t5) — a real deposit, linked to that
   // 'persona' type pending item. That money must NOT add to "Income": it was already deducted
@@ -196,9 +226,9 @@ export let TRANSACTIONS: Transaction[] = [
   {id:'t13',fecha:'2026-08-15',hora:'14:10',comercio:'Transferencia entre mis cuentas',monto:200000,medio:'cuenta_vista',tipo:'gasto',recurrencia:'variable',estado:'no_es_gasto',categorias:[],porCobrar:[],reglaAuto:false,nota:'Traspaso, no es un gasto real'},
   {id:'t14',fecha:'2026-08-12',hora:'08:40',comercio:'Copec Providencia',monto:19500,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'transporte',monto:19500}],porCobrar:[],reglaAuto:true,nota:''},
   {id:'t15',fecha:'2026-08-05',hora:'10:00',comercio:'Arriendo Depto',monto:380000,medio:'cuenta_vista',tipo:'gasto',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'hogar',monto:380000}],porCobrar:[],reglaAuto:true,nota:''},
-  {id:'t16',fecha:'2026-08-01',hora:'09:00',comercio:'Aporte Racional',monto:60000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'racional',monto:60000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t16',fecha:'2026-08-01',hora:'09:00',comercio:'Aporte Racional',monto:60000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m4',monto:60000}],porCobrar:[],reglaAuto:false,nota:''},
 
-  {id:'t17',fecha:'2026-07-31',hora:'10:00',comercio:'Aporte Banco de Chile',monto:50000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'banco_chile',monto:50000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t17',fecha:'2026-07-31',hora:'10:00',comercio:'Aporte Banco de Chile',monto:50000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m2',monto:50000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t18',fecha:'2026-07-28',hora:'09:00',comercio:'Sueldo Julio',monto:1250000,medio:'cuenta_vista',tipo:'ingreso',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'sueldo',monto:1250000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t19',fecha:'2026-07-26',hora:'20:00',comercio:'Jumbo Ñuñoa',monto:52000,medio:'debito_bci',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'supermercado',monto:52000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t20',fecha:'2026-07-24',hora:'13:00',comercio:'Copec Las Condes',monto:21000,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'transporte',monto:21000}],porCobrar:[],reglaAuto:true,nota:''},
@@ -207,9 +237,9 @@ export let TRANSACTIONS: Transaction[] = [
   {id:'t23',fecha:'2026-07-15',hora:'11:00',comercio:'Farmacias Cruz Verde',monto:9800,medio:'debito_bci',tipo:'gasto',recurrencia:'variable',estado:'por_cobrar',categorias:[{cat:'salud',monto:9800}],porCobrar:[{persona:'Seguro complementario',monto:8000,pagado:true,tipo:'reembolso',montoRecibido:7500,linkedTxId:'t71'}],reglaAuto:false,nota:''},
   {id:'t24',fecha:'2026-07-14',hora:'18:00',comercio:'Netflix',monto:7990,medio:'visa_bch',tipo:'gasto',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'suscripciones',monto:7990}],porCobrar:[],reglaAuto:true,nota:''},
   {id:'t25',fecha:'2026-07-10',hora:'10:00',comercio:'Arriendo Depto',monto:380000,medio:'cuenta_vista',tipo:'gasto',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'hogar',monto:380000}],porCobrar:[],reglaAuto:true,nota:''},
-  {id:'t26',fecha:'2026-07-08',hora:'12:00',comercio:'Aporte Fintual',monto:100000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'fintual',monto:100000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t26',fecha:'2026-07-08',hora:'12:00',comercio:'Aporte Fintual',monto:100000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m3',monto:100000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t27',fecha:'2026-07-05',hora:'21:00',comercio:'Cine Hoyts Costanera',monto:12000,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'entretenimiento',monto:12000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t28',fecha:'2026-07-03',hora:'10:00',comercio:'Aporte Buda',monto:40000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'buda',monto:40000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t28',fecha:'2026-07-03',hora:'10:00',comercio:'Aporte Buda',monto:40000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'m5',monto:40000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t29',fecha:'2026-07-02',hora:'08:20',comercio:'Uber',monto:5400,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'transporte',monto:5400}],porCobrar:[],reglaAuto:false,nota:''},
 
   {id:'t33',fecha:'2026-06-25',hora:'07:50',comercio:'Sueldo Junio',monto:1220000,medio:'cuenta_vista',tipo:'ingreso',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'sueldo',monto:1220000}],porCobrar:[],reglaAuto:false,nota:''},
@@ -221,9 +251,9 @@ export let TRANSACTIONS: Transaction[] = [
   {id:'t39',fecha:'2026-06-12',hora:'18:00',comercio:'Netflix',monto:7990,medio:'visa_bch',tipo:'gasto',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'suscripciones',monto:7990}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t40',fecha:'2026-06-08',hora:'11:20',comercio:'Farmacias Cruz Verde',monto:11200,medio:'debito_bci',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'salud',monto:11200}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t41',fecha:'2026-06-06',hora:'21:00',comercio:'Cine Hoyts Costanera',monto:12000,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'entretenimiento',monto:12000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t42',fecha:'2026-06-05',hora:'10:00',comercio:'Aporte Fintual',monto:100000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'fintual',monto:100000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t43',fecha:'2026-06-03',hora:'10:00',comercio:'Aporte Racional',monto:50000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'racional',monto:50000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t44',fecha:'2026-06-02',hora:'10:00',comercio:'Aporte Banco de Chile',monto:40000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'banco_chile',monto:40000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t42',fecha:'2026-06-05',hora:'10:00',comercio:'Aporte Fintual',monto:100000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m3',monto:100000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t43',fecha:'2026-06-03',hora:'10:00',comercio:'Aporte Racional',monto:50000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m4',monto:50000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t44',fecha:'2026-06-02',hora:'10:00',comercio:'Aporte Banco de Chile',monto:40000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m1',monto:40000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t45',fecha:'2026-05-25',hora:'07:50',comercio:'Sueldo Mayo',monto:1200000,medio:'cuenta_vista',tipo:'ingreso',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'sueldo',monto:1200000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t46',fecha:'2026-05-16',hora:'09:00',comercio:'Freelance diseño web',monto:60000,medio:'cuenta_vista',tipo:'ingreso',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'pololos_extra',monto:60000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t47',fecha:'2026-05-19',hora:'19:30',comercio:'Jumbo Ñuñoa',monto:50500,medio:'debito_bci',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'supermercado',monto:50500}],porCobrar:[],reglaAuto:false,nota:''},
@@ -234,9 +264,9 @@ export let TRANSACTIONS: Transaction[] = [
   {id:'t52',fecha:'2026-05-12',hora:'18:00',comercio:'Netflix',monto:7990,medio:'visa_bch',tipo:'gasto',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'suscripciones',monto:7990}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t53',fecha:'2026-05-07',hora:'12:30',comercio:'Farmacias Ahumada',monto:13500,medio:'debito_bci',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'salud',monto:13500}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t54',fecha:'2026-05-04',hora:'21:00',comercio:'Cine Hoyts Costanera',monto:12000,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'entretenimiento',monto:12000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t55',fecha:'2026-05-05',hora:'10:00',comercio:'Aporte Fintual',monto:100000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'fintual',monto:100000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t56',fecha:'2026-05-03',hora:'10:00',comercio:'Aporte Racional',monto:50000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'racional',monto:50000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t57',fecha:'2026-05-02',hora:'10:00',comercio:'Aporte Banco de Chile',monto:30000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'banco_chile',monto:30000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t55',fecha:'2026-05-05',hora:'10:00',comercio:'Aporte Fintual',monto:100000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m3',monto:100000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t56',fecha:'2026-05-03',hora:'10:00',comercio:'Aporte Racional',monto:50000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m4',monto:50000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t57',fecha:'2026-05-02',hora:'10:00',comercio:'Aporte Banco de Chile',monto:30000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m2',monto:30000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t58',fecha:'2026-04-25',hora:'07:50',comercio:'Sueldo Abril',monto:1200000,medio:'cuenta_vista',tipo:'ingreso',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'sueldo',monto:1200000}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t59',fecha:'2026-04-14',hora:'12:00',comercio:'Venta bicicleta',monto:40000,medio:'efectivo',tipo:'ingreso',recurrencia:'variable',estado:'confirmado',categorias:[],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t60',fecha:'2026-04-20',hora:'19:20',comercio:'Jumbo Ñuñoa',monto:46000,medio:'debito_bci',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'supermercado',monto:46000}],porCobrar:[],reglaAuto:false,nota:''},
@@ -246,9 +276,9 @@ export let TRANSACTIONS: Transaction[] = [
   {id:'t64',fecha:'2026-04-12',hora:'18:00',comercio:'Netflix',monto:7990,medio:'visa_bch',tipo:'gasto',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'suscripciones',monto:7990}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t65',fecha:'2026-04-06',hora:'11:00',comercio:'Farmacias Cruz Verde',monto:8900,medio:'debito_bci',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'salud',monto:8900}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t66',fecha:'2026-04-03',hora:'21:00',comercio:'Cine Hoyts Costanera',monto:12000,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'entretenimiento',monto:12000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t67',fecha:'2026-04-05',hora:'10:00',comercio:'Aporte Fintual',monto:80000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'fintual',monto:80000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t68',fecha:'2026-04-03',hora:'10:00',comercio:'Aporte Racional',monto:40000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'racional',monto:40000}],porCobrar:[],reglaAuto:false,nota:''},
-  {id:'t69',fecha:'2026-04-02',hora:'10:00',comercio:'Aporte Banco de Chile',monto:30000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'banco_chile',monto:30000}],porCobrar:[],reglaAuto:false,nota:''}
+  {id:'t67',fecha:'2026-04-05',hora:'10:00',comercio:'Aporte Fintual',monto:80000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m3',monto:80000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t68',fecha:'2026-04-03',hora:'10:00',comercio:'Aporte Racional',monto:40000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m4',monto:40000}],porCobrar:[],reglaAuto:false,nota:''},
+  {id:'t69',fecha:'2026-04-02',hora:'10:00',comercio:'Aporte Banco de Chile',monto:30000,medio:'cuenta_vista',tipo:'inversion',recurrencia:'mensual',estado:'confirmado',categorias:[{cat:'m1',monto:30000}],porCobrar:[],reglaAuto:false,nota:''}
 ];
 
 // Now that TRANSACTIONS and INVESTMENT_GOALS already exist, the real default can be computed

@@ -17,7 +17,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(200);
 
   const info = await page.evaluate(() => {
-    const CATEGORIES = window.__debug.CATEGORIES;
+    const D = window.__debug;
+    const CATEGORIES = D.CATEGORIES;
     const chips = [...document.querySelectorAll('[data-toggle-filter-cat]')];
     const textos = chips.map(c => c.textContent.trim());
     const conUndefined = textos.filter(t => t.includes('undefined'));
@@ -28,14 +29,20 @@ const { openApp, check, finish } = require('./lib/test_kit');
       if (id === '__sin_cat__') return false;
       return !c.querySelector('svg') && !c.querySelector('.emoji-icon');
     }).map(c => c.getAttribute('data-toggle-filter-cat'));
+    // Since the goals-based redesign of investment categorization, a Platform is no longer one
+    // of the filterable chips (a transaction never categorizes to it directly, see the note on
+    // INVESTMENT_GOALS in state.ts) -- it's replaced by that platform's own Goal/General options
+    // (investmentCatOptions), same as the transaction category picker itself offers.
+    const categoriasNoInversion = Object.keys(CATEGORIES).filter(k => CATEGORIES[k].tipo !== 'inversion').length;
+    const opcionesInversion = D.investmentCatOptions().length;
     return {
       cantidadChips: chips.length,
-      cantidadCategoriasReales: Object.keys(CATEGORIES).length,
+      cantidadEsperada: categoriasNoInversion + opcionesInversion + 1,
       conUndefined,
       sinIcono,
     };
   });
-  check('Aparece un chip de filtro por cada categoría (+ "Sin categoría")', info.cantidadChips === info.cantidadCategoriasReales + 1, info);
+  check('Aparece un chip de filtro por cada categoría no-inversión + las opciones de metas/General de inversión + "Sin categoría"', info.cantidadChips === info.cantidadEsperada, info);
   check('Ningún chip de categoría muestra la palabra "undefined"', info.conUndefined.length === 0, info);
   check('Todos los chips de categoría muestran su ícono real (svg o emoji)', info.sinIcono.length === 0, info);
 
