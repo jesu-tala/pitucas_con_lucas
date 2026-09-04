@@ -52,5 +52,40 @@ const { openApp, check, finish } = require('./lib/test_kit');
   const avisoBalance = await page.evaluate(() => !!document.querySelector('.meta-caption.warn'));
   check('El mismo aviso aparece también en Balance (meta-card)', avisoBalance);
 
+  // Regresión: si fijo + variable + meta de inversión suman EXACTAMENTE 100% (perceptualmente),
+  // el aviso de "más del 100%" igual aparecía -- porque investmentGoalPct() es un cociente de
+  // punto flotante (aporte/ingreso*100) y la comparación vieja era "suma>100" sobre el valor
+  // crudo, no sobre el redondeado (Math.round(fijo)+Math.round(variable)+metaInvPct puede dar
+  // 100.00000000000001 en vez de 100 justo). Se inyecta un escenario donde eso pasa de verdad:
+  // fijo=10.1/variable=10.1 (el guardado real redondea a enteros, así que se ponen directo por
+  // window.__debug para simular el mismo tipo de imprecisión sin depender de esa ruta) e ingreso
+  // de referencia + meta de inversión elegidos para que 10.1+10.1+investmentGoalPct() dé
+  // 100.00000000000001 -- verificado a mano que esta combinación específica overflowea en JS.
+  await page.evaluate(() => {
+    const D = window.__debug;
+    D.TRANSACTIONS.length = 0;
+    D.TRANSACTIONS.push({id:'test-income-100pct', fecha: D.todayISO(), hora:'12:00', comercio:'Test income', monto:2000000, medio:'cuenta_vista', tipo:'ingreso', recurrencia:'variable', estado:'confirmado', categorias:[{cat:'sueldo',monto:2000000}], porCobrar:[], reglaAuto:false, nota:''});
+    D.INVESTMENT_GOALS.length = 0;
+    D.INVESTMENT_GOALS.push({id:'test-goal-100pct', nombre:'Test', montoObjetivo:3000000, aporteMensualMeta:1596000, plataformaId:'banco_chile', plazo:'corto', comision:null, aportadoNeto:0, historial:{}, checks:{}});
+    D.SPENDING_GOAL_PCT.fijo = 10.1;
+    D.SPENDING_GOAL_PCT.variable = 10.1;
+    D.state.tab = 'resumen'; D.state.summarySub = 'presupuesto';
+    D.render();
+  });
+  await page.waitForTimeout(150);
+  const escenario100 = await page.evaluate(() => {
+    const D = window.__debug;
+    return {
+      metaInvPct: D.investmentGoalPct(),
+      sumaCruda: D.SPENDING_GOAL_PCT.fijo + D.SPENDING_GOAL_PCT.variable + D.investmentGoalPct(),
+      avisoWarn: !!document.querySelector('.metas-gasto-card .budget-cats-calce.warn'),
+      texto: document.querySelector('.metas-gasto-card .budget-cats-calce')?.textContent || '',
+    };
+  });
+  check('(setup) El escenario inyectado efectivamente da un pelo arriba de 100 por punto flotante (no exactamente 100)',
+    escenario100.sumaCruda > 100 && escenario100.sumaCruda < 100.001, escenario100);
+  check('Si suman justo 100% (con error de punto flotante de por medio), NO aparece el aviso de "más del 100%"',
+    escenario100.avisoWarn === false && !/más del 100%/.test(escenario100.texto), escenario100);
+
   await finish({ context, browser, errors });
 })();
