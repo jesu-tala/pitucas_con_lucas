@@ -4502,6 +4502,7 @@
       const v = safeEvalExpr(boletaItemMonto.value);
       if (v !== null) {
         state.boleta.items[idx].monto = Math.round(v);
+        liveFormatThousands(boletaItemMonto);
         const summaryEl = document.getElementById("boleta-totals-summary");
         if (summaryEl) summaryEl.innerHTML = renderReceiptItemsTotalsSummary();
         const continueBtn = document.querySelector('[data-receipt-goto="asignar"]');
@@ -4521,6 +4522,7 @@
       const tx = getTx(txFieldMonto.getAttribute("data-tx"));
       if (tx) {
         tx.monto = parseInt(txFieldMonto.value.replace(/\D/g, ""), 10) || 0;
+        liveFormatThousands(txFieldMonto);
         const echoEl = txFieldMonto.closest(".edit-amount-row").querySelector(".edit-amount-echo");
         const txt = (tx.tipo === "ingreso" ? "+" : "") + money(tx.monto);
         if (echoEl) echoEl.textContent = txt;
@@ -4577,11 +4579,13 @@
     const budgetGoalInput = e.target.closest("[data-budget-goal-input]");
     if (budgetGoalInput) {
       state.budgetDraft.meta = budgetGoalInput.value;
+      liveFormatThousands(budgetGoalInput);
       return;
     }
     const budgetTotalInput = e.target.closest("[data-budget-total-input]");
     if (budgetTotalInput) {
       state.budgetTotalDraft = budgetTotalInput.value;
+      liveFormatThousands(budgetTotalInput);
       return;
     }
     const spendingGoalsInput = e.target.closest("[data-spending-goals-input]");
@@ -4601,17 +4605,23 @@
     }
     const goalField = e.target.closest("[data-goal-field]");
     if (goalField) {
-      state.goalDraft[goalField.getAttribute("data-goal-field")] = goalField.value;
+      const goalFieldName = goalField.getAttribute("data-goal-field");
+      state.goalDraft[goalFieldName] = goalField.value;
+      if (goalFieldName === "montoObjetivo" || goalFieldName === "aporteMensualMeta") liveFormatThousands(goalField);
       return;
     }
     const platformField = e.target.closest("[data-platform-field]");
     if (platformField) {
-      state.platformDraft[platformField.getAttribute("data-platform-field")] = platformField.value;
+      const platformFieldName = platformField.getAttribute("data-platform-field");
+      state.platformDraft[platformFieldName] = platformField.value;
+      if (platformFieldName === "valor") liveFormatThousands(platformField);
       return;
     }
     const newPlatformField = e.target.closest("[data-newplatform-field]");
     if (newPlatformField) {
-      state.newPlatformDraft[newPlatformField.getAttribute("data-newplatform-field")] = newPlatformField.value;
+      const newPlatformFieldName = newPlatformField.getAttribute("data-newplatform-field");
+      state.newPlatformDraft[newPlatformFieldName] = newPlatformField.value;
+      if (newPlatformFieldName === "valor") liveFormatThousands(newPlatformField);
       return;
     }
     const catDraftField = e.target.closest("[data-cat-draft-field]");
@@ -4642,6 +4652,7 @@
     const planBaseInput = e.target.closest("[data-plan-base-input]");
     if (planBaseInput) {
       PLANNER.base = parseInt(planBaseInput.value.replace(/\D/g, ""), 10) || 0;
+      liveFormatThousands(planBaseInput);
       updatePlanCompute();
       return;
     }
@@ -4657,6 +4668,7 @@
     if (projContributionInput) {
       const raw = projContributionInput.value.trim();
       state.simulatedContribution = raw === "" ? null : parseInt(raw.replace(/\D/g, ""), 10) || 0;
+      liveFormatThousands(projContributionInput);
       updateProyeccionCompute();
       return;
     }
@@ -4687,6 +4699,7 @@
           state.draftTx.monto = v;
           if (state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = v;
         }
+        liveFormatThousands(draftField);
       }
       const saveBtn = document.querySelector("[data-save-draft]");
       if (saveBtn) saveBtn.disabled = !(state.draftTx.comercio.trim().length > 0 && state.draftTx.monto > 0);
@@ -5978,6 +5991,20 @@
     return Math.abs(r - Math.round(r)) < 1e-3 ? String(Math.round(r)) : String(r);
   }
   __name(formatEditableNumber, "formatEditableNumber");
+  function liveFormatThousands(el) {
+    const raw = el.value;
+    const negative = raw.trim().charAt(0) === "-";
+    const digitsOnly = raw.replace(/[^\d]/g, "");
+    const plainNumber = (negative ? "-" : "") + digitsOnly;
+    if (raw.replace(/\./g, "") !== plainNumber || !digitsOnly) return;
+    const cursorFromEnd = raw.length - (el.selectionStart == null ? raw.length : el.selectionStart);
+    const formatted = (negative ? "-" : "") + digitsOnly.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    if (formatted === raw) return;
+    el.value = formatted;
+    const pos = Math.max(0, formatted.length - cursorFromEnd);
+    el.setSelectionRange(pos, pos);
+  }
+  __name(liveFormatThousands, "liveFormatThousands");
   function monthAddStr(ym, n) {
     const [y, m] = ym.split("-").map(Number);
     const total = y * 12 + (m - 1) + n;

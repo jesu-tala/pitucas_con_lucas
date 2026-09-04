@@ -113,6 +113,28 @@ export function formatEditableNumber(v){
   return (Math.abs(r - Math.round(r))<0.001) ? String(Math.round(r)) : String(r);
 }
 
+// Reformats a text input's value with Chilean-style thousands separators (1.234.567) live,
+// as the user types, keeping the cursor in a sane spot (measured from the end of the string,
+// which stays stable as digits get grouped from the right). Several money fields in this app
+// (Monto objetivo, Aporte mensual, etc.) support typing a full arithmetic expression on save
+// (safeEvalExpr, above -- "22000-5000", "64000/2") -- reformatting those mid-expression would
+// mangle them, so this only kicks in when the current value is a plain number (just digits,
+// maybe with separators already in it, maybe one leading "-"); anything else (an operator, a
+// decimal comma, letters) is left completely alone.
+export function liveFormatThousands(el){
+  const raw = el.value;
+  const negative = raw.trim().charAt(0)==='-';
+  const digitsOnly = raw.replace(/[^\d]/g,'');
+  const plainNumber = (negative ? '-' : '') + digitsOnly;
+  if(raw.replace(/\./g,'') !== plainNumber || !digitsOnly) return;
+  const cursorFromEnd = raw.length - (el.selectionStart==null ? raw.length : el.selectionStart);
+  const formatted = (negative?'-':'') + digitsOnly.replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+  if(formatted===raw) return;
+  el.value = formatted;
+  const pos = Math.max(0, formatted.length - cursorFromEnd);
+  el.setSelectionRange(pos, pos);
+}
+
 /* ----- months (for installment projections) ----- */
 export function monthAddStr(ym, n){
   const [y,m] = ym.split('-').map(Number);
