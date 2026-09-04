@@ -6555,6 +6555,8 @@
   }
   __name(setAppHeight, "setAppHeight");
   setAppHeight();
+  setTimeout(setAppHeight, 50);
+  setTimeout(setAppHeight, 300);
   ["resize", "orientationchange", "pageshow", "visibilitychange"].forEach(function(ev) {
     window.addEventListener(ev, setAppHeight);
   });
