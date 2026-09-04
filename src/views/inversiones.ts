@@ -300,12 +300,9 @@ export function renderPlatformGroup(id){
         '<div class="platform-fig"><span class="platform-fig-label">Total en esta plataforma</span><span class="platform-fig-value tabular">'+money(valorActual)+'</span></div>'+
         '<div class="platform-fig"><span class="platform-fig-label">Aportado neto</span><span class="platform-fig-value tabular muted">'+money(aportado)+'</span></div>'+
       '</div>'+
-      '<div class="platform-diff-row">'+
-        '<span class="platform-diff '+(diff>=0?'pos':'neg')+'">'+(diff>=0?'+':'−')+money(Math.abs(diff))+' aprox.</span>'+
-        // The plazo chip is only shown if it doesn't have its own goals yet — as soon as
-        // you add a goal, its plazo takes over and this one becomes redundant.
-        (!tieneMetas ? termChip(PLATFORM_DATA[id].plazo) : '')+
-      '</div>'+
+      // The plazo chip is only shown if it doesn't have its own goals yet — as soon as
+      // you add a goal, its plazo takes over and this one becomes redundant.
+      (!tieneMetas ? '<div class="platform-diff-row">'+termChip(PLATFORM_DATA[id].plazo)+'</div>' : '')+
       comisionRow+
       '<div class="platform-actions-row">'+
         '<button class="budget-ver-mas" data-platform-see-more="'+id+'">Ver transacciones →</button>'+
@@ -462,7 +459,6 @@ export function renderInvestmentsView(){
   const ids = activePlatformIds();
   const totalValor = ids.reduce((s,id)=>s+platformCurrentValue(id),0);
   const totalAportado = ids.reduce((s,id)=>s+platformAportadoNeto(id),0);
-  const totalDiff = totalValor - totalAportado;
   const invMonths = inversionesMonthsCalendarYear();
   const aportadoSerie = invMonths.map(aportadoAcumuladoHastaMesONull);
   const valorSerie = invMonths.map(valorTotalEnMesONull);
@@ -506,7 +502,6 @@ export function renderInvestmentsView(){
       '<div class="platform-total-value tabular">'+money(totalValor)+'</div>'+
       '<div class="stat-grid stat-grid-compact" style="margin-top:14px;margin-bottom:0;">'+
         '<div class="stat-tile stat-inversiones"><div class="stat-label">Aportado neto</div><div class="stat-value tabular">'+money(totalAportado)+'</div></div>'+
-        '<div class="stat-tile '+(totalDiff>=0?'stat-ingresos':'stat-gastos')+'"><div class="stat-label">Ganancia/pérdida aprox.</div><div class="stat-value tabular">'+(totalDiff>=0?'+':'−')+money(Math.abs(totalDiff))+'</div></div>'+
       '</div>'+
       goalBlock+
     '</div>'+

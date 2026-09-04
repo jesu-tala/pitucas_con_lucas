@@ -162,20 +162,19 @@ function checkClose(label, a, b, tol){
     platformCardData[id] = { valorEstimado: parseInt(result.figVals[0]||'0',10), aportadoNeto: parseInt(result.figVals[1]||'0',10) };
     if(id==='banco_chile') bchCombinedText = result.metaSummaryText;
   }
-  // The totals card now shows "Aportado neto" and "Ganancia/pérdida aprox." as two
-  // tiles (.stat-tile) instead of a text line "Aportado neto: $X" -- it's read per
-  // element, not via regex over the whole card's innerText.
+  // The totals card shows "Aportado neto" as a tile (.stat-tile) instead of a text line
+  // "Aportado neto: $X" -- it's read per element, not via regex over the whole card's
+  // innerText. It used to also show a "Ganancia/pérdida aprox." tile -- removed per the
+  // user's request, so there's nothing left here to cross-check for it.
   const totalCardInfo = await page.evaluate(() => {
     const label = [...document.querySelectorAll('.platform-total-label')].find(el=>el.textContent.includes('Total invertido'));
     const card = label ? label.closest('.card') : null;
     if(!card) return null;
     const tiles = [...card.querySelectorAll('.stat-tile')];
     const aportadoTile = tiles.find(t=>t.querySelector('.stat-label')?.textContent.includes('Aportado neto'));
-    const gananciaTile = tiles.find(t=>t.querySelector('.stat-label')?.textContent.includes('Ganancia'));
     return {
       totalValorText: card.querySelector('.platform-total-value')?.textContent || null,
       aportadoNetoText: aportadoTile ? aportadoTile.querySelector('.stat-value')?.textContent : null,
-      gananciaText: gananciaTile ? gananciaTile.querySelector('.stat-value')?.textContent : null,
     };
   });
   const objetivoCardText = await page.evaluate(() => {
@@ -225,7 +224,6 @@ function checkClose(label, a, b, tol){
 
   checkClose('Total invertido card', pm(totalCardInfo.totalValorText), truth.totalValorPlataformas);
   checkClose('Total invertido card aportado neto', pm(totalCardInfo.aportadoNetoText), truth.totalAportadoPlataformas);
-  checkClose('Total invertido card ganancia/pérdida', pm(totalCardInfo.gananciaText), truth.totalValorPlataformas - truth.totalAportadoPlataformas);
   checkClose('Objetivo card acumulado', pm(objetivoCardText.match(/\$[\d.]+/)?.[0]), truth.metaProgreso.totalAcumulado);
   checkClose('Objetivo card objetivo', pm(objetivoCardText.match(/de (\$[\d.]+)/)?.[1]), truth.metaProgreso.totalObjetivo);
   checkClose('Banco de Chile combined metas total', pm(bchCombinedText.match(/\$[\d.]+/)?.[0]), truth.bchMetasSum);

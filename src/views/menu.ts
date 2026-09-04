@@ -715,7 +715,7 @@ export function renderCartolasDisponiblesBlock(){
       return '<div class="card" style="padding:14px;margin-bottom:8px;">'+
         '<div style="font-weight:700;font-size:13.5px;margin-bottom:2px;">'+label+'</div>'+
         '<div class="muted" style="font-size:12px;margin-bottom:10px;">Llegó por correo el '+fechaTxt+'</div>'+
-        '<input type="password" inputmode="numeric" class="draft-input" data-statement-password-input placeholder="Clave del PDF (4 últimos dígitos de tu RUT)" value="'+(R.passwordDraft||'')+'">'+
+        '<input type="password" inputmode="numeric" class="draft-input" data-statement-password-input placeholder="Últimos 4 dígitos de tu RUT antes del dígito verificador" value="'+(R.passwordDraft||'')+'">'+
         (R.errorPassword ? '<div class="field-error">'+R.errorPassword+'</div>' : '')+
         '<div style="display:flex;gap:8px;margin-top:10px;">'+
           '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-statement-cancel>Cancelar</button>'+
@@ -746,7 +746,7 @@ export function renderMenuReconciliar(){
       '<div class="card" style="padding:14px;">'+
         '<div style="font-weight:700;font-size:13.5px;margin-bottom:2px;">'+R.archivoNombrePendiente+'</div>'+
         '<div class="muted" style="font-size:12px;margin-bottom:10px;">Este PDF está protegido con clave.</div>'+
-        '<input type="password" inputmode="numeric" class="draft-input" data-statement-password-input placeholder="Clave del PDF (4 últimos dígitos de tu RUT)" value="'+(R.passwordDraft||'')+'">'+
+        '<input type="password" inputmode="numeric" class="draft-input" data-statement-password-input placeholder="Últimos 4 dígitos de tu RUT antes del dígito verificador" value="'+(R.passwordDraft||'')+'">'+
         (R.errorPassword ? '<div class="field-error">'+R.errorPassword+'</div>' : '')+
         '<div style="display:flex;gap:8px;margin-top:10px;">'+
           '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-reconcile-file-cancel>Cancelar</button>'+

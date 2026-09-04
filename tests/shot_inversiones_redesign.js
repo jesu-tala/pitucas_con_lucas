@@ -1,8 +1,10 @@
 // Coverage for the redesign of the Investments tab requested by the user:
 // 1) platforms as an accordion (collapsed by default, only one open at a time, without the
 //    per-platform mini charts, without the words "valor estimado" in each one's label).
-// 2) totals card with "Aportado neto" and "Ganancia/pérdida aprox." as two tiles
-//    (same .stat-grid/.stat-tile visual pattern as Balance), not a line of text.
+// 2) totals card with "Aportado neto" as a tile (same .stat-grid/.stat-tile visual pattern as
+//    Balance), not a line of text. It used to also show a "Ganancia/pérdida aprox." tile
+//    (and each platform its own approximate +/- diff) -- removed per the user's request, it
+//    didn't make sense for how they're using the app right now.
 // 3) the simulator (projection) at the end of the page, after the planner.
 // 4) the "Aportado vs. valor" chart with a fixed X axis from January to December of TODAY's year, and
 //    approximate labels on the Y axis.
@@ -59,8 +61,9 @@ const { openApp, check, finish } = require('./lib/test_kit');
       totalInvertidoSinSufijo: label.textContent.trim() === 'Total invertido',
     };
   });
-  check('(2a) La card de totales tiene 2 cuadrados (.stat-tile)', totalCard && totalCard.cantidadCuadrados === 2, totalCard);
-  check('(2b) Uno dice "Aportado neto" y el otro "Ganancia/pérdida aprox."', totalCard && totalCard.labels.some(l=>l.includes('Aportado neto')) && totalCard.labels.some(l=>l.includes('Ganancia')), totalCard);
+  check('(2a) La card de totales tiene 1 cuadrado (.stat-tile) -- ya no muestra "Ganancia/pérdida aprox."', totalCard && totalCard.cantidadCuadrados === 1, totalCard);
+  check('(2b) Dice "Aportado neto"', totalCard && totalCard.labels.some(l=>l.includes('Aportado neto')), totalCard);
+  check('   y no dice "Ganancia/pérdida" en ningún lado de la card', totalCard && !totalCard.labels.some(l=>(l||'').includes('Ganancia')), totalCard);
   check('(2c) El label de arriba ya no dice "(valor estimado)"', totalCard && totalCard.totalInvertidoSinSufijo === true, totalCard);
 
   // ---------- 3) Simulator at the end ----------
