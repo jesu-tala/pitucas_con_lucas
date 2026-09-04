@@ -1,6 +1,6 @@
 import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
-import { ensureMonthExists, formatEditableNumber, regenerateInstallmentsFor, splitEqually, safeEvalExpr, groupBalances } from './shared-expenses';
+import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, splitEqually, safeEvalExpr, groupBalances } from './shared-expenses';
 import { RECEIPT_EXAMPLES, receiptItemIdCounter, receiptTotal, closeSheet, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
 import { CATEGORIES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
@@ -1631,6 +1631,7 @@ phone.addEventListener('input', function(e: any){
     const v = safeEvalExpr(boletaItemMonto.value);
     if(v!==null){
       state.boleta.items[idx].monto = Math.round(v);
+      liveFormatThousands(boletaItemMonto);
       const summaryEl = document.getElementById('boleta-totals-summary');
       if(summaryEl) summaryEl.innerHTML = renderReceiptItemsTotalsSummary();
       const continueBtn = document.querySelector<HTMLButtonElement>('[data-receipt-goto="asignar"]');
@@ -1672,6 +1673,7 @@ phone.addEventListener('input', function(e: any){
           });
         }
       }
+      liveFormatThousands(txFieldMonto);
       const echoEl = txFieldMonto.closest('.edit-amount-row').querySelector('.edit-amount-echo');
       const txt = (tx.tipo==='ingreso'?'+':'')+money(tx.monto);
       if(echoEl) echoEl.textContent = txt;
@@ -1736,11 +1738,13 @@ phone.addEventListener('input', function(e: any){
   const budgetGoalInput = e.target.closest('[data-budget-goal-input]');
   if(budgetGoalInput){
     state.budgetDraft.meta = budgetGoalInput.value;
+    liveFormatThousands(budgetGoalInput);
     return;
   }
   const budgetTotalInput = e.target.closest('[data-budget-total-input]');
   if(budgetTotalInput){
     state.budgetTotalDraft = budgetTotalInput.value;
+    liveFormatThousands(budgetTotalInput);
     return;
   }
   const spendingGoalsInput = e.target.closest('[data-spending-goals-input]');
@@ -1760,17 +1764,23 @@ phone.addEventListener('input', function(e: any){
   }
   const goalField = e.target.closest('[data-goal-field]');
   if(goalField){
-    state.goalDraft[goalField.getAttribute('data-goal-field')] = goalField.value;
+    const goalFieldName = goalField.getAttribute('data-goal-field');
+    state.goalDraft[goalFieldName] = goalField.value;
+    if(goalFieldName==='montoObjetivo' || goalFieldName==='aporteMensualMeta' || goalFieldName==='aportadoInicial') liveFormatThousands(goalField);
     return;
   }
   const platformField = e.target.closest('[data-platform-field]');
   if(platformField){
-    state.platformDraft[platformField.getAttribute('data-platform-field')] = platformField.value;
+    const platformFieldName = platformField.getAttribute('data-platform-field');
+    state.platformDraft[platformFieldName] = platformField.value;
+    if(platformFieldName==='valor') liveFormatThousands(platformField);
     return;
   }
   const newPlatformField = e.target.closest('[data-newplatform-field]');
   if(newPlatformField){
-    state.newPlatformDraft[newPlatformField.getAttribute('data-newplatform-field')] = newPlatformField.value;
+    const newPlatformFieldName = newPlatformField.getAttribute('data-newplatform-field');
+    state.newPlatformDraft[newPlatformFieldName] = newPlatformField.value;
+    if(newPlatformFieldName==='valor') liveFormatThousands(newPlatformField);
     return;
   }
   const catDraftField = e.target.closest('[data-cat-draft-field]');
@@ -1802,6 +1812,7 @@ phone.addEventListener('input', function(e: any){
   const planBaseInput = e.target.closest('[data-plan-base-input]');
   if(planBaseInput){
     PLANNER.base = parseInt(planBaseInput.value.replace(/\D/g,''),10) || 0;
+    liveFormatThousands(planBaseInput);
     updatePlanCompute();
     return;
   }
@@ -1818,6 +1829,7 @@ phone.addEventListener('input', function(e: any){
     const raw = projContributionInput.value.trim();
     // Empty = "go back to using your real average" (same rule as leaving the placeholder).
     state.simulatedContribution = raw==='' ? null : (parseInt(raw.replace(/\D/g,''),10) || 0);
+    liveFormatThousands(projContributionInput);
     updateProyeccionCompute();
     return;
   }
@@ -1847,6 +1859,7 @@ phone.addEventListener('input', function(e: any){
         state.draftTx.monto = v;
         if(state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = v;
       }
+      liveFormatThousands(draftField);
     }
     const saveBtn = document.querySelector<HTMLButtonElement>('[data-save-draft]');
     if(saveBtn) saveBtn.disabled = !(state.draftTx.comercio.trim().length>0 && state.draftTx.monto>0);
