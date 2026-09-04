@@ -1,8 +1,8 @@
-// Regresión: manifest.json todavía decía "Plata Clara" (el nombre viejo de la app, de antes de
-// renombrarla a "Pitucas sin lucas") -- eso significa que si alguien la instala como PWA desde
-// el teléfono, el ícono en la pantalla de inicio se vería con el nombre viejo, aunque toda la
-// app por dentro ya diga "Pitucas sin lucas". Este test no abre el navegador (no hace falta):
-// solo lee los archivos que se suben a Cloudflare y compara nombres/rutas directamente.
+// Regression: manifest.json still said "Plata Clara" (the app's old name, from before
+// renaming it to "Pitucas sin lucas") -- that means if someone installs it as a PWA from
+// their phone, the icon on the home screen would show the old name, even though the whole
+// app internally already says "Pitucas sin lucas". This test doesn't open the browser (no need to):
+// it just reads the files that get uploaded to Cloudflare and compares names/paths directly.
 const fs = require('fs');
 const path = require('path');
 const { check, finish, APP_DIR } = require('./lib/test_kit');
@@ -26,12 +26,12 @@ const { check, finish, APP_DIR } = require('./lib/test_kit');
   const appleTitle = appleTitleMatch ? appleTitleMatch[1] : null;
   check('manifest.json "name" coincide con apple-mobile-web-app-title', manifest && appleTitle && manifest.name === appleTitle, { manifestName: manifest && manifest.name, appleTitle });
 
-  // index.html referencia manifest.json de forma relativa -- confirma que existe en el mismo
-  // directorio (lo que se sube a Cloudflare tiene que incluirlo junto a index.html).
+  // index.html references manifest.json relatively -- confirm it exists in the same
+  // directory (what gets uploaded to Cloudflare has to include it alongside index.html).
   check('index.html enlaza manifest.json', /<link rel="manifest" href="manifest\.json">/.test(indexHtml));
 
-  // Cada ícono que declara el manifest debe existir de verdad en disco -- si falta uno, la PWA
-  // se instala sin ícono (o con uno roto) en vez de fallar de forma visible en el navegador.
+  // Every icon the manifest declares must really exist on disk -- if one is missing, the PWA
+  // installs without an icon (or with a broken one) instead of failing visibly in the browser.
   const iconChecks = (manifest && manifest.icons || []).map(ic => ({
     src: ic.src,
     existe: fs.existsSync(path.join(APP_DIR, ic.src)),

@@ -1,59 +1,60 @@
 import { getTx } from './sheet';
-import { GASTOS_COMPARTIDOS, GRUPO_PARTICIPANTES, MESES_LARGO, MONTHS, MONTH_LABEL, SALDOS_PAGADOS, TX, setTX, state } from './state';
-import { GastoCompartido, GastoReparto, GrupoParticipante, SaldoParticipante, TransferenciaSugerida } from './types';
-/* ===================== GASTOS COMPARTIDOS: motor de balances =====================
-   Funciones puras — no tocan Supabase ni el DOM, solo GRUPO_PARTICIPANTES/GASTOS_COMPARTIDOS/
-   SALDOS_PAGADOS ya cargados en memoria. Por eso son fáciles de cubrir con un test que
-   recalcule "la verdad" desde cero (mismo espíritu que audit_consistency.js) y las compare. */
+import { SHARED_EXPENSES, GROUP_PARTICIPANTS, MONTHS_LONG, MONTHS, MONTH_LABEL, PAID_BALANCES, TRANSACTIONS, setTransactions, state } from './state';
+import { SharedExpense, ExpenseSplit, GroupParticipant, ParticipantBalance, SuggestedTransfer } from './types';
+/* ===================== SHARED EXPENSES: balance engine =====================
+   Pure functions — they don't touch Supabase or the DOM, only GROUP_PARTICIPANTS/
+   SHARED_EXPENSES/PAID_BALANCES already loaded in memory. That's why they're easy to cover
+   with a test that recalculates "the truth" from scratch (same spirit as audit_consistency.js)
+   and compares it. */
 
-export function participantesDeGrupo(grupoId: string): GrupoParticipante[] {
-  return GRUPO_PARTICIPANTES.filter(p=>p.grupo_id===grupoId);
+export function participantsOfGroup(groupId: string): GroupParticipant[] {
+  return GROUP_PARTICIPANTS.filter(p=>p.grupo_id===groupId);
 }
-export function gastosDeGrupo(grupoId: string): GastoCompartido[] {
-  return GASTOS_COMPARTIDOS.filter(g=>g.grupo_id===grupoId);
+export function expensesOfGroup(groupId: string): SharedExpense[] {
+  return SHARED_EXPENSES.filter(g=>g.grupo_id===groupId);
 }
-export function repartoDeGasto(g: GastoCompartido): GastoReparto[] {
+export function splitsOfExpense(g: SharedExpense): ExpenseSplit[] {
   return g.reparto || [];
 }
 
-// pagado = todo lo que este participante pagó (fue pagado_por) en gastos del grupo.
-// correspondido = su parte del reparto de TODOS los gastos del grupo (haya pagado él o no).
-// saldo = pagado - correspondido - saldos ya registrados a su favor/en contra — positivo
-// significa "le deben esta plata", negativo "debe esta plata".
-export function saldoGrupo(grupoId: string): SaldoParticipante[] {
-  const participantes = participantesDeGrupo(grupoId);
-  const gastos = gastosDeGrupo(grupoId);
-  const saldos = SALDOS_PAGADOS.filter(s=>s.grupo_id===grupoId);
+// paid = everything this participant paid (was pagado_por) on group expenses.
+// owed = their share of the split of ALL group expenses (whether they paid or not).
+// balance = paid - owed - balances already registered in their favor/against them —
+// positive means "this money is owed to them", negative "they owe this money".
+export function groupBalances(groupId: string): ParticipantBalance[] {
+  const participants = participantsOfGroup(groupId);
+  const expenses = expensesOfGroup(groupId);
+  const settlements = PAID_BALANCES.filter(s=>s.grupo_id===groupId);
 
-  return participantes.map(p=>{
-    const pagado = gastos.filter(g=>g.pagado_por===p.id).reduce((s,g)=>s+g.monto,0);
-    const correspondido = gastos.reduce((s,g)=>{
-      const item = repartoDeGasto(g).find(r=>r.participante_id===p.id);
+  return participants.map(p=>{
+    const paid = expenses.filter(g=>g.pagado_por===p.id).reduce((s,g)=>s+g.monto,0);
+    const owed = expenses.reduce((s,g)=>{
+      const item = splitsOfExpense(g).find(r=>r.participante_id===p.id);
       return s + (item ? item.monto : 0);
     },0);
-    const pagadoAOtros = saldos.filter(s=>s.de_participante===p.id).reduce((s,x)=>s+x.monto,0);
-    const recibidoDeOtros = saldos.filter(s=>s.a_participante===p.id).reduce((s,x)=>s+x.monto,0);
-    // Saldar cuentas: si YO le pago a alguien, mi "correspondido pendiente" baja (mi deuda se
-    // achica) — por eso pagadoAOtros SUMA a mi saldo (menos negativo) y recibidoDeOtros RESTA
-    // (lo que me pagaron ya no cuenta como "me deben").
-    const saldo = pagado - correspondido + pagadoAOtros - recibidoDeOtros;
-    return {participanteId:p.id, nombre:p.nombre, color:p.color, pagado, correspondido, saldo};
+    const paidToOthers = settlements.filter(s=>s.de_participante===p.id).reduce((s,x)=>s+x.monto,0);
+    const receivedFromOthers = settlements.filter(s=>s.a_participante===p.id).reduce((s,x)=>s+x.monto,0);
+    // Settling up: if I pay someone, my "pending owed" goes down (my debt shrinks) — that's
+    // why paidToOthers ADDS to my balance (less negative) and receivedFromOthers SUBTRACTS
+    // (what I was paid no longer counts as "owed to me").
+    const balance = paid - owed + paidToOthers - receivedFromOthers;
+    return {participantId:p.id, nombre:p.nombre, color:p.color, paid, owed, balance};
   });
 }
 
-// Neteo mínimo: en vez de "todos le deben un poco a todos", arma la lista más corta posible
-// de transferencias que deja a todo el mundo en $0 — algoritmo greedy clásico (empareja al
-// que más debe con al que más le deben, uno a la vez).
-export function transferenciasSugeridas(grupoId: string): TransferenciaSugerida[] {
-  const saldos = saldoGrupo(grupoId).map(s=>({id:s.participanteId, saldo:Math.round(s.saldo)}));
-  const deudores = saldos.filter(s=>s.saldo<0).map(s=>({id:s.id, monto:-s.saldo})).sort((a,b)=>b.monto-a.monto);
-  const acreedores = saldos.filter(s=>s.saldo>0).map(s=>({id:s.id, monto:s.saldo})).sort((a,b)=>b.monto-a.monto);
-  const out: TransferenciaSugerida[] = [];
+// Minimal settlement: instead of "everyone owes everyone a little", builds the shortest
+// possible list of transfers that leaves everyone at $0 — classic greedy algorithm (pairs
+// whoever owes the most with whoever is owed the most, one at a time).
+export function suggestedTransfers(groupId: string): SuggestedTransfer[] {
+  const balances = groupBalances(groupId).map(s=>({id:s.participantId, balance:Math.round(s.balance)}));
+  const debtors = balances.filter(s=>s.balance<0).map(s=>({id:s.id, monto:-s.balance})).sort((a,b)=>b.monto-a.monto);
+  const creditors = balances.filter(s=>s.balance>0).map(s=>({id:s.id, monto:s.balance})).sort((a,b)=>b.monto-a.monto);
+  const out: SuggestedTransfer[] = [];
   let i=0, j=0;
-  while(i<deudores.length && j<acreedores.length){
-    const d = deudores[i], a = acreedores[j];
+  while(i<debtors.length && j<creditors.length){
+    const d = debtors[i], a = creditors[j];
     const monto = Math.min(d.monto, a.monto);
-    if(monto>0) out.push({de:d.id, a:a.id, monto});
+    if(monto>0) out.push({from:d.id, to:a.id, monto});
     d.monto -= monto; a.monto -= monto;
     if(d.monto<=0) i++;
     if(a.monto<=0) j++;
@@ -61,22 +62,22 @@ export function transferenciasSugeridas(grupoId: string): TransferenciaSugerida[
   return out;
 }
 
-// Reparte un monto total entre N participantes de forma exacta (nunca $1 de diferencia por
-// redondeo): todos reciben el mismo piso, y el resto (siempre < N) se reparte de a $1 entre
-// los primeros participantes de la lista — mismo criterio que ya usa la app para cuotas.
-export function repartirIguales(monto: number, participanteIds: string[]): Record<string, number> {
-  const n = participanteIds.length;
+// Splits a total amount among N participants exactly (never a $1 difference from rounding):
+// everyone gets the same floor, and the remainder (always < N) is handed out $1 at a time to
+// the first participants in the list — same rule the app already uses for installments.
+export function splitEqually(monto: number, participantIds: string[]): Record<string, number> {
+  const n = participantIds.length;
   const out: Record<string, number> = {};
   if(n===0) return out;
-  const piso = Math.floor(monto/n);
-  let resto = Math.round(monto) - piso*n;
-  participanteIds.forEach((id, idx)=>{
-    out[id] = piso + (idx<resto ? 1 : 0);
+  const floor = Math.floor(monto/n);
+  let remainder = Math.round(monto) - floor*n;
+  participantIds.forEach((id, idx)=>{
+    out[id] = floor + (idx<remainder ? 1 : 0);
   });
   return out;
 }
 
-/* ----- expresiones tipo Tricount: "22000-5000", "64000/2", etc. ----- */
+/* ----- Tricount-style expressions: "22000-5000", "64000/2", etc. ----- */
 export function safeEvalExpr(raw){
   const cleaned = String(raw).replace(/,/g,'.').replace(/\s+/g,'');
   if(cleaned==='' || !/^[0-9+\-*/().]*$/.test(cleaned)) return null;
@@ -112,7 +113,7 @@ export function formatEditableNumber(v){
   return (Math.abs(r - Math.round(r))<0.001) ? String(Math.round(r)) : String(r);
 }
 
-/* ----- meses (para proyecciones de cuotas) ----- */
+/* ----- months (for installment projections) ----- */
 export function monthAddStr(ym, n){
   const [y,m] = ym.split('-').map(Number);
   const total = (y*12 + (m-1)) + n;
@@ -121,8 +122,8 @@ export function monthAddStr(ym, n){
 }
 export function monthLabelFor(ym){
   const [y,m] = ym.split('-').map(Number);
-  const nombre = MESES_LARGO[m-1];
-  return nombre.charAt(0).toUpperCase()+nombre.slice(1)+' '+y;
+  const name = MONTHS_LONG[m-1];
+  return name.charAt(0).toUpperCase()+name.slice(1)+' '+y;
 }
 export function ensureMonthExists(ym){
   if(!MONTHS.includes(ym)){
@@ -132,21 +133,21 @@ export function ensureMonthExists(ym){
   }
   state.monthIndex = Math.min(state.monthIndex, MONTHS.length-1);
 }
-export function fechaForCuota(rootFecha, monthsAhead){
+export function dateForInstallment(rootFecha, monthsAhead){
   const ym = monthAddStr(rootFecha.slice(0,7), monthsAhead);
   const day = parseInt(rootFecha.slice(8,10),10);
   const [y,m] = ym.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
   return ym + '-' + String(Math.min(day,lastDay)).padStart(2,'0');
 }
-export function regenerateCuotasFor(rootId){
-  setTX(TX.filter(t=> t.cuotaOf !== rootId));
+export function regenerateInstallmentsFor(rootId){
+  setTransactions(TRANSACTIONS.filter(t=> t.cuotaOf !== rootId));
   const root = getTx(rootId);
   if(root && root.cuotas && root.cuotas.total>1){
     for(let k=2;k<=root.cuotas.total;k++){
-      const fecha = fechaForCuota(root.fecha, k-1);
+      const fecha = dateForInstallment(root.fecha, k-1);
       ensureMonthExists(fecha.slice(0,7));
-      TX.push({
+      TRANSACTIONS.push({
         id: root.id+'-c'+k, fecha, hora: root.hora, comercio: root.comercio, monto: root.monto,
         medio: root.medio, tipo: root.tipo, recurrencia: root.recurrencia, estado:'confirmado',
         categorias: root.categorias.map(c=>({cat:c.cat, monto:c.monto})),
@@ -156,4 +157,3 @@ export function regenerateCuotasFor(rootId){
     }
   }
 }
-

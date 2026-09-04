@@ -3,53 +3,53 @@ const { openApp, check, finish } = require('./lib/test_kit');
 (async () => {
   const { context, browser, page, errors } = await openApp();
 
-  // Simulamos una cuenta REAL recién creada: MEDIOS empieza solo con "Efectivo" (como
-  // emptyAppStateBlob), no con los medios de la maqueta de ejemplo.
+  // Simulate a REAL freshly-created account: PAYMENT_METHODS starts with only "Efectivo" (as in
+  // emptyAppStateBlob), not with the sample mockup's payment methods.
   const resultado = await page.evaluate(() => {
     const d = window.__debug;
-    Object.keys(d.MEDIOS).forEach(k => delete d.MEDIOS[k]);
-    d.MEDIOS['efectivo'] = {nombre:'Efectivo', corto:'Efectivo', icon:'cash'};
+    Object.keys(d.PAYMENT_METHODS).forEach(k => delete d.PAYMENT_METHODS[k]);
+    d.PAYMENT_METHODS['efectivo'] = {nombre:'Efectivo', corto:'Efectivo', icon:'cash'};
 
     const out = {};
 
-    // 1) Import por correo: una regla que no pudo sacar los 4 dígitos de la tarjeta
-    // (medio_sugerido llega null, como pasaba con Movired) ya NO debe caer en "Efectivo".
-    out.desconocidoId = d.ensureMedioDesconocido();
-    out.desconocidoNombre = d.MEDIOS[out.desconocidoId].nombre;
+    // 1) Email import: a rule that couldn't extract the card's 4 digits
+    // (medio_sugerido arrives null, as used to happen with Movired) must NO LONGER fall back to "Efectivo".
+    out.desconocidoId = d.ensureUnknownPaymentMethod();
+    out.desconocidoNombre = d.PAYMENT_METHODS[out.desconocidoId].nombre;
 
-    // 2) Una regla que SÍ sabe que es cuenta corriente (transferencia, Racional) manda el
-    // literal 'cuenta_vista' — debe crear/usar ese medio, no caer en Efectivo tampoco.
-    out.cuentaVistaId = d.ensureMedioForSugerido('cuenta_vista');
-    out.cuentaVistaNombre = d.MEDIOS[out.cuentaVistaId].nombre;
+    // 2) A rule that DOES know it's a checking account (transfer, Racional) sends the
+    // literal 'cuenta_vista' — it must create/use that payment method, not fall back to Efectivo either.
+    out.cuentaVistaId = d.ensurePaymentMethodForSuggestion('cuenta_vista');
+    out.cuentaVistaNombre = d.PAYMENT_METHODS[out.cuentaVistaId].nombre;
 
-    // 3) Una compra con tarjeta real (con los últimos 4 dígitos) sigue creando/usando el
-    // medio de esa tarjeta específica — esto no debía romperse.
-    out.tarjetaId = d.ensureMedioForSugerido('****0507');
-    out.tarjetaNombre = d.MEDIOS[out.tarjetaId].nombre;
+    // 3) A purchase with a real card (with the last 4 digits) still creates/uses the
+    // payment method for that specific card — this should not have broken.
+    out.tarjetaId = d.ensurePaymentMethodForSuggestion('****0507');
+    out.tarjetaNombre = d.PAYMENT_METHODS[out.tarjetaId].nombre;
 
-    // 4) crearTxDesdeMovimiento: una cartola de TARJETA de crédito ya no debe quedar en
-    // "Cuenta Vista" (como antes) — debe ir a "Medio sin identificar".
+    // 4) createTxFromMovement: a credit CARD statement must no longer end up in
+    // "Cuenta Vista" (as it used to) — it should go to "PaymentMethod sin identificar".
     d.state.reconciliar.tipo = 'tarjeta_nacional';
-    const antesTx = d.TX.length;
-    d.crearTxDesdeMovimiento({fecha:'2026-08-15', detalle:'Compra tarjeta test', comercioSugerido:'Compra tarjeta test', monto:-5000, tipoMov:'gasto'});
-    const txTarjeta = d.TX[0];
+    const antesTx = d.TRANSACTIONS.length;
+    d.createTxFromMovement({fecha:'2026-08-15', detalle:'Compra tarjeta test', comercioSugerido:'Compra tarjeta test', monto:-5000, tipoMov:'gasto'});
+    const txTarjeta = d.TRANSACTIONS[0];
     out.txTarjetaMedio = txTarjeta.medio;
-    out.txTarjetaMedioNombre = d.MEDIOS[txTarjeta.medio].nombre;
+    out.txTarjetaMedioNombre = d.PAYMENT_METHODS[txTarjeta.medio].nombre;
 
-    // 5) crearTxDesdeMovimiento: una cartola de CUENTA CORRIENTE sí debe ir a "Cuenta Vista".
+    // 5) createTxFromMovement: a CHECKING ACCOUNT statement should indeed go to "Cuenta Vista".
     d.state.reconciliar.tipo = 'cuenta_corriente';
-    d.crearTxDesdeMovimiento({fecha:'2026-08-16', detalle:'Movimiento cuenta test', comercioSugerido:'Movimiento cuenta test', monto:-3000, tipoMov:'gasto'});
-    const txCuenta = d.TX[0];
+    d.createTxFromMovement({fecha:'2026-08-16', detalle:'Movimiento cuenta test', comercioSugerido:'Movimiento cuenta test', monto:-3000, tipoMov:'gasto'});
+    const txCuenta = d.TRANSACTIONS[0];
     out.txCuentaMedio = txCuenta.medio;
-    out.txCuentaMedioNombre = d.MEDIOS[txCuenta.medio].nombre;
-    out.nuevasTx = d.TX.length - antesTx;
+    out.txCuentaMedioNombre = d.PAYMENT_METHODS[txCuenta.medio].nombre;
+    out.nuevasTx = d.TRANSACTIONS.length - antesTx;
 
-    // 6) Importar CSV de cartola: mismo chequeo — no debe quedar roto si MEDIOS no tiene
-    // "cuenta_vista" todavía.
-    const resCsv = d.importCartolaRows([{fecha:'2026-08-17', descripcion:'CSV test', monto:-1000}]);
-    const txCsv = d.TX[0];
+    // 6) Importing a statement CSV: same check — it must not break if PAYMENT_METHODS doesn't have
+    // "cuenta_vista" yet.
+    const resCsv = d.importStatementRows([{fecha:'2026-08-17', descripcion:'CSV test', monto:-1000}]);
+    const txCsv = d.TRANSACTIONS[0];
     out.txCsvMedio = txCsv.medio;
-    out.txCsvMedioNombre = d.MEDIOS[txCsv.medio].nombre;
+    out.txCsvMedioNombre = d.PAYMENT_METHODS[txCsv.medio].nombre;
 
     return out;
   });
@@ -62,8 +62,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('   Se crearon las 2 transacciones esperadas', resultado.nuevasTx === 2, resultado.nuevasTx);
   check('6) Importar CSV de cartola tampoco cae en "Efectivo"', resultado.txCsvMedioNombre === 'Cuenta Vista', resultado.txCsvMedioNombre);
 
-  // 7) Nueva transacción manual: el medio por default ahora es el primero REAL (no un id de
-  // la maqueta que no existe en una cuenta real), así el selector y lo guardado siempre calzan.
+  // 7) New manual transaction: the default payment method is now the first REAL one (not a
+  // mockup id that doesn't exist in a real account), so the selector and the saved value always match.
   await page.evaluate(() => { window.__debug.state.tab = 'transacciones'; window.__debug.render(); });
   await page.click('#fab-add');
   await page.waitForTimeout(150);

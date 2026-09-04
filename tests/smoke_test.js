@@ -8,7 +8,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
     await page.click('[data-tab="transacciones"]'); await page.waitForTimeout(200);
     await page.click('[data-tab="resumen"]'); await page.waitForTimeout(150);
     for (const sub of ['balance','presupuesto','evolucion','inversiones']) {
-      await page.click(`[data-resumen-sub="${sub}"]`); await page.waitForTimeout(200);
+      await page.click(`[data-summary-sub="${sub}"]`); await page.waitForTimeout(200);
     }
     await page.click('[data-tab="menu"]'); await page.waitForTimeout(150);
     await page.click('[data-tab="resumen"]'); await page.waitForTimeout(150);
@@ -21,8 +21,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
     await browser.close();
   }
 
-  // errors ya se acumularon/chequearon por esquema arriba; pasamos un array vacío a finish
-  // para que su check automático (agregado, sin duplicar lo ya reportado por esquema) no
-  // vuelva a fallar sobre errores que ya fueron reportados individualmente.
+  // errors were already accumulated/checked per scheme above; we pass an empty array to finish
+  // so its automatic check (aggregated, without duplicating what was already reported per scheme)
+  // doesn't fail again over errors that were already reported individually.
   await finish({ errors: [] });
 })();

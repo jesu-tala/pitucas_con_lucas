@@ -5,7 +5,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
 
 async function sumaCategorias(page) {
   return page.evaluate(() => {
-    const t = window.__debug.TX.find(t => t.id === 't3');
+    const t = window.__debug.TRANSACTIONS.find(t => t.id === 't3');
     return { sum: t.categorias.reduce((s,c)=>s+c.monto,0), monto: t.monto, categorias: t.categorias };
   });
 }
@@ -16,16 +16,16 @@ async function sumaCategorias(page) {
   await page.evaluate(() => { window.__debug.state.tab = 'transacciones'; window.__debug.render(); });
   await page.waitForTimeout(150);
 
-  // t3 = Uber, monto 6200, una sola categoría (transporte) -- caso simple y limpio para partir.
+  // t3 = Uber, amount 6200, a single category (transporte) -- a simple, clean case to start with.
   await page.click('[data-tx="t3"]');
   await page.waitForTimeout(200);
 
   const inicial = await sumaCategorias(page);
   check('(setup) t3 arranca con una sola categoría cuya suma calza con el monto', inicial.sum === inicial.monto && inicial.categorias.length === 1, inicial);
 
-  // (a) Agregar una segunda fila y repartir el monto entre las dos -- la suma debe seguir
-  // calzando exactamente con el monto total.
-  await page.click('[data-add-catrow="t3"]');
+  // (a) Add a second row and split the amount between the two -- the sum must still
+  // match exactly with the total amount.
+  await page.click('[data-add-cat-row="t3"]');
   await page.waitForTimeout(150);
   const trasAgregar = await sumaCategorias(page);
   check('Tras "Agregar categoría" aparece una segunda fila', trasAgregar.categorias.length === 2, trasAgregar.categorias.length);
@@ -37,8 +37,8 @@ async function sumaCategorias(page) {
   const trasRepartir = await sumaCategorias(page);
   check('(a) Con 2 filas repartidas (4000 + 2200), la suma sigue calzando con monto (6200)', trasRepartir.sum === trasRepartir.monto, trasRepartir);
 
-  // (b) Alternar a modo % y volver a $ no debe alterar los montos guardados (el toggle solo
-  // cambia cómo se MUESTRAN, nunca los valores reales) -- la suma debe seguir calzando.
+  // (b) Toggling to % mode and back to $ must not alter the stored amounts (the toggle only
+  // changes how they're DISPLAYED, never the real values) -- the sum must still match.
   await page.click('[data-catunit="%"]');
   await page.waitForTimeout(150);
   const enModoPct = await page.evaluate(() => {
@@ -52,8 +52,8 @@ async function sumaCategorias(page) {
   const trasToggle = await sumaCategorias(page);
   check('(b) Tras alternar %  ->  $, la suma sigue calzando con monto (invariante preservado)', trasToggle.sum === trasToggle.monto && trasToggle.sum === 6200, trasToggle);
 
-  // (c) Quitar una fila (trash) debe DOBLAR su monto en la(s) fila(s) restante(s), no perderlo
-  // -- la suma sigue calzando, y la fila borrada desaparece del DOM.
+  // (c) Removing a row (trash) must FOLD its amount into the remaining row(s), not lose it
+  // -- the sum still matches, and the deleted row disappears from the DOM.
   await page.click('[data-cat-remove="1"]');
   await page.waitForTimeout(150);
   const trasRemover = await sumaCategorias(page);

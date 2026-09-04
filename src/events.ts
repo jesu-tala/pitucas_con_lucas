@@ -1,16 +1,16 @@
-import { allCobrado, applyLockRule, catInfo, darPorPerdida, dayLabel, medioInfo, pendienteVinculadaA, porCobrarTotal, resolvePendiente, tienePorCobrarTipo } from './helpers';
+import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
-import { ensureMonthExists, formatEditableNumber, regenerateCuotasFor, repartirIguales, safeEvalExpr, saldoGrupo } from './shared-expenses';
-import { BOLETA_EJEMPLOS, boletaItemIdCounter, boletaTotal, closeSheet, getTx, guardarBoleta, medioIdCounter, nextBoletaItemId, openBoletaFlow, openFilterSheet, openLinkFromIngreso, openLinkFromPendiente, openNewTxSheet, openSheet, renderBoletaItemsTotalsSummary, renderSheet, saveDraftTx, setMedioIdCounter } from './sheet';
-import { CATS, DATOS_TRANSFERENCIA, MEDIOS, METAS_GASTO_PCT, METAS_INVERSION, METAS_TOTAL_CHECKS, MONTHS, PLANIFICADOR, PLATAFORMA_DATA, PRESUPUESTOS, TX, metaIdCounter, money, moneyPlain, presupuestoTotalMensual, setDATOS_TRANSFERENCIA, setMETAS_INVERSION, setMetaIdCounter, setPresupuestoTotalMensual, setSubtabDrag, setSuppressNextSubtabClick, setTX, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
+import { ensureMonthExists, formatEditableNumber, regenerateInstallmentsFor, splitEqually, safeEvalExpr, groupBalances } from './shared-expenses';
+import { RECEIPT_EXAMPLES, receiptItemIdCounter, receiptTotal, closeSheet, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
+import { CATEGORIES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
-import { PROYECCION_SUPUESTOS, metasForPlataforma, renderEvolucionView } from './views/evolucion';
-import { defaultCompartirDraft, miParticipanteEnGrupo, renderGruposView } from './views/grupos';
-import { platformValorActual, renderInversionesView, renderResumenSubContent, renderResumenSubtabsInner, renderResumenView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
-import { absorbImportedRows, activarNotificaciones, agregarParticipanteSinCuenta, buildBackupJSON, buildCobroWhatsAppText, buildTransaccionesCSV, buscarTxParecida, cargarCartolasDisponibles, catEnUso, clasificarGastoCompartidoAjeno, compartirTransaccionExistente, crearGrupo, crearTxDesdeMovimiento, datosTransferenciaCompletos, desactivarNotificaciones, downloadFile, eliminarGrupo, enviarPushPrueba, importCartolaRows, intentarAbrirArchivoCartola, loadImportCorreoScreen, loadNotifStatus, medioEnUso, parseCartolaCSV, registrarSaldoPagado, renderMenuView, unirseAGrupo, usarCartolaImportada } from './views/menu';
-import { renderPresupuestoView } from './views/presupuesto';
-import { openSueldoSuggestionSheet, renderTransaccionesView, renderTxResultsOnly } from './views/transacciones';
+import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
+import { defaultShareDraft, myParticipantInGroup, renderGroupsView } from './views/grupos';
+import { platformCurrentValue, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
+import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
+import { renderBudgetView } from './views/presupuesto';
+import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
 /* ===================== EVENT HANDLING (delegated) ===================== */
 export const phone = document.getElementById('phone');
 
@@ -28,11 +28,11 @@ phone.addEventListener('click', function(e: any){
     }
     return;
   }
-  const reloadImportCorreoBtn = e.target.closest('[data-reload-import-correo]');
-  if(reloadImportCorreoBtn){
-    state.importCorreoLoaded = false; state.importCorreoError = null; state.importCorreoLoading = true;
+  const reloadEmailImportBtn = e.target.closest('[data-reload-email-import]');
+  if(reloadEmailImportBtn){
+    state.emailImportLoaded = false; state.emailImportError = null; state.emailImportLoading = true;
     renderMenuView();
-    loadImportCorreoScreen();
+    loadEmailImportScreen();
     return;
   }
   const askDeleteTxBtn = e.target.closest('[data-ask-delete-tx]');
@@ -42,7 +42,7 @@ phone.addEventListener('click', function(e: any){
   const confirmDeleteTxBtn = e.target.closest('[data-confirm-delete-tx]');
   if(confirmDeleteTxBtn){
     const delId = confirmDeleteTxBtn.getAttribute('data-confirm-delete-tx');
-    setTX(TX.filter(function(t){ return t.id!==delId; }));
+    setTransactions(TRANSACTIONS.filter(function(t){ return t.id!==delId; }));
     state.confirmDeleteTxId = null;
     closeSheet();
     render();
@@ -57,8 +57,8 @@ phone.addEventListener('click', function(e: any){
   if(tabBtn){
     state.tab = tabBtn.getAttribute('data-tab');
     render();
-    // aprovechamos que abrió Transacciones para revisar si el script de Google dejó algo
-    // nuevo en la bandeja de importadas y agregarlo solo, sin que tenga que ir a buscarlo
+    // we take advantage of the Transacciones tab being opened to check whether the Google
+    // script left something new in the imported inbox and add it automatically, without the user having to go look for it
     if(state.tab==='transacciones') absorbImportedRows();
     return;
   }
@@ -66,17 +66,17 @@ phone.addEventListener('click', function(e: any){
   const filterBtn = e.target.closest('[data-filter]');
   if(filterBtn){ state.filter = filterBtn.getAttribute('data-filter'); render(); return; }
 
-  const dismissSueldo = e.target.closest('[data-dismiss-sueldo-suggestion]');
-  if(dismissSueldo){ state.sueldoBannerDescartadoMes = todayISO().slice(0,7); renderTransaccionesView(); return; }
+  const dismissSueldo = e.target.closest('[data-dismiss-salary-suggestion]');
+  if(dismissSueldo){ state.salaryBannerDismissedMonth = todayISO().slice(0,7); renderTransactionsView(); return; }
 
-  const confirmSueldo = e.target.closest('[data-confirm-sueldo-suggestion]');
-  if(confirmSueldo){ openSueldoSuggestionSheet(confirmSueldo.getAttribute('data-confirm-sueldo-suggestion')); return; }
+  const confirmSueldo = e.target.closest('[data-confirm-salary-suggestion]');
+  if(confirmSueldo){ openSalarySuggestionSheet(confirmSueldo.getAttribute('data-confirm-salary-suggestion')); return; }
 
   const clearCat = e.target.closest('[data-clear-catfilter]');
   if(clearCat){ state.categoryFilter=null; state.categoryFilterMonth=null; render(); return; }
 
   const clearSearch = e.target.closest('[data-clear-search]');
-  if(clearSearch){ state.searchQuery=''; renderTransaccionesView(); return; }
+  if(clearSearch){ state.searchQuery=''; renderTransactionsView(); return; }
 
   const openFiltersBtn = e.target.closest('[data-open-filters]');
   if(openFiltersBtn){ openFilterSheet(); return; }
@@ -90,9 +90,9 @@ phone.addEventListener('click', function(e: any){
     renderSheet();
     return;
   }
-  const toggleFilterMedio = e.target.closest('[data-toggle-filter-medio]');
+  const toggleFilterMedio = e.target.closest('[data-toggle-filter-payment-method]');
   if(toggleFilterMedio){
-    const mid = toggleFilterMedio.getAttribute('data-toggle-filter-medio');
+    const mid = toggleFilterMedio.getAttribute('data-toggle-filter-payment-method');
     const arr = state.advFilters.medios;
     const i = arr.indexOf(mid);
     if(i>=0) arr.splice(i,1); else arr.push(mid);
@@ -108,18 +108,18 @@ phone.addEventListener('click', function(e: any){
   const applyAdv = e.target.closest('[data-apply-advfilters]');
   if(applyAdv){
     closeSheet();
-    renderTransaccionesView();
+    renderTransactionsView();
     return;
   }
 
-  const subBtn = e.target.closest('[data-resumen-sub]');
-  if(subBtn){ state.resumenSub = subBtn.getAttribute('data-resumen-sub'); renderResumenView(); return; }
+  const subBtn = e.target.closest('[data-summary-sub]');
+  if(subBtn){ state.summarySub = subBtn.getAttribute('data-summary-sub'); renderSummaryView(); return; }
 
   const monthNav = e.target.closest('[data-month-nav]');
   if(monthNav && !monthNav.disabled){
     const d = parseInt(monthNav.getAttribute('data-month-nav'),10);
     state.monthIndex = Math.max(0, Math.min(MONTHS.length-1, state.monthIndex+d));
-    renderResumenSubContent();
+    renderSummarySubContent();
     return;
   }
 
@@ -150,7 +150,7 @@ phone.addEventListener('click', function(e: any){
     const val = segBtn.getAttribute('data-seg-val');
     if(group==='draft-tipo' && state.draftTx){
       state.draftTx.tipo = val;
-      state.draftTx.categorias = []; // la categoría depende del tipo, se reinicia
+      state.draftTx.categorias = []; // the category depends on the type, so it gets reset
       renderSheet();
       return;
     }
@@ -160,18 +160,18 @@ phone.addEventListener('click', function(e: any){
       return;
     }
     if(group==='meta-plazo'){
-      state.metaDraft.plazo = val;
-      renderInversionesView();
+      state.goalDraft.plazo = val;
+      renderInvestmentsView();
       return;
     }
     if(group==='platform-plazo'){
       state.platformDraft.plazo = val;
-      renderInversionesView();
+      renderInvestmentsView();
       return;
     }
     if(group==='newplatform-plazo'){
       state.newPlatformDraft.plazo = val;
-      renderInversionesView();
+      renderInvestmentsView();
       return;
     }
     if(group==='cat-draft-tipo'){
@@ -179,19 +179,19 @@ phone.addEventListener('click', function(e: any){
       renderMenuView();
       return;
     }
-    if(group==='compartir-pagador' && state.compartirDraft){
-      state.compartirDraft.pagadoPorId = val;
+    if(group==='compartir-pagador' && state.shareDraft){
+      state.shareDraft.pagadoPorId = val;
       renderSheet();
       return;
     }
     const t = getTx(state.openTxId);
     if(t){
       if(group==='tipo' && t.tipo!==val){
-        // La categoría depende del tipo (gasto/ingreso/inversión usan listas de categorías
-        // distintas) — igual que al crear una transacción nueva, se reinicia para no dejar
-        // una categoría "huérfana" que ya no corresponde a este tipo. Eso hacía que Balance
-        // contara mal: una transacción de gasto con una categoría vieja de otro tipo se
-        // colaba (o se perdía) en el desglose por categoría.
+        // The category depends on the type (gasto/ingreso/inversion use different category
+        // lists) — same as when creating a new transaction, it gets reset so as not to leave
+        // an "orphaned" category that no longer matches this type. That used to make Balance
+        // count wrong: an expense transaction with an old category from another type would
+        // sneak in (or get lost) in the category breakdown.
         t.tipo = val;
         t.categorias = [];
       }
@@ -221,11 +221,11 @@ phone.addEventListener('click', function(e: any){
     const t = getTx(state.openTxId);
     if(t){
       const catId = pickCatBtn.getAttribute('data-pick-cat');
-      if(t.compartidoAjeno){
-        // Gasto de grupo que registró otra persona: además de clasificar esta transacción,
-        // esto aprende el mapeo "su categoría -> la mía" para que los próximos gastos así se
-        // clasifiquen solos (ver clasificarGastoCompartidoAjeno).
-        clasificarGastoCompartidoAjeno(t.id, catId).then(function(){
+      if(t.sharedByOthers){
+        // Group expense that someone else registered: besides classifying this transaction,
+        // this learns the "their category -> mine" mapping so future expenses like this get
+        // classified automatically (see classifySharedExpenseFromOthers).
+        classifySharedExpenseFromOthers(t.id, catId).then(function(){
           state.categoryEditMode[t.id] = false;
           toast('Clasificada como '+catInfo(catId).nombre);
           renderSheet(); renderIfListVisible();
@@ -242,35 +242,35 @@ phone.addEventListener('click', function(e: any){
     return;
   }
 
-  const toggleCuotas = e.target.closest('[data-toggle-cuotas]');
+  const toggleCuotas = e.target.closest('[data-toggle-installments]');
   if(toggleCuotas){
-    const t = getTx(toggleCuotas.getAttribute('data-toggle-cuotas'));
+    const t = getTx(toggleCuotas.getAttribute('data-toggle-installments'));
     if(t){
       if(t.cuotas){ delete t.cuotas; } else { t.cuotas = {total:2}; }
-      regenerateCuotasFor(t.id);
+      regenerateInstallmentsFor(t.id);
       renderSheet(); renderIfListVisible();
     }
     return;
   }
-  const cuotasStep = e.target.closest('[data-cuotas-step]');
+  const cuotasStep = e.target.closest('[data-installments-step]');
   if(cuotasStep){
     const t = getTx(cuotasStep.getAttribute('data-tx'));
     if(t && t.cuotas){
-      const delta = parseInt(cuotasStep.getAttribute('data-cuotas-step'),10);
+      const delta = parseInt(cuotasStep.getAttribute('data-installments-step'),10);
       t.cuotas.total = Math.max(2, Math.min(24, t.cuotas.total+delta));
-      regenerateCuotasFor(t.id);
+      regenerateInstallmentsFor(t.id);
       renderSheet(); renderIfListVisible();
     }
     return;
   }
 
-  const pagadoBtn = e.target.closest('[data-toggle-pagado]');
-  if(pagadoBtn){
+  const paidBtn = e.target.closest('[data-toggle-paid]');
+  if(paidBtn){
     const t = getTx(state.openTxId);
-    const idx = parseInt(pagadoBtn.getAttribute('data-toggle-pagado'),10);
+    const idx = parseInt(paidBtn.getAttribute('data-toggle-paid'),10);
     if(t && t.porCobrar[idx]){
       t.porCobrar[idx].pagado = !t.porCobrar[idx].pagado;
-      if(allCobrado(t)) toast('¡Ya te pagaron todo!');
+      if(allCollected(t)) toast('¡Ya te pagaron todo!');
       renderSheet(); renderIfListVisible();
     }
     return;
@@ -278,37 +278,37 @@ phone.addEventListener('click', function(e: any){
 
   const saveDraftBtn = e.target.closest('[data-save-draft]');
   if(saveDraftBtn && !saveDraftBtn.disabled){
-    const grupoIdOrigen = state.crearGastoDesdeGrupoId;
+    const grupoIdOrigen = state.createExpenseFromGroupId;
     const tx = saveDraftTx();
     if(tx && grupoIdOrigen){
-      // saveDraftTx() ya dejó la hoja abierta en el detalle de esta transacción -- acá
-      // precargamos "Compartir con un grupo" con el grupo del que vinimos, para no obligar a
-      // elegirlo de nuevo.
-      state.crearGastoDesdeGrupoId = null;
-      state.compartirDraft = defaultCompartirDraft(tx.id, grupoIdOrigen);
+      // saveDraftTx() already left the sheet open on this transaction's detail -- here we
+      // preload "Compartir con un grupo" with the group we came from, so the user isn't
+      // forced to pick it again.
+      state.createExpenseFromGroupId = null;
+      state.shareDraft = defaultShareDraft(tx.id, grupoIdOrigen);
       renderSheet();
       toast('Transacción agregada — completa el reparto abajo');
     }
     return;
   }
 
-  const cancelNewMedio = e.target.closest('[data-cancel-new-medio]');
+  const cancelNewMedio = e.target.closest('[data-cancel-new-payment-method]');
   if(cancelNewMedio){
-    state.addingMedio = false;
+    state.addingPaymentMethod = false;
     renderSheet();
     return;
   }
-  const saveNewMedio = e.target.closest('[data-save-new-medio]');
+  const saveNewMedio = e.target.closest('[data-save-new-payment-method]');
   if(saveNewMedio && !saveNewMedio.disabled){
-    const nombre = state.newMedioDraft.nombre.trim();
+    const nombre = state.newPaymentMethodDraft.nombre.trim();
     if(nombre && state.draftTx){
-      setMedioIdCounter(medioIdCounter+1);
-      const key = 'custom_'+medioIdCounter;
-      const ultimos4 = state.newMedioDraft.ultimos4.trim();
-      MEDIOS[key] = {nombre, corto: ultimos4 ? '•••• '+ultimos4 : nombre, icon:'card'};
+      setPaymentMethodIdCounter(paymentMethodIdCounter+1);
+      const key = 'custom_'+paymentMethodIdCounter;
+      const ultimos4 = state.newPaymentMethodDraft.ultimos4.trim();
+      PAYMENT_METHODS[key] = {nombre, corto: ultimos4 ? '•••• '+ultimos4 : nombre, icon:'card'};
       state.draftTx.medio = key;
-      state.addingMedio = false;
-      state.newMedioDraft = {nombre:'', ultimos4:''};
+      state.addingPaymentMethod = false;
+      state.newPaymentMethodDraft = {nombre:'', ultimos4:''};
       toast('Tarjeta agregada: '+nombre);
       renderSheet();
     }
@@ -318,25 +318,25 @@ phone.addEventListener('click', function(e: any){
   const editBudgetBtn = e.target.closest('[data-edit-budget]');
   if(editBudgetBtn){
     const catId = editBudgetBtn.getAttribute('data-edit-budget');
-    const cfg = PRESUPUESTOS[catId];
+    const cfg = BUDGETS[catId];
     state.editingBudgetCat = catId;
     state.budgetDraft = cfg
       ? {meta:String(cfg.meta), alertas:Object.assign({},cfg.alertas)}
       : {meta:'', alertas:{80:true,90:true,100:true}};
-    renderPresupuestoView();
+    renderBudgetView();
     return;
   }
   const cancelBudgetEdit = e.target.closest('[data-cancel-budget-edit]');
   if(cancelBudgetEdit){
     state.editingBudgetCat = null;
-    renderPresupuestoView();
+    renderBudgetView();
     return;
   }
   const toggleAlert = e.target.closest('[data-toggle-alert]');
   if(toggleAlert){
     const t = toggleAlert.getAttribute('data-toggle-alert');
     state.budgetDraft.alertas[t] = !state.budgetDraft.alertas[t];
-    renderPresupuestoView();
+    renderBudgetView();
     return;
   }
   const saveBudget = e.target.closest('[data-save-budget]');
@@ -344,10 +344,10 @@ phone.addEventListener('click', function(e: any){
     const catId = saveBudget.getAttribute('data-save-budget');
     const meta = safeEvalExpr(state.budgetDraft.meta);
     if(meta!==null && meta>0){
-      PRESUPUESTOS[catId] = {meta: Math.round(meta), alertas: Object.assign({},state.budgetDraft.alertas)};
+      BUDGETS[catId] = {meta: Math.round(meta), alertas: Object.assign({},state.budgetDraft.alertas)};
       state.editingBudgetCat = null;
       toast('Presupuesto guardado: '+catInfo(catId).nombre);
-      renderPresupuestoView();
+      renderBudgetView();
     } else {
       toast('Pon una meta mensual válida');
     }
@@ -356,15 +356,15 @@ phone.addEventListener('click', function(e: any){
   const deleteBudget = e.target.closest('[data-delete-budget]');
   if(deleteBudget){
     const catId = deleteBudget.getAttribute('data-delete-budget');
-    delete PRESUPUESTOS[catId];
+    delete BUDGETS[catId];
     state.editingBudgetCat = null;
     toast('Presupuesto eliminado');
-    renderPresupuestoView();
+    renderBudgetView();
     return;
   }
-  const budgetVerMas = e.target.closest('[data-budget-vermas]');
+  const budgetVerMas = e.target.closest('[data-budget-see-more]');
   if(budgetVerMas){
-    const catId = budgetVerMas.getAttribute('data-budget-vermas');
+    const catId = budgetVerMas.getAttribute('data-budget-see-more');
     state.categoryFilter = catId;
     state.categoryFilterMonth = MONTHS[state.monthIndex];
     state.filter = 'todas';
@@ -375,90 +375,90 @@ phone.addEventListener('click', function(e: any){
   const editBudgetTotal = e.target.closest('[data-edit-budget-total]');
   if(editBudgetTotal){
     state.editingBudgetTotal = true;
-    state.budgetTotalDraft = String(presupuestoTotalMensual);
-    renderPresupuestoView();
+    state.budgetTotalDraft = String(monthlyBudgetTotal);
+    renderBudgetView();
     return;
   }
   const cancelBudgetTotal = e.target.closest('[data-cancel-budget-total]');
   if(cancelBudgetTotal){
     state.editingBudgetTotal = false;
-    renderPresupuestoView();
+    renderBudgetView();
     return;
   }
   const saveBudgetTotal = e.target.closest('[data-save-budget-total]');
   if(saveBudgetTotal){
     const v = safeEvalExpr(state.budgetTotalDraft);
     if(v!==null && v>0){
-      setPresupuestoTotalMensual(Math.round(v));
+      setMonthlyBudgetTotal(Math.round(v));
       state.editingBudgetTotal = false;
       toast('Presupuesto total actualizado');
-      renderPresupuestoView();
+      renderBudgetView();
     } else {
       toast('Pon un presupuesto total válido');
     }
     return;
   }
 
-  const editMetasGasto = e.target.closest('[data-edit-metas-gasto]');
+  const editMetasGasto = e.target.closest('[data-edit-spending-goals]');
   if(editMetasGasto){
-    state.editingMetasGasto = true;
-    state.metasGastoDraft = {fijo:String(METAS_GASTO_PCT.fijo), variable:String(METAS_GASTO_PCT.variable)};
-    renderPresupuestoView();
+    state.editingSpendingGoals = true;
+    state.spendingGoalsDraft = {fijo:String(SPENDING_GOAL_PCT.fijo), variable:String(SPENDING_GOAL_PCT.variable)};
+    renderBudgetView();
     return;
   }
-  const cancelMetasGasto = e.target.closest('[data-cancel-metas-gasto]');
+  const cancelMetasGasto = e.target.closest('[data-cancel-spending-goals]');
   if(cancelMetasGasto){
-    state.editingMetasGasto = false;
-    renderPresupuestoView();
+    state.editingSpendingGoals = false;
+    renderBudgetView();
     return;
   }
-  const saveMetasGasto = e.target.closest('[data-save-metas-gasto]');
+  const saveMetasGasto = e.target.closest('[data-save-spending-goals]');
   if(saveMetasGasto){
-    const fijo = safeEvalExpr(state.metasGastoDraft.fijo);
-    const variable = safeEvalExpr(state.metasGastoDraft.variable);
+    const fijo = safeEvalExpr(state.spendingGoalsDraft.fijo);
+    const variable = safeEvalExpr(state.spendingGoalsDraft.variable);
     if(fijo!==null && fijo>=0 && variable!==null && variable>=0){
-      METAS_GASTO_PCT.fijo = Math.round(fijo);
-      METAS_GASTO_PCT.variable = Math.round(variable);
-      state.editingMetasGasto = false;
+      SPENDING_GOAL_PCT.fijo = Math.round(fijo);
+      SPENDING_GOAL_PCT.variable = Math.round(variable);
+      state.editingSpendingGoals = false;
       toast('Metas actualizadas');
-      renderPresupuestoView();
+      renderBudgetView();
     } else {
       toast('Pon valores válidos para Fijo y Variable');
     }
     return;
   }
 
-  const editDatosTransferencia = e.target.closest('[data-edit-datos-transferencia]');
+  const editDatosTransferencia = e.target.closest('[data-edit-transfer-info]');
   if(editDatosTransferencia){
-    state.editingDatosTransferencia = true;
-    state.datosTransferenciaDraft = Object.assign({}, DATOS_TRANSFERENCIA);
+    state.editingTransferInfo = true;
+    state.transferInfoDraft = Object.assign({}, TRANSFER_INFO);
     renderMenuView();
     return;
   }
-  const cancelDatosTransferencia = e.target.closest('[data-cancel-datos-transferencia]');
+  const cancelDatosTransferencia = e.target.closest('[data-cancel-transfer-info]');
   if(cancelDatosTransferencia){
-    state.editingDatosTransferencia = false;
+    state.editingTransferInfo = false;
     renderMenuView();
     return;
   }
-  const saveDatosTransferencia = e.target.closest('[data-save-datos-transferencia]');
+  const saveDatosTransferencia = e.target.closest('[data-save-transfer-info]');
   if(saveDatosTransferencia){
-    setDATOS_TRANSFERENCIA(Object.assign({}, state.datosTransferenciaDraft));
-    Object.keys(DATOS_TRANSFERENCIA).forEach(k=>{ DATOS_TRANSFERENCIA[k] = (DATOS_TRANSFERENCIA[k]||'').trim(); });
-    state.editingDatosTransferencia = false;
+    setTransferInfo(Object.assign({}, state.transferInfoDraft));
+    Object.keys(TRANSFER_INFO).forEach(k=>{ TRANSFER_INFO[k] = (TRANSFER_INFO[k]||'').trim(); });
+    state.editingTransferInfo = false;
     toast('Datos de transferencia guardados');
     renderMenuView();
     return;
   }
 
-  const copyCobroBtn = e.target.closest('[data-copy-cobro]');
-  if(copyCobroBtn){
-    const t = getTx(copyCobroBtn.getAttribute('data-copy-cobro'));
-    const txt = t ? buildCobroWhatsAppText(t) : null;
+  const copyChargeBtn = e.target.closest('[data-copy-charge]');
+  if(copyChargeBtn){
+    const t = getTx(copyChargeBtn.getAttribute('data-copy-charge'));
+    const txt = t ? buildChargeWhatsAppText(t) : null;
     if(!txt){ toast('No hay cobros pendientes para copiar'); return; }
     if(navigator.clipboard && navigator.clipboard.writeText){
       navigator.clipboard.writeText(txt).then(function(){
-        toast(datosTransferenciaCompletos() ? 'Copiado — listo para pegar en WhatsApp' : 'Copiado — agrega tus datos de transferencia en Menú > Mi cuenta para incluirlos');
+        toast(transferInfoComplete() ? 'Copiado — listo para pegar en WhatsApp' : 'Copiado — agrega tus datos de transferencia en Menú > Mi cuenta para incluirlos');
       }).catch(function(){ toast('No se pudo copiar'); });
     } else {
       toast('No se pudo copiar');
@@ -468,99 +468,99 @@ phone.addEventListener('click', function(e: any){
 
   const evoMonthGroup = e.target.closest('[data-evo-month]');
   if(evoMonthGroup){
-    state.evoSelectedMonth = evoMonthGroup.getAttribute('data-evo-month');
-    renderEvolucionView();
+    state.evolutionSelectedMonth = evoMonthGroup.getAttribute('data-evo-month');
+    renderEvolutionView();
     return;
   }
-  const editMetaBtn = e.target.closest('[data-edit-meta]');
-  if(editMetaBtn){
-    const id = editMetaBtn.getAttribute('data-edit-meta');
-    const meta = METAS_INVERSION.find(m=>m.id===id);
-    state.editingMetaId = id;
-    state.metaDraft = meta
+  const editGoalBtn = e.target.closest('[data-edit-goal]');
+  if(editGoalBtn){
+    const id = editGoalBtn.getAttribute('data-edit-goal');
+    const meta = INVESTMENT_GOALS.find(m=>m.id===id);
+    state.editingGoalId = id;
+    state.goalDraft = meta
       ? {nombre:meta.nombre, montoObjetivo:String(meta.montoObjetivo), aporteMensualMeta:String(meta.aporteMensualMeta), plazo:meta.plazo||'', comision:meta.comision!=null?String(meta.comision):''}
       : {nombre:'', montoObjetivo:'', aporteMensualMeta:'', plazo:'', comision:''};
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
-  const addMetaBtn = e.target.closest('[data-add-meta]');
-  if(addMetaBtn){
-    state.editingMetaId = 'nueva';
-    state.addMetaPlataformaId = addMetaBtn.getAttribute('data-add-meta');
-    state.metaDraft = {nombre:'', montoObjetivo:'', aporteMensualMeta:'', plazo:'', comision:''};
-    renderInversionesView();
+  const addGoalBtn = e.target.closest('[data-add-goal]');
+  if(addGoalBtn){
+    state.editingGoalId = 'nueva';
+    state.addGoalPlatformId = addGoalBtn.getAttribute('data-add-goal');
+    state.goalDraft = {nombre:'', montoObjetivo:'', aporteMensualMeta:'', plazo:'', comision:''};
+    renderInvestmentsView();
     return;
   }
-  const cancelMetaEdit = e.target.closest('[data-cancel-meta-edit]');
+  const cancelMetaEdit = e.target.closest('[data-cancel-goal-edit]');
   if(cancelMetaEdit){
-    state.editingMetaId = null;
-    state.addMetaPlataformaId = null;
-    renderInversionesView();
+    state.editingGoalId = null;
+    state.addGoalPlatformId = null;
+    renderInvestmentsView();
     return;
   }
-  const saveMetaBtn = e.target.closest('[data-save-meta]');
-  if(saveMetaBtn){
-    const id = saveMetaBtn.getAttribute('data-save-meta');
-    const nombre = state.metaDraft.nombre.trim();
-    const objetivo = safeEvalExpr(state.metaDraft.montoObjetivo);
-    const aporte = safeEvalExpr(state.metaDraft.aporteMensualMeta);
-    const comisionRaw = state.metaDraft.comision.trim();
+  const saveGoalBtn = e.target.closest('[data-save-goal]');
+  if(saveGoalBtn){
+    const id = saveGoalBtn.getAttribute('data-save-goal');
+    const nombre = state.goalDraft.nombre.trim();
+    const objetivo = safeEvalExpr(state.goalDraft.montoObjetivo);
+    const aporte = safeEvalExpr(state.goalDraft.aporteMensualMeta);
+    const comisionRaw = state.goalDraft.comision.trim();
     const comisionVal = comisionRaw==='' ? null : safeEvalExpr(comisionRaw);
     const comisionFinal = (comisionRaw!=='' && comisionVal!==null) ? comisionVal : null;
     if(nombre && objetivo!==null && objetivo>0 && aporte!==null && aporte>=0){
       if(id==='nueva'){
-        setMetaIdCounter(metaIdCounter+1);
-        const newId = 'm'+metaIdCounter;
-        // Una meta nueva arranca su historial desde el mes actual — no se le inventan
-        // meses "incumplidos" hacia atrás, de antes de que existiera.
+        setGoalIdCounter(goalIdCounter+1);
+        const newId = 'm'+goalIdCounter;
+        // A new goal starts its history from the current month — no "missed" months are
+        // invented for it retroactively, from before it existed.
         const mesActual = todayISO().slice(0,7);
         const historial: Record<string, number> = {}; historial[mesActual] = 0;
         const checks: Record<string, boolean> = {}; checks[mesActual] = false;
-        METAS_INVERSION.push({id:newId, nombre, montoObjetivo:Math.round(objetivo), aporteMensualMeta:Math.round(aporte), plataformaId:state.addMetaPlataformaId, plazo:state.metaDraft.plazo||null, comision:comisionFinal, aportadoNeto:0, historial, checks});
+        INVESTMENT_GOALS.push({id:newId, nombre, montoObjetivo:Math.round(objetivo), aporteMensualMeta:Math.round(aporte), plataformaId:state.addGoalPlatformId, plazo:state.goalDraft.plazo||null, comision:comisionFinal, aportadoNeto:0, historial, checks});
         toast('Meta creada: '+nombre);
       } else {
-        const meta = METAS_INVERSION.find(m=>m.id===id);
-        if(meta){ meta.nombre = nombre; meta.montoObjetivo = Math.round(objetivo); meta.aporteMensualMeta = Math.round(aporte); meta.plazo = state.metaDraft.plazo||null; meta.comision = comisionFinal; }
+        const meta = INVESTMENT_GOALS.find(m=>m.id===id);
+        if(meta){ meta.nombre = nombre; meta.montoObjetivo = Math.round(objetivo); meta.aporteMensualMeta = Math.round(aporte); meta.plazo = state.goalDraft.plazo||null; meta.comision = comisionFinal; }
         toast('Meta actualizada');
       }
-      state.editingMetaId = null;
-      state.addMetaPlataformaId = null;
-      renderInversionesView();
+      state.editingGoalId = null;
+      state.addGoalPlatformId = null;
+      renderInvestmentsView();
     } else {
       toast('Completa nombre, objetivo y aporte meta válidos');
     }
     return;
   }
-  const deleteMetaBtn = e.target.closest('[data-delete-meta]');
-  if(deleteMetaBtn){
-    const id = deleteMetaBtn.getAttribute('data-delete-meta');
-    setMETAS_INVERSION(METAS_INVERSION.filter(m=>m.id!==id));
-    state.editingMetaId = null;
+  const deleteGoalBtn = e.target.closest('[data-delete-goal]');
+  if(deleteGoalBtn){
+    const id = deleteGoalBtn.getAttribute('data-delete-goal');
+    setInvestmentGoals(INVESTMENT_GOALS.filter(m=>m.id!==id));
+    state.editingGoalId = null;
     toast('Meta eliminada');
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
-  const toggleMetaCheck = e.target.closest('[data-toggle-meta-check]');
+  const toggleMetaCheck = e.target.closest('[data-toggle-goal-check]');
   if(toggleMetaCheck){
-    const id = toggleMetaCheck.getAttribute('data-toggle-meta-check');
-    const mk = toggleMetaCheck.getAttribute('data-toggle-meta-month');
-    const meta = METAS_INVERSION.find(m=>m.id===id);
-    if(meta){ meta.checks[mk] = !meta.checks[mk]; renderInversionesView(); }
+    const id = toggleMetaCheck.getAttribute('data-toggle-goal-check');
+    const mk = toggleMetaCheck.getAttribute('data-toggle-goal-month');
+    const meta = INVESTMENT_GOALS.find(m=>m.id===id);
+    if(meta){ meta.checks[mk] = !meta.checks[mk]; renderInvestmentsView(); }
     return;
   }
-  const toggleMetaTotalCheck = e.target.closest('[data-toggle-meta-total-check]');
+  const toggleMetaTotalCheck = e.target.closest('[data-toggle-goal-total-check]');
   if(toggleMetaTotalCheck){
-    const mk = toggleMetaTotalCheck.getAttribute('data-toggle-meta-total-check');
-    METAS_TOTAL_CHECKS[mk] = !METAS_TOTAL_CHECKS[mk];
-    renderInversionesView();
+    const mk = toggleMetaTotalCheck.getAttribute('data-toggle-goal-total-check');
+    TOTAL_GOAL_CHECKS[mk] = !TOTAL_GOAL_CHECKS[mk];
+    renderInvestmentsView();
     return;
   }
 
   const togglePlatformBtn = e.target.closest('[data-toggle-platform]');
   if(togglePlatformBtn){
     const id = togglePlatformBtn.getAttribute('data-toggle-platform');
-    state.platformAbierta = (state.platformAbierta===id) ? null : id;
-    renderInversionesView();
+    state.openPlatformId = (state.openPlatformId===id) ? null : id;
+    renderInvestmentsView();
     return;
   }
 
@@ -571,12 +571,12 @@ phone.addEventListener('click', function(e: any){
     state.confirmDeletePlatformId = null;
     state.confirmArchivePlatformId = null;
     state.platformDraft = {
-      valor: String(platformValorActual(id)),
-      tasaAnual: PLATAFORMA_DATA[id].tasaAnual!=null ? String(PLATAFORMA_DATA[id].tasaAnual) : '',
-      comision: PLATAFORMA_DATA[id].comision!=null ? String(PLATAFORMA_DATA[id].comision) : '',
-      plazo: PLATAFORMA_DATA[id].plazo || ''
+      valor: String(platformCurrentValue(id)),
+      tasaAnual: PLATFORM_DATA[id].tasaAnual!=null ? String(PLATFORM_DATA[id].tasaAnual) : '',
+      comision: PLATFORM_DATA[id].comision!=null ? String(PLATFORM_DATA[id].comision) : '',
+      plazo: PLATFORM_DATA[id].plazo || ''
     };
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
   const cancelPlatformEdit = e.target.closest('[data-cancel-platform-edit]');
@@ -584,7 +584,7 @@ phone.addEventListener('click', function(e: any){
     state.editingPlatformId = null;
     state.confirmDeletePlatformId = null;
     state.confirmArchivePlatformId = null;
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
   const savePlatformBtn = e.target.closest('[data-save-platform]');
@@ -597,14 +597,14 @@ phone.addEventListener('click', function(e: any){
     const comisionVal = comisionRaw==='' ? null : safeEvalExpr(comisionRaw);
     if(valor!==null && valor>=0){
       const mesActual = todayISO().slice(0,7);
-      PLATAFORMA_DATA[id].valorHistorial[mesActual] = Math.round(valor);
-      PLATAFORMA_DATA[id].fechaActualizacion = todayISO();
-      PLATAFORMA_DATA[id].tasaAnual = (tasaRaw!=='' && tasa!==null) ? tasa : null;
-      PLATAFORMA_DATA[id].comision = (comisionRaw!=='' && comisionVal!==null) ? comisionVal : null;
-      PLATAFORMA_DATA[id].plazo = state.platformDraft.plazo || null;
+      PLATFORM_DATA[id].valorHistorial[mesActual] = Math.round(valor);
+      PLATFORM_DATA[id].fechaActualizacion = todayISO();
+      PLATFORM_DATA[id].tasaAnual = (tasaRaw!=='' && tasa!==null) ? tasa : null;
+      PLATFORM_DATA[id].comision = (comisionRaw!=='' && comisionVal!==null) ? comisionVal : null;
+      PLATFORM_DATA[id].plazo = state.platformDraft.plazo || null;
       state.editingPlatformId = null;
       toast('Valor actualizado: '+catInfo(id).nombre);
-      renderInversionesView();
+      renderInvestmentsView();
     } else {
       toast('Pon un valor válido');
     }
@@ -613,63 +613,63 @@ phone.addEventListener('click', function(e: any){
   const deletePlatformBtn = e.target.closest('[data-delete-platform]');
   if(deletePlatformBtn){
     const id = deletePlatformBtn.getAttribute('data-delete-platform');
-    if(catEnUso(id)){ toast('No puedes eliminar una plataforma con transacciones'); return; }
-    if(metasForPlataforma(id).length>0){ toast('Elimina primero sus metas'); return; }
+    if(isCategoryInUse(id)){ toast('No puedes eliminar una plataforma con transacciones'); return; }
+    if(goalsForPlatform(id).length>0){ toast('Elimina primero sus metas'); return; }
     state.confirmDeletePlatformId = id;
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
   const cancelDeletePlatformBtn = e.target.closest('[data-cancel-delete-platform]');
   if(cancelDeletePlatformBtn){
     state.confirmDeletePlatformId = null;
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
   const confirmDeletePlatformBtn = e.target.closest('[data-confirm-delete-platform]');
   if(confirmDeletePlatformBtn){
     const id = confirmDeletePlatformBtn.getAttribute('data-confirm-delete-platform');
-    if(catEnUso(id)){ toast('No puedes eliminar una plataforma con transacciones'); return; }
-    if(metasForPlataforma(id).length>0){ toast('Elimina primero sus metas'); return; }
+    if(isCategoryInUse(id)){ toast('No puedes eliminar una plataforma con transacciones'); return; }
+    if(goalsForPlatform(id).length>0){ toast('Elimina primero sus metas'); return; }
     const nombre = catInfo(id).nombre;
-    delete CATS[id];          // esto también la saca de Menú > Categorías, que solo lista lo que hay en CATS
-    delete PLATAFORMA_DATA[id];
+    delete CATEGORIES[id];          // this also removes it from Menú > Categorías, which only lists what's in CATEGORIES
+    delete PLATFORM_DATA[id];
     state.editingPlatformId = null;
     state.confirmDeletePlatformId = null;
     toast('Plataforma eliminada: '+nombre);
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
   const archivePlatformBtn = e.target.closest('[data-archive-platform]');
   if(archivePlatformBtn){
     const id = archivePlatformBtn.getAttribute('data-archive-platform');
-    if(metasForPlataforma(id).length>0){ toast('Elimina primero sus metas'); return; }
+    if(goalsForPlatform(id).length>0){ toast('Elimina primero sus metas'); return; }
     state.confirmArchivePlatformId = id;
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
   const cancelArchivePlatformBtn = e.target.closest('[data-cancel-archive-platform]');
   if(cancelArchivePlatformBtn){
     state.confirmArchivePlatformId = null;
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
   const confirmArchivePlatformBtn = e.target.closest('[data-confirm-archive-platform]');
   if(confirmArchivePlatformBtn){
     const id = confirmArchivePlatformBtn.getAttribute('data-confirm-archive-platform');
-    if(metasForPlataforma(id).length>0){ toast('Elimina primero sus metas'); return; }
-    PLATAFORMA_DATA[id].archivada = true;
+    if(goalsForPlatform(id).length>0){ toast('Elimina primero sus metas'); return; }
+    PLATFORM_DATA[id].archivada = true;
     state.editingPlatformId = null;
     state.confirmArchivePlatformId = null;
     toast('Plataforma cerrada: '+catInfo(id).nombre);
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
   const reopenPlatformBtn = e.target.closest('[data-reopen-platform]');
   if(reopenPlatformBtn){
     const id = reopenPlatformBtn.getAttribute('data-reopen-platform');
-    PLATAFORMA_DATA[id].archivada = false;
+    PLATFORM_DATA[id].archivada = false;
     toast('Plataforma reabierta: '+catInfo(id).nombre);
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
 
@@ -677,19 +677,19 @@ phone.addEventListener('click', function(e: any){
   if(addPlatformBtn){
     state.creatingPlatform = true;
     state.newPlatformDraft = {nombre:'', icon:'bank', color:'butter', valor:'', plazo:''};
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
   const cancelNewPlatformBtn = e.target.closest('[data-cancel-newplatform]');
   if(cancelNewPlatformBtn){
     state.creatingPlatform = false;
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
   const newPlatformIconBtn = e.target.closest('[data-newplatform-icon]');
-  if(newPlatformIconBtn){ state.newPlatformDraft.icon = newPlatformIconBtn.getAttribute('data-newplatform-icon'); renderInversionesView(); return; }
+  if(newPlatformIconBtn){ state.newPlatformDraft.icon = newPlatformIconBtn.getAttribute('data-newplatform-icon'); renderInvestmentsView(); return; }
   const newPlatformColorBtn = e.target.closest('[data-newplatform-color]');
-  if(newPlatformColorBtn){ state.newPlatformDraft.color = newPlatformColorBtn.getAttribute('data-newplatform-color'); renderInversionesView(); return; }
+  if(newPlatformColorBtn){ state.newPlatformDraft.color = newPlatformColorBtn.getAttribute('data-newplatform-color'); renderInvestmentsView(); return; }
   const saveNewPlatformBtn = e.target.closest('[data-save-newplatform]');
   if(saveNewPlatformBtn){
     const d = state.newPlatformDraft;
@@ -697,22 +697,22 @@ phone.addEventListener('click', function(e: any){
     const valor = d.valor.trim()==='' ? 0 : safeEvalExpr(d.valor);
     if(valor===null || valor<0){ toast('Pon un valor válido (o déjalo en 0)'); return; }
     const id = 'plataforma_'+Date.now();
-    CATS[id] = {nombre:d.nombre.trim(), tipo:'inversion', color:d.color, icon:d.icon};
-    // se rellenan todos los meses ya existentes con el mismo valor inicial (línea plana antes de
-    // crearla) para no romper el gráfico compartido "Aportado vs. valor mes a mes", que solo
-    // grafica los meses donde TODAS las plataformas tienen dato.
+    CATEGORIES[id] = {nombre:d.nombre.trim(), tipo:'inversion', color:d.color, icon:d.icon};
+    // all existing months are filled in with the same initial value (a flat line before it was
+    // created) so as not to break the shared "Aportado vs. valor mes a mes" chart, which only
+    // graphs months where ALL platforms have data.
     const valorHistorial = {};
     MONTHS.forEach(m=>{ valorHistorial[m] = Math.round(valor); });
-    PLATAFORMA_DATA[id] = {valorHistorial, fechaActualizacion: todayISO(), tasaAnual:null, comision:null, plazo: d.plazo || null};
+    PLATFORM_DATA[id] = {valorHistorial, fechaActualizacion: todayISO(), tasaAnual:null, comision:null, plazo: d.plazo || null};
     state.creatingPlatform = false;
     toast('Plataforma agregada: '+d.nombre.trim());
-    renderInversionesView();
+    renderInvestmentsView();
     return;
   }
 
-  const platformVerMas = e.target.closest('[data-platform-vermas]');
+  const platformVerMas = e.target.closest('[data-platform-see-more]');
   if(platformVerMas){
-    const id = platformVerMas.getAttribute('data-platform-vermas');
+    const id = platformVerMas.getAttribute('data-platform-see-more');
     state.categoryFilter = id;
     state.categoryFilterMonth = null;
     state.filter = 'todas';
@@ -742,14 +742,14 @@ phone.addEventListener('click', function(e: any){
         else { t.estado='confirmado'; toast('Marcado como confirmado'); }
       }
       else if(act==='porcobrar_persona'){
-        if(tienePorCobrarTipo(t,'persona')){
-          // ya estaba marcada — apretar de nuevo la deselecciona (quita solo las filas de
-          // este tipo; si no queda ninguna cobranza/reembolso pendiente, vuelve a confirmado).
+        if(hasReceivableType(t,'persona')){
+          // it was already marked — pressing again deselects it (only removes the rows of
+          // this type; if no pending charge/reimbursement is left, it goes back to confirmado).
           t.porCobrar = t.porCobrar.filter(p=>p.tipo!=='persona');
-          if(t.porCobrar.length===0){ t.estado = t.categorias.length>0 ? 'confirmado' : 'pendiente'; state.splitCobroMode[t.id]=false; }
+          if(t.porCobrar.length===0){ t.estado = t.categorias.length>0 ? 'confirmado' : 'pendiente'; state.splitCollectMode[t.id]=false; }
           toast('Se quitó el cobro pendiente');
         } else {
-          t.estado='por_cobrar'; state.splitCobroMode[t.id]=true;
+          t.estado='por_cobrar'; state.splitCollectMode[t.id]=true;
           const already = t.porCobrar.reduce((s,p)=>s+(p.monto||0),0);
           const remaining = Math.max(t.monto - already, 0);
           t.porCobrar.push({persona:'', monto: Math.round(remaining/2), pagado:false, tipo:'persona', montoRecibido:null, linkedTxId:null});
@@ -757,12 +757,12 @@ phone.addEventListener('click', function(e: any){
         }
       }
       else if(act==='porcobrar_reembolso'){
-        if(tienePorCobrarTipo(t,'reembolso')){
+        if(hasReceivableType(t,'reembolso')){
           t.porCobrar = t.porCobrar.filter(p=>p.tipo!=='reembolso');
-          if(t.porCobrar.length===0){ t.estado = t.categorias.length>0 ? 'confirmado' : 'pendiente'; state.splitCobroMode[t.id]=false; }
+          if(t.porCobrar.length===0){ t.estado = t.categorias.length>0 ? 'confirmado' : 'pendiente'; state.splitCollectMode[t.id]=false; }
           toast('Se quitó el reembolso pendiente');
         } else {
-          t.estado='por_cobrar'; state.splitCobroMode[t.id]=true;
+          t.estado='por_cobrar'; state.splitCollectMode[t.id]=true;
           t.porCobrar.push({persona:'', monto:null, pagado:false, tipo:'reembolso', montoRecibido:null, linkedTxId:null});
           toast('Marcado como reembolso pendiente');
         }
@@ -783,23 +783,23 @@ phone.addEventListener('click', function(e: any){
   const toggleCatSplit = e.target.closest('[data-toggle-catsplit]');
   if(toggleCatSplit){
     const id = toggleCatSplit.getAttribute('data-toggle-catsplit');
-    state.splitCatMode[id]=true;
+    state.splitCategoryMode[id]=true;
     renderSheet();
     return;
   }
   const catUnitBtn = e.target.closest('[data-catunit]');
   if(catUnitBtn){
-    state.splitCatUnit[state.openTxId] = catUnitBtn.getAttribute('data-catunit');
+    state.splitCategoryUnit[state.openTxId] = catUnitBtn.getAttribute('data-catunit');
     renderSheet();
     return;
   }
-  const addCatRow = e.target.closest('[data-add-catrow]');
+  const addCatRow = e.target.closest('[data-add-cat-row]');
   if(addCatRow){
-    const t = getTx(addCatRow.getAttribute('data-add-catrow'));
+    const t = getTx(addCatRow.getAttribute('data-add-cat-row'));
     if(t){
       const usedCats = t.categorias.map(c=>c.cat);
-      const pool = Object.keys(CATS).filter(k=>CATS[k].tipo===t.tipo && !usedCats.includes(k));
-      const nextCat = pool[0] || Object.keys(CATS).find(k=>CATS[k].tipo===t.tipo);
+      const pool = Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo===t.tipo && !usedCats.includes(k));
+      const nextCat = pool[0] || Object.keys(CATEGORIES).find(k=>CATEGORIES[k].tipo===t.tipo);
       t.categorias.push({cat:nextCat, monto:0});
       renderSheet();
     }
@@ -818,15 +818,15 @@ phone.addEventListener('click', function(e: any){
     return;
   }
 
-  const toggleCobroSplit = e.target.closest('[data-toggle-cobrosplit]');
+  const toggleCobroSplit = e.target.closest('[data-toggle-chargesplit]');
   if(toggleCobroSplit){
-    state.splitCobroMode[toggleCobroSplit.getAttribute('data-toggle-cobrosplit')] = true;
+    state.splitCollectMode[toggleCobroSplit.getAttribute('data-toggle-chargesplit')] = true;
     renderSheet();
     return;
   }
-  const cobroUnitBtn = e.target.closest('[data-cobrounit]');
-  if(cobroUnitBtn){
-    state.splitCobroUnit[state.openTxId] = cobroUnitBtn.getAttribute('data-cobrounit');
+  const chargeUnitBtn = e.target.closest('[data-chargeunit]');
+  if(chargeUnitBtn){
+    state.splitCollectUnit[state.openTxId] = chargeUnitBtn.getAttribute('data-chargeunit');
     renderSheet();
     return;
   }
@@ -840,14 +840,14 @@ phone.addEventListener('click', function(e: any){
       const share = t.porCobrar.length===0 ? Math.round(remaining/2) : Math.round(remaining/2);
       t.porCobrar.push({persona:name, monto: share, pagado:false, tipo:'persona', montoRecibido:null, linkedTxId:null});
       if(t.estado!=='por_cobrar'){ t.estado='por_cobrar'; }
-      state.splitCobroMode[t.id]=true;
+      state.splitCollectMode[t.id]=true;
       renderSheet(); renderIfListVisible();
     }
     return;
   }
-  const addCobroRow = e.target.closest('[data-add-cobrorow]');
-  if(addCobroRow){
-    const t = getTx(addCobroRow.getAttribute('data-add-cobrorow'));
+  const addChargeRow = e.target.closest('[data-add-charge-row]');
+  if(addChargeRow){
+    const t = getTx(addChargeRow.getAttribute('data-add-charge-row'));
     if(t){
       const already = t.porCobrar.reduce((s,p)=>s+(p.monto||0),0);
       const remaining = Math.max(t.monto - already, 0);
@@ -856,43 +856,43 @@ phone.addEventListener('click', function(e: any){
     }
     return;
   }
-  const addReembolsoRow = e.target.closest('[data-add-reembolsorow]');
-  if(addReembolsoRow){
-    const t = getTx(addReembolsoRow.getAttribute('data-add-reembolsorow'));
+  const addReimbursementRow = e.target.closest('[data-add-reimbursement-row]');
+  if(addReimbursementRow){
+    const t = getTx(addReimbursementRow.getAttribute('data-add-reimbursement-row'));
     if(t){
       t.porCobrar.push({persona:'', monto:null, pagado:false, tipo:'reembolso', montoRecibido:null, linkedTxId:null});
       if(t.estado!=='por_cobrar'){ t.estado='por_cobrar'; }
-      state.splitCobroMode[t.id]=true;
+      state.splitCollectMode[t.id]=true;
       renderSheet(); renderIfListVisible();
     }
     return;
   }
-  const linkPendienteBtn = e.target.closest('[data-link-pendiente]');
-  if(linkPendienteBtn){
-    const idx = parseInt(linkPendienteBtn.getAttribute('data-link-pendiente'),10);
-    openLinkFromPendiente(state.openTxId, idx);
+  const linkPendingBtn = e.target.closest('[data-link-pending]');
+  if(linkPendingBtn){
+    const idx = parseInt(linkPendingBtn.getAttribute('data-link-pending'),10);
+    openLinkFromPending(state.openTxId, idx);
     return;
   }
-  const darPorPerdidaBtn = e.target.closest('[data-dar-por-perdida]');
-  if(darPorPerdidaBtn){
-    const idx = parseInt(darPorPerdidaBtn.getAttribute('data-dar-por-perdida'),10);
-    if(darPorPerdida(state.openTxId, idx)){
+  const writeOffBtn = e.target.closest('[data-write-off]');
+  if(writeOffBtn){
+    const idx = parseInt(writeOffBtn.getAttribute('data-write-off'),10);
+    if(writeOffReceivable(state.openTxId, idx)){
       toast('Registrada como gasto de este mes');
       renderSheet(); renderIfListVisible();
     }
     return;
   }
-  const openLinkIngresoBtn = e.target.closest('[data-open-link-ingreso]');
-  if(openLinkIngresoBtn){
-    openLinkFromIngreso(openLinkIngresoBtn.getAttribute('data-open-link-ingreso'));
+  const openLinkIncomeBtn = e.target.closest('[data-open-link-income]');
+  if(openLinkIncomeBtn){
+    openLinkFromIncome(openLinkIncomeBtn.getAttribute('data-open-link-income'));
     return;
   }
-  const unlinkPendienteBtn = e.target.closest('[data-unlink-ingreso]');
-  if(unlinkPendienteBtn){
-    const ingresoId = unlinkPendienteBtn.getAttribute('data-unlink-ingreso');
-    const found = pendienteVinculadaA(ingresoId);
+  const unlinkPendingBtn = e.target.closest('[data-unlink-income]');
+  if(unlinkPendingBtn){
+    const ingresoId = unlinkPendingBtn.getAttribute('data-unlink-income');
+    const found = pendingLinkedTo(ingresoId);
     if(found){
-      const gastoTx = getTx(found.gastoTxId);
+      const gastoTx = getTx(found.expenseTxId);
       const p = gastoTx.porCobrar[found.idx];
       p.pagado = false; p.montoRecibido = null; p.linkedTxId = null;
       toast('Vínculo eliminado');
@@ -900,78 +900,78 @@ phone.addEventListener('click', function(e: any){
     }
     return;
   }
-  const pickIngresoBtn = e.target.closest('[data-pick-ingreso]');
-  if(pickIngresoBtn && state.linkFlow && state.linkFlow.mode==='fromPendiente'){
-    const ingresoId = pickIngresoBtn.getAttribute('data-pick-ingreso');
-    const {gastoTxId, idx} = state.linkFlow;
-    if(resolvePendiente(gastoTxId, idx, ingresoId)){
+  const pickIncomeBtn = e.target.closest('[data-pick-income]');
+  if(pickIncomeBtn && state.linkFlow && state.linkFlow.mode==='fromPendiente'){
+    const ingresoId = pickIncomeBtn.getAttribute('data-pick-income');
+    const {expenseTxId, idx} = state.linkFlow;
+    if(resolvePending(expenseTxId, idx, ingresoId)){
       state.linkFlow = null;
       toast('Depósito vinculado');
-      openSheet(gastoTxId);
+      openSheet(expenseTxId);
       renderIfListVisible();
     }
     return;
   }
-  const pickPendienteBtn = e.target.closest('[data-pick-pendiente]');
-  if(pickPendienteBtn && state.linkFlow && state.linkFlow.mode==='fromIngreso'){
-    const [gastoTxId, idxStr] = pickPendienteBtn.getAttribute('data-pick-pendiente').split('|');
+  const pickPendingBtn = e.target.closest('[data-pick-pending]');
+  if(pickPendingBtn && state.linkFlow && state.linkFlow.mode==='fromIngreso'){
+    const [expenseTxId, idxStr] = pickPendingBtn.getAttribute('data-pick-pending').split('|');
     const idx = parseInt(idxStr,10);
-    const ingresoTxId = state.linkFlow.ingresoTxId;
-    if(resolvePendiente(gastoTxId, idx, ingresoTxId)){
+    const incomeTxId = state.linkFlow.incomeTxId;
+    if(resolvePending(expenseTxId, idx, incomeTxId)){
       state.linkFlow = null;
       toast('Pendiente vinculado');
-      openSheet(ingresoTxId);
+      openSheet(incomeTxId);
       renderIfListVisible();
     }
     return;
   }
-  const rmCobroRow = e.target.closest('[data-cobro-remove]');
-  if(rmCobroRow){
+  const rmChargeRow = e.target.closest('[data-charge-remove]');
+  if(rmChargeRow){
     const t = getTx(state.openTxId);
-    const idx = parseInt(rmCobroRow.getAttribute('data-cobro-remove'),10);
+    const idx = parseInt(rmChargeRow.getAttribute('data-charge-remove'),10);
     if(t){ t.porCobrar.splice(idx,1); renderSheet(); renderIfListVisible(); }
     return;
   }
 
-  /* ---------- Dividir boleta con amigos (simulado) ---------- */
-  const openBoletaBtn = e.target.closest('[data-open-boleta]');
-  if(openBoletaBtn){ openBoletaFlow(openBoletaBtn.getAttribute('data-open-boleta')); return; }
-  const boletaCaptureBtn = e.target.closest('[data-boleta-capture]');
-  if(boletaCaptureBtn && state.boleta){
+  /* ---------- Split receipt with friends (simulated) ---------- */
+  const openReceiptBtn = e.target.closest('[data-open-receipt]');
+  if(openReceiptBtn){ openReceiptFlow(openReceiptBtn.getAttribute('data-open-receipt')); return; }
+  const receiptCaptureBtn = e.target.closest('[data-receipt-capture]');
+  if(receiptCaptureBtn && state.boleta){
     state.boleta.step = 'procesando';
     renderSheet();
     setTimeout(function(){
-      if(!state.boleta || state.boleta.step!=='procesando') return; // el sheet pudo cerrarse mientras "procesaba"
-      // el nombre del comercio ya lo sabemos (es el de la transacción real) — de la "foto" solo tomamos los items
-      const ejemplo = BOLETA_EJEMPLOS[Math.floor(Math.random()*BOLETA_EJEMPLOS.length)];
-      state.boleta.items = ejemplo.items.map(function(it){ return {id: nextBoletaItemId(), nombre: it.nombre, monto: it.monto}; });
+      if(!state.boleta || state.boleta.step!=='procesando') return; // the sheet may have closed while "processing"
+      // we already know the merchant name (it's the real transaction's) — from the "photo" we only take the items
+      const ejemplo = RECEIPT_EXAMPLES[Math.floor(Math.random()*RECEIPT_EXAMPLES.length)];
+      state.boleta.items = ejemplo.items.map(function(it){ return {id: nextReceiptItemId(), nombre: it.nombre, monto: it.monto}; });
       state.boleta.step = 'items';
       renderSheet();
     }, 900);
     return;
   }
-  const boletaItemRemoveBtn = e.target.closest('[data-boleta-item-remove]');
-  if(boletaItemRemoveBtn && state.boleta){
-    const idx = parseInt(boletaItemRemoveBtn.getAttribute('data-boleta-item-remove'),10);
+  const receiptItemRemoveBtn = e.target.closest('[data-receipt-item-remove]');
+  if(receiptItemRemoveBtn && state.boleta){
+    const idx = parseInt(receiptItemRemoveBtn.getAttribute('data-receipt-item-remove'),10);
     state.boleta.items.splice(idx,1);
     renderSheet();
     return;
   }
-  const boletaAddItemBtn = e.target.closest('[data-boleta-add-item]');
-  if(boletaAddItemBtn && state.boleta){
-    state.boleta.items.push({id: nextBoletaItemId(), nombre:'', monto:0});
+  const receiptAddItemBtn = e.target.closest('[data-receipt-add-item]');
+  if(receiptAddItemBtn && state.boleta){
+    state.boleta.items.push({id: nextReceiptItemId(), nombre:'', monto:0});
     renderSheet();
     return;
   }
-  const boletaGotoBtn = e.target.closest('[data-boleta-goto]');
-  if(boletaGotoBtn && state.boleta){
-    state.boleta.step = boletaGotoBtn.getAttribute('data-boleta-goto');
+  const receiptGotoBtn = e.target.closest('[data-receipt-goto]');
+  if(receiptGotoBtn && state.boleta){
+    state.boleta.step = receiptGotoBtn.getAttribute('data-receipt-goto');
     renderSheet();
     return;
   }
-  const boletaTogglePersonBtn = e.target.closest('[data-boleta-toggle-person]');
-  if(boletaTogglePersonBtn && state.boleta){
-    const [itemIdStr, persona] = boletaTogglePersonBtn.getAttribute('data-boleta-toggle-person').split('|');
+  const receiptTogglePersonBtn = e.target.closest('[data-receipt-toggle-person]');
+  if(receiptTogglePersonBtn && state.boleta){
+    const [itemIdStr, persona] = receiptTogglePersonBtn.getAttribute('data-receipt-toggle-person').split('|');
     const itemId = parseInt(itemIdStr,10);
     const asign = state.boleta.asign;
     const list = asign[itemId] || (asign[itemId] = []);
@@ -980,35 +980,35 @@ phone.addEventListener('click', function(e: any){
     renderSheet();
     return;
   }
-  const boletaGuardarBtn = e.target.closest('[data-boleta-guardar]');
-  if(boletaGuardarBtn && state.boleta){ guardarBoleta(); return; }
-  const boletaPropinaUnitBtn = e.target.closest('[data-boleta-propina-unit]');
-  if(boletaPropinaUnitBtn && state.boleta){
-    state.boleta.propinaUnit = boletaPropinaUnitBtn.getAttribute('data-boleta-propina-unit');
-    state.boleta.propinaValor = ''; // cambiar de % a $ (o viceversa) parte de cero para no confundir unidades
+  const receiptSaveBtn = e.target.closest('[data-receipt-save]');
+  if(receiptSaveBtn && state.boleta){ saveReceipt(); return; }
+  const receiptTipUnitBtn = e.target.closest('[data-receipt-tip-unit]');
+  if(receiptTipUnitBtn && state.boleta){
+    state.boleta.propinaUnit = receiptTipUnitBtn.getAttribute('data-receipt-tip-unit');
+    state.boleta.propinaValor = ''; // switching from % to $ (or vice versa) starts at zero to avoid confusing units
     renderSheet();
     return;
   }
-  const boletaPropinaQuickBtn = e.target.closest('[data-boleta-propina-quick]');
-  if(boletaPropinaQuickBtn && state.boleta){
+  const receiptTipQuickBtn = e.target.closest('[data-receipt-tip-quick]');
+  if(receiptTipQuickBtn && state.boleta){
     state.boleta.propinaUnit = '%';
-    state.boleta.propinaValor = boletaPropinaQuickBtn.getAttribute('data-boleta-propina-quick');
+    state.boleta.propinaValor = receiptTipQuickBtn.getAttribute('data-receipt-tip-quick');
     renderSheet();
     return;
   }
 
-  /* ---------- Menú (Fase 4) ---------- */
+  /* ---------- Menu (Phase 4) ---------- */
   const menuOpenBtn = e.target.closest('[data-menu-open]');
   if(menuOpenBtn){
     state.menuSection = menuOpenBtn.getAttribute('data-menu-open');
-    if(state.menuSection==='importarcorreo' && !state.importCorreoLoaded){
-      state.importCorreoLoading = true;
+    if(state.menuSection==='importarcorreo' && !state.emailImportLoaded){
+      state.emailImportLoading = true;
       renderMenuView();
-      loadImportCorreoScreen();
+      loadEmailImportScreen();
       return;
     }
     if(state.menuSection==='reconciliar' && !state.reconciliar.movimientos.length){
-      cargarCartolasDisponibles();
+      loadAvailableStatements();
     }
     if(state.menuSection==='notificaciones' && !state.notifLoaded){
       loadNotifStatus();
@@ -1019,178 +1019,178 @@ phone.addEventListener('click', function(e: any){
   }
   const notifToggleBtn = e.target.closest('[data-notif-toggle]');
   if(notifToggleBtn){
-    if(state.notifSubscribed) desactivarNotificaciones(); else activarNotificaciones();
+    if(state.notifSubscribed) disableNotifications(); else enableNotifications();
     return;
   }
   const notifTestBtn = e.target.closest('[data-notif-test]');
   if(notifTestBtn){
-    enviarPushPrueba();
+    sendTestPush();
     return;
   }
   const menuBackBtn = e.target.closest('[data-menu-back]');
   if(menuBackBtn){
     state.menuSection = null;
-    state.editingCatId = null;
-    state.editingMedioId = null;
+    state.editingCategoryId = null;
+    state.editingPaymentMethodId = null;
     renderMenuView();
     return;
   }
 
-  /* ---- Grupos (gastos compartidos) ---- */
-  const grupoBackBtn = e.target.closest('[data-grupo-back]');
-  if(grupoBackBtn){
-    state.grupoAbiertoId = null; state.agregandoParticipante = false;
-    renderGruposView();
+  /* ---- Groups (shared expenses) ---- */
+  const groupBackBtn = e.target.closest('[data-group-back]');
+  if(groupBackBtn){
+    state.openGroupId = null; state.addingParticipant = false;
+    renderGroupsView();
     return;
   }
-  const grupoAbrirBtn = e.target.closest('[data-grupo-abrir]');
-  if(grupoAbrirBtn){
-    state.grupoAbiertoId = grupoAbrirBtn.getAttribute('data-grupo-abrir');
-    renderGruposView();
+  const groupOpenBtn = e.target.closest('[data-group-open]');
+  if(groupOpenBtn){
+    state.openGroupId = groupOpenBtn.getAttribute('data-group-open');
+    renderGroupsView();
     return;
   }
-  const grupoCrearAbrirBtn = e.target.closest('[data-grupo-crear-abrir]');
-  if(grupoCrearAbrirBtn){
-    state.creandoGrupo = true; state.grupoDraft = {nombre:'', icono:'👥'};
-    renderGruposView();
+  const groupCreateOpenBtn = e.target.closest('[data-group-create-open]');
+  if(groupCreateOpenBtn){
+    state.creatingGroup = true; state.groupDraft = {nombre:'', icono:'👥'};
+    renderGroupsView();
     return;
   }
-  const grupoCrearCancelarBtn = e.target.closest('[data-grupo-crear-cancelar]');
-  if(grupoCrearCancelarBtn){
-    state.creandoGrupo = false;
-    renderGruposView();
+  const groupCreateCancelBtn = e.target.closest('[data-group-create-cancel]');
+  if(groupCreateCancelBtn){
+    state.creatingGroup = false;
+    renderGroupsView();
     return;
   }
-  const grupoDraftIconBtn = e.target.closest('[data-grupo-draft-icon]');
-  if(grupoDraftIconBtn){
-    state.grupoDraft.icono = grupoDraftIconBtn.getAttribute('data-grupo-draft-icon');
-    renderGruposView();
+  const groupDraftIconBtn = e.target.closest('[data-group-draft-icon]');
+  if(groupDraftIconBtn){
+    state.groupDraft.icono = groupDraftIconBtn.getAttribute('data-group-draft-icon');
+    renderGroupsView();
     return;
   }
-  const grupoCrearConfirmarBtn = e.target.closest('[data-grupo-crear-confirmar]');
-  if(grupoCrearConfirmarBtn){
-    const d = state.grupoDraft;
+  const groupCreateConfirmBtn = e.target.closest('[data-group-create-confirm]');
+  if(groupCreateConfirmBtn){
+    const d = state.groupDraft;
     if(d.nombre.trim()){
-      crearGrupo(d.nombre.trim(), d.icono).then(function(res){
-        state.creandoGrupo = false;
+      createGroup(d.nombre.trim(), d.icono).then(function(res){
+        state.creatingGroup = false;
         toast(res.data ? 'Grupo "'+res.data.nombre+'" creado' : 'No se pudo crear el grupo — ' + (res.error ? res.error.message : 'revisa tu conexión'));
-        renderGruposView();
+        renderGroupsView();
       });
     }
     return;
   }
-  const grupoUnirseAbrirBtn = e.target.closest('[data-grupo-unirse-abrir]');
-  if(grupoUnirseAbrirBtn){
-    state.uniendoAGrupo = true; state.joinDraft = {inviteCode:'', nombre:''};
-    renderGruposView();
+  const groupJoinOpenBtn = e.target.closest('[data-group-join-open]');
+  if(groupJoinOpenBtn){
+    state.joiningGroup = true; state.joinDraft = {inviteCode:'', nombre:''};
+    renderGroupsView();
     return;
   }
-  const grupoUnirseCancelarBtn = e.target.closest('[data-grupo-unirse-cancelar]');
-  if(grupoUnirseCancelarBtn){
-    state.uniendoAGrupo = false;
-    renderGruposView();
+  const groupJoinCancelBtn = e.target.closest('[data-group-join-cancel]');
+  if(groupJoinCancelBtn){
+    state.joiningGroup = false;
+    renderGroupsView();
     return;
   }
-  const grupoUnirseConfirmarBtn = e.target.closest('[data-grupo-unirse-confirmar]');
-  if(grupoUnirseConfirmarBtn){
+  const groupJoinConfirmBtn = e.target.closest('[data-group-join-confirm]');
+  if(groupJoinConfirmBtn){
     const d = state.joinDraft;
     if(d.inviteCode.trim() && d.nombre.trim()){
-      unirseAGrupo(d.inviteCode.trim(), d.nombre.trim()).then(function(ok){
-        state.uniendoAGrupo = false;
+      joinGroup(d.inviteCode.trim(), d.nombre.trim()).then(function(ok){
+        state.joiningGroup = false;
         toast(ok ? 'Te uniste al grupo' : 'No se pudo unir — revisa el código');
-        renderGruposView();
+        renderGroupsView();
       });
     }
     return;
   }
-  const grupoAgregarParticipanteAbrirBtn = e.target.closest('[data-grupo-agregar-participante-abrir]');
-  if(grupoAgregarParticipanteAbrirBtn){
-    state.agregandoParticipante = true; state.participanteDraft = {nombre:''};
-    renderGruposView();
+  const groupAddParticipantOpenBtn = e.target.closest('[data-group-add-participant-open]');
+  if(groupAddParticipantOpenBtn){
+    state.addingParticipant = true; state.participantDraft = {nombre:''};
+    renderGroupsView();
     return;
   }
-  const grupoAgregarParticipanteCancelarBtn = e.target.closest('[data-grupo-agregar-participante-cancelar]');
-  if(grupoAgregarParticipanteCancelarBtn){
-    state.agregandoParticipante = false;
-    renderGruposView();
+  const groupAddParticipantCancelBtn = e.target.closest('[data-group-add-participant-cancel]');
+  if(groupAddParticipantCancelBtn){
+    state.addingParticipant = false;
+    renderGroupsView();
     return;
   }
-  const grupoAgregarParticipanteConfirmarBtn = e.target.closest('[data-grupo-agregar-participante-confirmar]');
-  if(grupoAgregarParticipanteConfirmarBtn){
-    const gid = grupoAgregarParticipanteConfirmarBtn.getAttribute('data-grupo-agregar-participante-confirmar');
-    const nombre = state.participanteDraft.nombre.trim();
+  const groupAddParticipantConfirmBtn = e.target.closest('[data-group-add-participant-confirm]');
+  if(groupAddParticipantConfirmBtn){
+    const gid = groupAddParticipantConfirmBtn.getAttribute('data-group-add-participant-confirm');
+    const nombre = state.participantDraft.nombre.trim();
     if(nombre){
-      agregarParticipanteSinCuenta(gid, nombre, 'peach').then(function(p){
-        state.agregandoParticipante = false;
+      addParticipantWithoutAccount(gid, nombre, 'peach').then(function(p){
+        state.addingParticipant = false;
         toast(p ? p.nombre+' se agregó al grupo' : 'No se pudo agregar — revisa tu conexión');
-        renderGruposView();
+        renderGroupsView();
       });
     }
     return;
   }
-  const grupoSaldarBtn = e.target.closest('[data-grupo-saldar]');
-  if(grupoSaldarBtn){
-    const [gid, otroId] = grupoSaldarBtn.getAttribute('data-grupo-saldar').split('|');
-    const mi = miParticipanteEnGrupo(gid);
+  const groupSettleBtn = e.target.closest('[data-group-settle]');
+  if(groupSettleBtn){
+    const [gid, otroId] = groupSettleBtn.getAttribute('data-group-settle').split('|');
+    const mi = myParticipantInGroup(gid);
     if(mi){
-      const saldos = saldoGrupo(gid);
-      const miSaldo = (saldos.find(s=>s.participanteId===mi.id)||{saldo:0}).saldo;
-      const suSaldo = (saldos.find(s=>s.participanteId===otroId)||{saldo:0}).saldo;
+      const saldos = groupBalances(gid);
+      const miSaldo = (saldos.find(s=>s.participantId===mi.id)||{balance:0}).balance;
+      const suSaldo = (saldos.find(s=>s.participantId===otroId)||{balance:0}).balance;
       const monto = Math.min(Math.abs(miSaldo), Math.abs(suSaldo));
       if(monto>0){
-        const promesa = (miSaldo<0 && suSaldo>0) ? registrarSaldoPagado(gid, mi.id, otroId, monto)
-          : (miSaldo>0 && suSaldo<0) ? registrarSaldoPagado(gid, otroId, mi.id, monto) : Promise.resolve(false);
-        promesa.then(function(ok){ toast(ok?'Cuenta saldada':'No se pudo registrar el saldo'); renderGruposView(); });
+        const promesa = (miSaldo<0 && suSaldo>0) ? registerPaidBalance(gid, mi.id, otroId, monto)
+          : (miSaldo>0 && suSaldo<0) ? registerPaidBalance(gid, otroId, mi.id, monto) : Promise.resolve(false);
+        promesa.then(function(ok){ toast(ok?'Cuenta saldada':'No se pudo registrar el saldo'); renderGroupsView(); });
       }
     }
     return;
   }
-  const grupoCrearGastoAbrirBtn = e.target.closest('[data-grupo-crear-gasto-abrir]');
-  if(grupoCrearGastoAbrirBtn){
-    // Abre la misma hoja de "nueva transacción" del + de Transacciones -- al guardar,
-    // saveDraftTx() ve este flag y en vez de cerrar la hoja deja la transacción recién creada
-    // abierta en su detalle, lista para completar el reparto (ver el handler de data-save-draft).
-    state.crearGastoDesdeGrupoId = grupoCrearGastoAbrirBtn.getAttribute('data-grupo-crear-gasto-abrir');
+  const groupCreateExpenseOpenBtn = e.target.closest('[data-group-create-expense-open]');
+  if(groupCreateExpenseOpenBtn){
+    // Opens the same "new transaction" sheet as the + on Transacciones -- on save,
+    // saveDraftTx() sees this flag and instead of closing the sheet leaves the newly created
+    // transaction open on its detail, ready to complete the split (see the data-save-draft handler).
+    state.createExpenseFromGroupId = groupCreateExpenseOpenBtn.getAttribute('data-group-create-expense-open');
     openNewTxSheet('gasto');
     return;
   }
-  const askDeleteGrupoBtn = e.target.closest('[data-ask-delete-grupo]');
-  if(askDeleteGrupoBtn){ state.confirmDeleteGrupoId = askDeleteGrupoBtn.getAttribute('data-ask-delete-grupo'); renderGruposView(); return; }
-  const cancelDeleteGrupoBtn = e.target.closest('[data-cancel-delete-grupo]');
-  if(cancelDeleteGrupoBtn){ state.confirmDeleteGrupoId = null; renderGruposView(); return; }
-  const confirmDeleteGrupoBtn = e.target.closest('[data-confirm-delete-grupo]');
-  if(confirmDeleteGrupoBtn){
-    const gid = confirmDeleteGrupoBtn.getAttribute('data-confirm-delete-grupo');
-    eliminarGrupo(gid).then(function(ok){
-      state.confirmDeleteGrupoId = null;
-      if(ok){ state.grupoAbiertoId = null; toast('Grupo eliminado'); }
+  const askDeleteGroupBtn = e.target.closest('[data-ask-delete-group]');
+  if(askDeleteGroupBtn){ state.confirmDeleteGroupId = askDeleteGroupBtn.getAttribute('data-ask-delete-group'); renderGroupsView(); return; }
+  const cancelDeleteGroupBtn = e.target.closest('[data-cancel-delete-group]');
+  if(cancelDeleteGroupBtn){ state.confirmDeleteGroupId = null; renderGroupsView(); return; }
+  const confirmDeleteGroupBtn = e.target.closest('[data-confirm-delete-group]');
+  if(confirmDeleteGroupBtn){
+    const gid = confirmDeleteGroupBtn.getAttribute('data-confirm-delete-group');
+    deleteGroup(gid).then(function(ok){
+      state.confirmDeleteGroupId = null;
+      if(ok){ state.openGroupId = null; toast('Grupo eliminado'); }
       else toast('No se pudo eliminar el grupo — revisa tu conexión');
-      renderGruposView();
+      renderGroupsView();
     });
     return;
   }
-  const compartirAbrirBtn = e.target.closest('[data-compartir-abrir]');
-  if(compartirAbrirBtn){
-    const txId = compartirAbrirBtn.getAttribute('data-compartir-abrir');
-    state.compartirDraft = defaultCompartirDraft(txId);
+  const shareOpenBtn = e.target.closest('[data-share-open]');
+  if(shareOpenBtn){
+    const txId = shareOpenBtn.getAttribute('data-share-open');
+    state.shareDraft = defaultShareDraft(txId);
     renderSheet();
     return;
   }
-  const compartirCancelarBtn = e.target.closest('[data-compartir-cancelar]');
-  if(compartirCancelarBtn){
-    state.compartirDraft = null;
+  const shareCancelBtn = e.target.closest('[data-share-cancel]');
+  if(shareCancelBtn){
+    state.shareDraft = null;
     renderSheet();
     return;
   }
-  const compartirConfirmarBtn = e.target.closest('[data-compartir-confirmar]');
-  if(compartirConfirmarBtn){
-    const txId = compartirConfirmarBtn.getAttribute('data-compartir-confirmar');
-    const d = state.compartirDraft;
-    if(d && d.txId===txId && d.grupoId && d.pagadoPorId && d.participantesIncluidos.length>0){
+  const shareConfirmBtn = e.target.closest('[data-share-confirm]');
+  if(shareConfirmBtn){
+    const txId = shareConfirmBtn.getAttribute('data-share-confirm');
+    const d = state.shareDraft;
+    if(d && d.txId===txId && d.groupId && d.pagadoPorId && d.participantesIncluidos.length>0){
       const t = getTx(txId);
-      const reparto = repartirIguales(t ? t.monto : 0, d.participantesIncluidos);
-      compartirTransaccionExistente(txId, d.grupoId, d.pagadoPorId, 'iguales', reparto).then(function(gasto){
-        state.compartirDraft = null;
+      const reparto = splitEqually(t ? t.monto : 0, d.participantesIncluidos);
+      shareExistingTransaction(txId, d.groupId, d.pagadoPorId, 'iguales', reparto).then(function(gasto){
+        state.shareDraft = null;
         toast(gasto ? 'Gasto compartido' : 'No se pudo compartir — revisa tu conexión');
         render();
       });
@@ -1200,7 +1200,7 @@ phone.addEventListener('click', function(e: any){
 
   const addCatBtn = e.target.closest('[data-add-cat]');
   if(addCatBtn){
-    state.editingCatId = 'nueva';
+    state.editingCategoryId = 'nueva';
     state.catDraft = {nombre:'', tipo:'gasto', color:'sage', icon:'🏷️'};
     renderMenuView();
     return;
@@ -1208,14 +1208,14 @@ phone.addEventListener('click', function(e: any){
   const editCatBtn = e.target.closest('[data-edit-cat]');
   if(editCatBtn){
     const id = editCatBtn.getAttribute('data-edit-cat');
-    const c = CATS[id];
-    state.editingCatId = id;
+    const c = CATEGORIES[id];
+    state.editingCategoryId = id;
     state.catDraft = {nombre:c.nombre, tipo:c.tipo, color:c.color, icon:c.icon};
     renderMenuView();
     return;
   }
   const cancelCatEditBtn = e.target.closest('[data-cancel-cat-edit]');
-  if(cancelCatEditBtn){ state.editingCatId = null; renderMenuView(); return; }
+  if(cancelCatEditBtn){ state.editingCategoryId = null; renderMenuView(); return; }
   const catDraftIconBtn = e.target.closest('[data-cat-draft-icon]');
   if(catDraftIconBtn){ state.catDraft.icon = catDraftIconBtn.getAttribute('data-cat-draft-icon'); renderMenuView(); return; }
   const catDraftColorBtn = e.target.closest('[data-cat-draft-color]');
@@ -1226,83 +1226,83 @@ phone.addEventListener('click', function(e: any){
     const d = state.catDraft;
     if(!d.nombre.trim()){ toast('Ponle un nombre a la categoría'); return; }
     if(idAttr==='nueva'){
-      CATS['cat_'+Date.now()] = {nombre:d.nombre.trim(), tipo:d.tipo, color:d.color, icon:d.icon};
+      CATEGORIES['cat_'+Date.now()] = {nombre:d.nombre.trim(), tipo:d.tipo, color:d.color, icon:d.icon};
       toast('Categoría creada');
     } else {
-      CATS[idAttr].nombre = d.nombre.trim();
-      CATS[idAttr].color = d.color;
-      CATS[idAttr].icon = d.icon;
+      CATEGORIES[idAttr].nombre = d.nombre.trim();
+      CATEGORIES[idAttr].color = d.color;
+      CATEGORIES[idAttr].icon = d.icon;
       toast('Categoría actualizada');
     }
-    state.editingCatId = null;
+    state.editingCategoryId = null;
     renderMenuView();
     return;
   }
   const deleteCatBtn = e.target.closest('[data-delete-cat]');
   if(deleteCatBtn){
     const id = deleteCatBtn.getAttribute('data-delete-cat');
-    if(catEnUso(id)){ toast('No puedes eliminar una categoría con transacciones'); return; }
-    delete CATS[id];
-    delete PRESUPUESTOS[id];
-    state.editingCatId = null;
+    if(isCategoryInUse(id)){ toast('No puedes eliminar una categoría con transacciones'); return; }
+    delete CATEGORIES[id];
+    delete BUDGETS[id];
+    state.editingCategoryId = null;
     toast('Categoría eliminada');
     renderMenuView();
     return;
   }
 
-  const addMedioBtn = e.target.closest('[data-add-medio]');
-  if(addMedioBtn){
-    state.editingMedioId = 'nueva';
+  const addPaymentMethodBtn = e.target.closest('[data-add-payment-method]');
+  if(addPaymentMethodBtn){
+    state.editingPaymentMethodId = 'nueva';
     state.medioDraft = {nombre:'', corto:'', icon:'card'};
     renderMenuView();
     return;
   }
-  const editMedioBtn = e.target.closest('[data-edit-medio]');
-  if(editMedioBtn){
-    const id = editMedioBtn.getAttribute('data-edit-medio');
-    const m = MEDIOS[id];
-    state.editingMedioId = id;
+  const editPaymentMethodBtn = e.target.closest('[data-edit-payment-method]');
+  if(editPaymentMethodBtn){
+    const id = editPaymentMethodBtn.getAttribute('data-edit-payment-method');
+    const m = PAYMENT_METHODS[id];
+    state.editingPaymentMethodId = id;
     state.medioDraft = {nombre:m.nombre, corto:m.corto, icon:m.icon};
     renderMenuView();
     return;
   }
-  const cancelMedioEditBtn = e.target.closest('[data-cancel-medio-edit]');
-  if(cancelMedioEditBtn){ state.editingMedioId = null; renderMenuView(); return; }
-  const medioDraftIconBtn = e.target.closest('[data-medio-draft-icon]');
-  if(medioDraftIconBtn){ state.medioDraft.icon = medioDraftIconBtn.getAttribute('data-medio-draft-icon'); renderMenuView(); return; }
-  const saveMedioBtn = e.target.closest('[data-save-medio]');
-  if(saveMedioBtn){
-    const idAttr = saveMedioBtn.getAttribute('data-save-medio');
+  const cancelPaymentMethodEditBtn = e.target.closest('[data-cancel-payment-method-edit]');
+  if(cancelPaymentMethodEditBtn){ state.editingPaymentMethodId = null; renderMenuView(); return; }
+  const paymentMethodDraftIconBtn = e.target.closest('[data-payment-method-draft-icon]');
+  if(paymentMethodDraftIconBtn){ state.medioDraft.icon = paymentMethodDraftIconBtn.getAttribute('data-payment-method-draft-icon'); renderMenuView(); return; }
+  const savePaymentMethodBtn = e.target.closest('[data-save-payment-method]');
+  if(savePaymentMethodBtn){
+    const idAttr = savePaymentMethodBtn.getAttribute('data-save-payment-method');
     const d = state.medioDraft;
     if(!d.nombre.trim()){ toast('Ponle un nombre al medio de pago'); return; }
     if(idAttr==='nueva'){
-      MEDIOS['medio_'+Date.now()] = {nombre:d.nombre.trim(), corto:d.corto.trim(), icon:d.icon};
+      PAYMENT_METHODS['medio_'+Date.now()] = {nombre:d.nombre.trim(), corto:d.corto.trim(), icon:d.icon};
       toast('Medio de pago creado');
     } else {
-      MEDIOS[idAttr].nombre = d.nombre.trim();
-      MEDIOS[idAttr].corto = d.corto.trim();
-      MEDIOS[idAttr].icon = d.icon;
+      PAYMENT_METHODS[idAttr].nombre = d.nombre.trim();
+      PAYMENT_METHODS[idAttr].corto = d.corto.trim();
+      PAYMENT_METHODS[idAttr].icon = d.icon;
       toast('Medio de pago actualizado');
     }
-    state.editingMedioId = null;
+    state.editingPaymentMethodId = null;
     renderMenuView();
     return;
   }
-  const deleteMedioBtn = e.target.closest('[data-delete-medio]');
-  if(deleteMedioBtn){
-    const id = deleteMedioBtn.getAttribute('data-delete-medio');
-    if(medioEnUso(id)){ toast('No puedes eliminar un medio de pago con transacciones'); return; }
-    delete MEDIOS[id];
-    state.editingMedioId = null;
+  const deletePaymentMethodBtn = e.target.closest('[data-delete-payment-method]');
+  if(deletePaymentMethodBtn){
+    const id = deletePaymentMethodBtn.getAttribute('data-delete-payment-method');
+    if(isPaymentMethodInUse(id)){ toast('No puedes eliminar un medio de pago con transacciones'); return; }
+    delete PAYMENT_METHODS[id];
+    state.editingPaymentMethodId = null;
     toast('Medio de pago eliminado');
     renderMenuView();
     return;
   }
 
-  const deleteReglaBtn = e.target.closest('[data-delete-regla]');
-  if(deleteReglaBtn){
-    const comercio = decodeURIComponent(deleteReglaBtn.getAttribute('data-delete-regla'));
-    TX.forEach(t=>{ if(t.comercio===comercio) t.reglaAuto = false; });
+  const deleteRuleBtn = e.target.closest('[data-delete-rule]');
+  if(deleteRuleBtn){
+    const comercio = decodeURIComponent(deleteRuleBtn.getAttribute('data-delete-rule'));
+    TRANSACTIONS.forEach(t=>{ if(t.comercio===comercio) t.reglaAuto = false; });
     toast('Regla eliminada para '+comercio);
     renderMenuView();
     return;
@@ -1310,7 +1310,7 @@ phone.addEventListener('click', function(e: any){
 
   const exportCsvBtn = e.target.closest('[data-export-csv]');
   if(exportCsvBtn){
-    downloadFile('pitucas-sin-lucas-transacciones-'+todayISO()+'.csv', buildTransaccionesCSV(), 'text/csv;charset=utf-8;');
+    downloadFile('pitucas-sin-lucas-transacciones-'+todayISO()+'.csv', buildTransactionsCSV(), 'text/csv;charset=utf-8;');
     toast('CSV descargado');
     return;
   }
@@ -1323,7 +1323,7 @@ phone.addEventListener('click', function(e: any){
   const importAgainBtn = e.target.closest('[data-import-again]');
   if(importAgainBtn){ state.importSummary = null; renderMenuView(); return; }
 
-  const reconciliarReset = e.target.closest('[data-reconciliar-reset]');
+  const reconciliarReset = e.target.closest('[data-reconcile-reset]');
   if(reconciliarReset){
     state.reconciliar = {archivo:null, cargando:false, error:null, tipo:null, movimientos:[], pagosTarjeta:null,
       disponibles: state.reconciliar.disponibles, usandoId:null, passwordDraft:'', errorPassword:null,
@@ -1331,12 +1331,12 @@ phone.addEventListener('click', function(e: any){
     renderMenuView();
     return;
   }
-  const reconciliarArchivoAbrir = e.target.closest('[data-reconciliar-archivo-abrir]');
+  const reconciliarArchivoAbrir = e.target.closest('[data-reconcile-file-open]');
   if(reconciliarArchivoAbrir){
-    intentarAbrirArchivoCartola(state.reconciliar.archivoBuffer, state.reconciliar.archivoNombrePendiente, state.reconciliar.passwordDraft);
+    tryOpenStatementFile(state.reconciliar.archivoBuffer, state.reconciliar.archivoNombrePendiente, state.reconciliar.passwordDraft);
     return;
   }
-  const reconciliarArchivoCancelar = e.target.closest('[data-reconciliar-archivo-cancelar]');
+  const reconciliarArchivoCancelar = e.target.closest('[data-reconcile-file-cancel]');
   if(reconciliarArchivoCancelar){
     state.reconciliar.archivoBuffer = null;
     state.reconciliar.archivoNombrePendiente = null;
@@ -1345,68 +1345,68 @@ phone.addEventListener('click', function(e: any){
     renderMenuView();
     return;
   }
-  const cartolaUsar = e.target.closest('[data-cartola-usar]');
+  const cartolaUsar = e.target.closest('[data-statement-use]');
   if(cartolaUsar){
-    state.reconciliar.usandoId = cartolaUsar.getAttribute('data-cartola-usar');
+    state.reconciliar.usandoId = cartolaUsar.getAttribute('data-statement-use');
     state.reconciliar.passwordDraft = '';
     state.reconciliar.errorPassword = null;
     renderMenuView();
     return;
   }
-  const cartolaCancelar = e.target.closest('[data-cartola-cancelar]');
+  const cartolaCancelar = e.target.closest('[data-statement-cancel]');
   if(cartolaCancelar){
     state.reconciliar.usandoId = null;
     state.reconciliar.errorPassword = null;
     renderMenuView();
     return;
   }
-  const cartolaAbrir = e.target.closest('[data-cartola-abrir]');
+  const cartolaAbrir = e.target.closest('[data-statement-open]');
   if(cartolaAbrir){
-    usarCartolaImportada(cartolaAbrir.getAttribute('data-cartola-abrir'), state.reconciliar.passwordDraft);
+    useImportedStatement(cartolaAbrir.getAttribute('data-statement-open'), state.reconciliar.passwordDraft);
     return;
   }
-  const reconciliarAgregar = e.target.closest('[data-reconciliar-agregar]');
+  const reconciliarAgregar = e.target.closest('[data-reconcile-add]');
   if(reconciliarAgregar){
-    const idx = parseInt(reconciliarAgregar.getAttribute('data-reconciliar-agregar'),10);
+    const idx = parseInt(reconciliarAgregar.getAttribute('data-reconcile-add'),10);
     const normales = state.reconciliar.movimientos.filter(function(m){ return m.esEspecial!=='pago_tarjeta' && m.esEspecial!=='pago_recibido'; });
     const m = normales[idx];
     if(m && !m.__match){
-      crearTxDesdeMovimiento(m);
-      m.__match = buscarTxParecida(m); // ahora sí calza (con la que se acaba de crear)
+      createTxFromMovement(m);
+      m.__match = findSimilarTx(m); // now it does match (with the one just created)
       renderMenuView();
       renderIfListVisible();
       toast('Transacción agregada');
     }
     return;
   }
-  const reconciliarNoEsGasto = e.target.closest('[data-reconciliar-noesgasto]');
+  const reconciliarNoEsGasto = e.target.closest('[data-reconcile-not-expense]');
   if(reconciliarNoEsGasto){
-    const idx = parseInt(reconciliarNoEsGasto.getAttribute('data-reconciliar-noesgasto'),10);
+    const idx = parseInt(reconciliarNoEsGasto.getAttribute('data-reconcile-not-expense'),10);
     const normales = state.reconciliar.movimientos.filter(function(m){ return m.esEspecial!=='pago_tarjeta' && m.esEspecial!=='pago_recibido'; });
     const m = normales[idx];
     if(m && !m.__match){
-      crearTxDesdeMovimiento(m, {noEsGasto:true});
-      m.__match = buscarTxParecida(m);
+      createTxFromMovement(m, {noEsGasto:true});
+      m.__match = findSimilarTx(m);
       renderMenuView();
       renderIfListVisible();
       toast('Agregada como "no es gasto"');
     }
     return;
   }
-  const reconciliarAgregarTodo = e.target.closest('[data-reconciliar-agregar-todo]');
+  const reconciliarAgregarTodo = e.target.closest('[data-reconcile-add-all]');
   if(reconciliarAgregarTodo){
     const normales = state.reconciliar.movimientos.filter(function(m){ return m.esEspecial!=='pago_tarjeta' && m.esEspecial!=='pago_recibido'; });
     let n = 0;
     normales.forEach(function(m){
-      if(!m.__match){ crearTxDesdeMovimiento(m); m.__match = buscarTxParecida(m); n++; }
+      if(!m.__match){ createTxFromMovement(m); m.__match = findSimilarTx(m); n++; }
     });
     renderMenuView();
     renderIfListVisible();
     toast(n===1 ? 'Se agregó 1 transacción' : 'Se agregaron '+n+' transacciones');
     return;
   }
-  const gotoPendientesBtn = e.target.closest('[data-goto-pendientes]');
-  if(gotoPendientesBtn){
+  const gotoPendingBtn = e.target.closest('[data-goto-pending]');
+  if(gotoPendingBtn){
     state.filter = 'pendientes';
     state.tab = 'transacciones';
     render();
@@ -1429,9 +1429,9 @@ phone.addEventListener('change', function(e: any){
     const idx = parseInt(sel.getAttribute('data-cat-select'),10);
     if(t){
       if(sel.value===''){
-        // "Sin categoría": si es la única fila, la transacción queda sin clasificar (vuelve
-        // a mostrarse la fila vacía); si hay más filas, se quita esta y su monto se suma a
-        // la primera que quede — mismo criterio que el botón de borrar fila.
+        // "Sin categoría": if it's the only row, the transaction is left unclassified (the
+        // empty row shows again); if there are more rows, this one is removed and its amount
+        // is added to the first one remaining — same rule as the row-delete button.
         if(t.categorias[idx]){
           const removedMonto = t.categorias[idx].monto;
           t.categorias.splice(idx,1);
@@ -1456,31 +1456,31 @@ phone.addEventListener('change', function(e: any){
   const draftMedio = e.target.closest('[data-draft-field="medio"]');
   if(draftMedio && state.draftTx){
     if(draftMedio.value==='__nuevo_medio__'){
-      state.addingMedio = true;
-      state.newMedioDraft = {nombre:'', ultimos4:''};
+      state.addingPaymentMethod = true;
+      state.newPaymentMethodDraft = {nombre:'', ultimos4:''};
       renderSheet();
-      setTimeout(()=>{ const el=document.querySelector<HTMLElement>('[data-new-medio-field="nombre"]'); if(el) el.focus(); }, 50);
+      setTimeout(()=>{ const el=document.querySelector<HTMLElement>('[data-new-payment-method-field="nombre"]'); if(el) el.focus(); }, 50);
       return;
     }
     state.draftTx.medio = draftMedio.value;
     return;
   }
-  const txMedioSelect = e.target.closest('[data-tx-medio-select]');
-  if(txMedioSelect){
-    const t = getTx(txMedioSelect.getAttribute('data-tx-medio-select'));
-    if(t){ t.medio = txMedioSelect.value; renderIfListVisible(); }
+  const txPaymentMethodSelect = e.target.closest('[data-tx-payment-method-select]');
+  if(txPaymentMethodSelect){
+    const t = getTx(txPaymentMethodSelect.getAttribute('data-tx-payment-method-select'));
+    if(t){ t.medio = txPaymentMethodSelect.value; renderIfListVisible(); }
     return;
   }
-  const compartirGrupoSelect = e.target.closest('[data-compartir-grupo]');
-  if(compartirGrupoSelect && state.compartirDraft){
-    state.compartirDraft = defaultCompartirDraft(state.compartirDraft.txId, compartirGrupoSelect.value);
+  const shareGroupSelect = e.target.closest('[data-share-group]');
+  if(shareGroupSelect && state.shareDraft){
+    state.shareDraft = defaultShareDraft(state.shareDraft.txId, shareGroupSelect.value);
     renderSheet();
     return;
   }
-  const compartirIncluirBox = e.target.closest('[data-compartir-incluir]');
-  if(compartirIncluirBox && state.compartirDraft){
-    const pid = compartirIncluirBox.getAttribute('data-compartir-incluir');
-    const d = state.compartirDraft;
+  const compartirIncluirBox = e.target.closest('[data-share-include]');
+  if(compartirIncluirBox && state.shareDraft){
+    const pid = compartirIncluirBox.getAttribute('data-share-include');
+    const d = state.shareDraft;
     const idx = d.participantesIncluidos.indexOf(pid);
     if(compartirIncluirBox.checked && idx===-1) d.participantesIncluidos.push(pid);
     else if(!compartirIncluirBox.checked && idx!==-1) d.participantesIncluidos.splice(idx,1);
@@ -1502,8 +1502,8 @@ phone.addEventListener('change', function(e: any){
     if(file){
       const reader = new FileReader();
       reader.onload = function(ev){
-        const {rows, errors} = parseCartolaCSV(String(ev.target.result||''));
-        const result = importCartolaRows(rows);
+        const {rows, errors} = parseStatementCSV(String(ev.target.result||''));
+        const result = importStatementRows(rows);
         state.importSummary = {archivo: file.name, errores: errors, creadas: result.creadas, conRegla: result.conRegla, pendientes: result.pendientes};
         renderMenuView();
         renderIfListVisible();
@@ -1514,14 +1514,14 @@ phone.addEventListener('change', function(e: any){
     return;
   }
 
-  const reconciliarFileInput = e.target.closest('[data-reconciliar-file-input]');
-  if(reconciliarFileInput){
-    const file = reconciliarFileInput.files && reconciliarFileInput.files[0];
+  const reconcileFileInput = e.target.closest('[data-reconcile-file-input]');
+  if(reconcileFileInput){
+    const file = reconcileFileInput.files && reconcileFileInput.files[0];
     if(file){
       state.reconciliar.passwordDraft = '';
       const reader = new FileReader();
       reader.onload = function(ev){
-        intentarAbrirArchivoCartola(ev.target.result, file.name, '');
+        tryOpenStatementFile(ev.target.result, file.name, '');
       };
       state.reconciliar.cargando = true;
       state.reconciliar.error = null;
@@ -1546,7 +1546,7 @@ phone.addEventListener('input', function(e: any){
     const t = getTx(state.openTxId);
     const idx = parseInt(amtInput.getAttribute('data-cat-amount'),10);
     if(t && t.categorias[idx]){
-      const unit = state.splitCatUnit[t.id] || '$';
+      const unit = state.splitCategoryUnit[t.id] || '$';
       const v = safeEvalExpr(amtInput.value);
       if(v!==null){
         t.categorias[idx].monto = unit==='%' ? Math.round(t.monto * v/100) : Math.round(v);
@@ -1562,18 +1562,18 @@ phone.addEventListener('input', function(e: any){
     }
     return;
   }
-  const cobroAmt = e.target.closest('[data-cobro-amount]');
+  const cobroAmt = e.target.closest('[data-charge-amount]');
   if(cobroAmt){
     const t = getTx(state.openTxId);
-    const idx = parseInt(cobroAmt.getAttribute('data-cobro-amount'),10);
+    const idx = parseInt(cobroAmt.getAttribute('data-charge-amount'),10);
     if(t){
-      const unit = state.splitCobroUnit[t.id] || '$';
+      const unit = state.splitCollectUnit[t.id] || '$';
       const v = safeEvalExpr(cobroAmt.value);
       if(v!==null){
         t.porCobrar[idx].monto = unit==='%' ? Math.round(t.monto * v/100) : Math.round(v);
         const remainingEl = cobroAmt.closest('.split-block').querySelector('.split-remaining span:last-child');
         if(remainingEl){
-          const totalCobro = porCobrarTotal(t);
+          const totalCobro = receivableTotal(t);
           const tuParte = t.monto - totalCobro;
           remainingEl.textContent = money(tuParte);
           remainingEl.className = (tuParte<0?'bad':'ok')+' tabular';
@@ -1582,42 +1582,42 @@ phone.addEventListener('input', function(e: any){
     }
     return;
   }
-  const cobroName = e.target.closest('[data-cobro-name]');
+  const cobroName = e.target.closest('[data-charge-name]');
   if(cobroName){
     const t = getTx(state.openTxId);
-    const idx = parseInt(cobroName.getAttribute('data-cobro-name'),10);
+    const idx = parseInt(cobroName.getAttribute('data-charge-name'),10);
     if(t){ t.porCobrar[idx].persona = cobroName.value; }
     return;
   }
-  const boletaItemNombre = e.target.closest('[data-boleta-item-nombre]');
+  const boletaItemNombre = e.target.closest('[data-receipt-item-name]');
   if(boletaItemNombre && state.boleta){
-    const idx = parseInt(boletaItemNombre.getAttribute('data-boleta-item-nombre'),10);
+    const idx = parseInt(boletaItemNombre.getAttribute('data-receipt-item-name'),10);
     state.boleta.items[idx].nombre = boletaItemNombre.value;
     return;
   }
-  const boletaItemMonto = e.target.closest('[data-boleta-item-monto]');
+  const boletaItemMonto = e.target.closest('[data-receipt-item-amount]');
   if(boletaItemMonto && state.boleta){
-    const idx = parseInt(boletaItemMonto.getAttribute('data-boleta-item-monto'),10);
+    const idx = parseInt(boletaItemMonto.getAttribute('data-receipt-item-amount'),10);
     const v = safeEvalExpr(boletaItemMonto.value);
     if(v!==null){
       state.boleta.items[idx].monto = Math.round(v);
       const summaryEl = document.getElementById('boleta-totals-summary');
-      if(summaryEl) summaryEl.innerHTML = renderBoletaItemsTotalsSummary();
-      const continueBtn = document.querySelector<HTMLButtonElement>('[data-boleta-goto="asignar"]');
-      if(continueBtn) continueBtn.disabled = !(state.boleta.items.length>0 && boletaTotal()>0);
+      if(summaryEl) summaryEl.innerHTML = renderReceiptItemsTotalsSummary();
+      const continueBtn = document.querySelector<HTMLButtonElement>('[data-receipt-goto="asignar"]');
+      if(continueBtn) continueBtn.disabled = !(state.boleta.items.length>0 && receiptTotal()>0);
     }
     return;
   }
-  const boletaPropinaInput = e.target.closest('[data-boleta-propina-input]');
-  if(boletaPropinaInput && state.boleta){
-    state.boleta.propinaValor = boletaPropinaInput.value;
+  const receiptTipInput = e.target.closest('[data-receipt-tip-input]');
+  if(receiptTipInput && state.boleta){
+    state.boleta.propinaValor = receiptTipInput.value;
     const summaryEl = document.getElementById('boleta-totals-summary');
-    if(summaryEl) summaryEl.innerHTML = renderBoletaItemsTotalsSummary();
+    if(summaryEl) summaryEl.innerHTML = renderReceiptItemsTotalsSummary();
     return;
   }
-  // Editar Monto/Fecha/Hora de una transacción ya existente, desde el detalle — se actualiza
-  // el dato de una y se refresca a mano el eco formateado y el encabezado (sin renderSheet()
-  // completo, para no perder el foco del campo mientras se sigue escribiendo/eligiendo).
+  // Editing Monto/Fecha/Hora of an already-existing transaction, from the detail view — the
+  // data is updated right away and the formatted echo and header are refreshed by hand (without
+  // a full renderSheet(), so as not to lose the field's focus while still typing/choosing).
   const txFieldMonto = e.target.closest('[data-tx-field="monto"]');
   if(txFieldMonto){
     const tx = getTx(txFieldMonto.getAttribute('data-tx'));
@@ -1640,7 +1640,7 @@ phone.addEventListener('input', function(e: any){
       const hintEl = document.querySelector('.edit-day-hint');
       if(hintEl) hintEl.textContent = dayLabel(tx.fecha);
       const metaEl = document.querySelector('.sheet-top .meta');
-      if(metaEl) metaEl.textContent = dayLabel(tx.fecha)+' · '+tx.hora+' · '+medioInfo(tx.medio).nombre;
+      if(metaEl) metaEl.textContent = dayLabel(tx.fecha)+' · '+tx.hora+' · '+paymentMethodInfo(tx.medio).nombre;
     }
     return;
   }
@@ -1650,7 +1650,7 @@ phone.addEventListener('input', function(e: any){
     if(tx){
       tx.hora = txFieldHora.value;
       const metaEl = document.querySelector('.sheet-top .meta');
-      if(metaEl) metaEl.textContent = dayLabel(tx.fecha)+' · '+tx.hora+' · '+medioInfo(tx.medio).nombre;
+      if(metaEl) metaEl.textContent = dayLabel(tx.fecha)+' · '+tx.hora+' · '+paymentMethodInfo(tx.medio).nombre;
     }
     return;
   }
@@ -1659,24 +1659,24 @@ phone.addEventListener('input', function(e: any){
     const tx = getTx(txFieldNota.getAttribute('data-tx'));
     if(tx){
       tx.nota = txFieldNota.value;
-      const notaEl = document.querySelector<HTMLElement>('.sheet-top [data-nota-echo]');
+      const notaEl = document.querySelector<HTMLElement>('.sheet-top [data-note-echo]');
       if(notaEl){ notaEl.textContent = tx.nota; notaEl.style.display = tx.nota ? '' : 'none'; }
     }
     return;
   }
-  const newMedioField = e.target.closest('[data-new-medio-field]');
-  if(newMedioField){
-    const field = newMedioField.getAttribute('data-new-medio-field');
-    if(field==='nombre') state.newMedioDraft.nombre = newMedioField.value;
-    else if(field==='ultimos4') state.newMedioDraft.ultimos4 = newMedioField.value.replace(/\D/g,'').slice(0,4);
-    const saveNewBtn = document.querySelector<HTMLButtonElement>('[data-save-new-medio]');
-    if(saveNewBtn) saveNewBtn.disabled = !state.newMedioDraft.nombre.trim();
+  const newPaymentMethodField = e.target.closest('[data-new-payment-method-field]');
+  if(newPaymentMethodField){
+    const field = newPaymentMethodField.getAttribute('data-new-payment-method-field');
+    if(field==='nombre') state.newPaymentMethodDraft.nombre = newPaymentMethodField.value;
+    else if(field==='ultimos4') state.newPaymentMethodDraft.ultimos4 = newPaymentMethodField.value.replace(/\D/g,'').slice(0,4);
+    const saveNewBtn = document.querySelector<HTMLButtonElement>('[data-save-new-payment-method]');
+    if(saveNewBtn) saveNewBtn.disabled = !state.newPaymentMethodDraft.nombre.trim();
     return;
   }
 
-  const budgetMetaInput = e.target.closest('[data-budget-meta-input]');
-  if(budgetMetaInput){
-    state.budgetDraft.meta = budgetMetaInput.value;
+  const budgetGoalInput = e.target.closest('[data-budget-goal-input]');
+  if(budgetGoalInput){
+    state.budgetDraft.meta = budgetGoalInput.value;
     return;
   }
   const budgetTotalInput = e.target.closest('[data-budget-total-input]');
@@ -1684,24 +1684,24 @@ phone.addEventListener('input', function(e: any){
     state.budgetTotalDraft = budgetTotalInput.value;
     return;
   }
-  const metasGastoInput = e.target.closest('[data-metas-gasto-input]');
-  if(metasGastoInput){
-    state.metasGastoDraft[metasGastoInput.getAttribute('data-metas-gasto-input')] = metasGastoInput.value;
+  const spendingGoalsInput = e.target.closest('[data-spending-goals-input]');
+  if(spendingGoalsInput){
+    state.spendingGoalsDraft[spendingGoalsInput.getAttribute('data-spending-goals-input')] = spendingGoalsInput.value;
     return;
   }
-  const datosTransferenciaInput = e.target.closest('[data-datos-transferencia-input]');
-  if(datosTransferenciaInput){
-    state.datosTransferenciaDraft[datosTransferenciaInput.getAttribute('data-datos-transferencia-input')] = datosTransferenciaInput.value;
+  const transferInfoInput = e.target.closest('[data-transfer-info-input]');
+  if(transferInfoInput){
+    state.transferInfoDraft[transferInfoInput.getAttribute('data-transfer-info-input')] = transferInfoInput.value;
     return;
   }
-  const cartolaPasswordInput = e.target.closest('[data-cartola-password-input]');
-  if(cartolaPasswordInput){
-    state.reconciliar.passwordDraft = cartolaPasswordInput.value;
+  const statementPasswordInput = e.target.closest('[data-statement-password-input]');
+  if(statementPasswordInput){
+    state.reconciliar.passwordDraft = statementPasswordInput.value;
     return;
   }
-  const metaField = e.target.closest('[data-meta-field]');
-  if(metaField){
-    state.metaDraft[metaField.getAttribute('data-meta-field')] = metaField.value;
+  const goalField = e.target.closest('[data-goal-field]');
+  if(goalField){
+    state.goalDraft[goalField.getAttribute('data-goal-field')] = goalField.value;
     return;
   }
   const platformField = e.target.closest('[data-platform-field]');
@@ -1719,14 +1719,14 @@ phone.addEventListener('input', function(e: any){
     state.catDraft[catDraftField.getAttribute('data-cat-draft-field')] = catDraftField.value;
     return;
   }
-  const medioDraftField = e.target.closest('[data-medio-draft-field]');
-  if(medioDraftField){
-    state.medioDraft[medioDraftField.getAttribute('data-medio-draft-field')] = medioDraftField.value;
+  const paymentMethodDraftField = e.target.closest('[data-payment-method-draft-field]');
+  if(paymentMethodDraftField){
+    state.medioDraft[paymentMethodDraftField.getAttribute('data-payment-method-draft-field')] = paymentMethodDraftField.value;
     return;
   }
-  const grupoDraftField = e.target.closest('[data-grupo-draft-field]');
-  if(grupoDraftField){
-    state.grupoDraft[grupoDraftField.getAttribute('data-grupo-draft-field')] = grupoDraftField.value;
+  const groupDraftField = e.target.closest('[data-group-draft-field]');
+  if(groupDraftField){
+    state.groupDraft[groupDraftField.getAttribute('data-group-draft-field')] = groupDraftField.value;
     return;
   }
   const joinDraftField = e.target.closest('[data-join-draft-field]');
@@ -1734,45 +1734,45 @@ phone.addEventListener('input', function(e: any){
     state.joinDraft[joinDraftField.getAttribute('data-join-draft-field')] = joinDraftField.value;
     return;
   }
-  const participanteDraftField = e.target.closest('[data-participante-draft-field]');
-  if(participanteDraftField){
-    state.participanteDraft[participanteDraftField.getAttribute('data-participante-draft-field')] = participanteDraftField.value;
+  const participantDraftField = e.target.closest('[data-participant-draft-field]');
+  if(participantDraftField){
+    state.participantDraft[participantDraftField.getAttribute('data-participant-draft-field')] = participantDraftField.value;
     return;
   }
 
   const planBaseInput = e.target.closest('[data-plan-base-input]');
   if(planBaseInput){
-    PLANIFICADOR.base = parseInt(planBaseInput.value.replace(/\D/g,''),10) || 0;
+    PLANNER.base = parseInt(planBaseInput.value.replace(/\D/g,''),10) || 0;
     updatePlanCompute();
     return;
   }
-  const planMetaPctInput = e.target.closest('[data-plan-meta-pct]');
-  if(planMetaPctInput){
-    const metaId = planMetaPctInput.getAttribute('data-plan-meta-id');
-    const v = parseFloat(planMetaPctInput.value.replace(',','.'));
-    PLANIFICADOR.metaPcts[metaId] = isNaN(v) ? 0 : v;
+  const planGoalPctInput = e.target.closest('[data-plan-goal-pct]');
+  if(planGoalPctInput){
+    const metaId = planGoalPctInput.getAttribute('data-plan-goal-id');
+    const v = parseFloat(planGoalPctInput.value.replace(',','.'));
+    PLANNER.metaPcts[metaId] = isNaN(v) ? 0 : v;
     updatePlanCompute();
     return;
   }
-  const proyAporteInput = e.target.closest('[data-proy-aporte-input]');
-  if(proyAporteInput){
-    const raw = proyAporteInput.value.trim();
-    // Vacío = "vuelve a usar tu promedio real" (mismo criterio que dejar el placeholder).
-    state.proySimulatedAporte = raw==='' ? null : (parseInt(raw.replace(/\D/g,''),10) || 0);
+  const projContributionInput = e.target.closest('[data-proj-contribution-input]');
+  if(projContributionInput){
+    const raw = projContributionInput.value.trim();
+    // Empty = "go back to using your real average" (same rule as leaving the placeholder).
+    state.simulatedContribution = raw==='' ? null : (parseInt(raw.replace(/\D/g,''),10) || 0);
     updateProyeccionCompute();
     return;
   }
-  const proyRetornoInput = e.target.closest('[data-proy-retorno-input]');
-  if(proyRetornoInput){
-    const v = parseFloat(proyRetornoInput.value.replace(',','.'));
-    PROYECCION_SUPUESTOS.retornoAnual = isNaN(v) ? 0 : v;
+  const projReturnInput = e.target.closest('[data-proj-return-input]');
+  if(projReturnInput){
+    const v = parseFloat(projReturnInput.value.replace(',','.'));
+    PROJECTION_ASSUMPTIONS.retornoAnual = isNaN(v) ? 0 : v;
     updateProyeccionCompute();
     return;
   }
-  const proyInflacionInput = e.target.closest('[data-proy-inflacion-input]');
-  if(proyInflacionInput){
-    const v = parseFloat(proyInflacionInput.value.replace(',','.'));
-    PROYECCION_SUPUESTOS.inflacionAnual = isNaN(v) ? 0 : v;
+  const projInflationInput = e.target.closest('[data-proj-inflation-input]');
+  if(projInflationInput){
+    const v = parseFloat(projInflationInput.value.replace(',','.'));
+    PROJECTION_ASSUMPTIONS.inflacionAnual = isNaN(v) ? 0 : v;
     updateProyeccionCompute();
     return;
   }
@@ -1795,26 +1795,26 @@ phone.addEventListener('input', function(e: any){
   }
 });
 
-// Normaliza los campos con expresiones (Tricount-style) al salir del input,
-// así el usuario ve el número final en vez de la expresión que escribió.
+// Normalizes fields with expressions (Tricount-style) when leaving the input,
+// so the user sees the final number instead of the expression they typed.
 phone.addEventListener('focusout', function(e: any){
   const amtInput = e.target.closest('[data-cat-amount]');
   if(amtInput){
     const t = getTx(state.openTxId);
     const idx = parseInt(amtInput.getAttribute('data-cat-amount'),10);
     if(t && t.categorias[idx]){
-      const unit = state.splitCatUnit[t.id] || '$';
+      const unit = state.splitCategoryUnit[t.id] || '$';
       const shown = unit==='%' ? (t.categorias[idx].monto/t.monto)*100 : t.categorias[idx].monto;
       amtInput.value = formatEditableNumber(shown);
     }
     return;
   }
-  const cobroAmt = e.target.closest('[data-cobro-amount]');
+  const cobroAmt = e.target.closest('[data-charge-amount]');
   if(cobroAmt){
     const t = getTx(state.openTxId);
-    const idx = parseInt(cobroAmt.getAttribute('data-cobro-amount'),10);
+    const idx = parseInt(cobroAmt.getAttribute('data-charge-amount'),10);
     if(t && t.porCobrar[idx].monto!=null){
-      const unit = state.splitCobroUnit[t.id] || '$';
+      const unit = state.splitCollectUnit[t.id] || '$';
       const shown = unit==='%' ? (t.porCobrar[idx].monto/t.monto)*100 : t.porCobrar[idx].monto;
       cobroAmt.value = formatEditableNumber(shown);
     }
@@ -1823,18 +1823,18 @@ phone.addEventListener('focusout', function(e: any){
   const draftMonto = e.target.closest('[data-draft-field="monto"]');
   if(draftMonto && state.draftTx){ draftMonto.value = state.draftTx.monto ? formatEditableNumber(state.draftTx.monto) : ''; return; }
 
-  const boletaItemMontoOut = e.target.closest('[data-boleta-item-monto]');
+  const boletaItemMontoOut = e.target.closest('[data-receipt-item-amount]');
   if(boletaItemMontoOut && state.boleta){
-    const idx = parseInt(boletaItemMontoOut.getAttribute('data-boleta-item-monto'),10);
+    const idx = parseInt(boletaItemMontoOut.getAttribute('data-receipt-item-amount'),10);
     const item = state.boleta.items[idx];
     if(item) boletaItemMontoOut.value = formatEditableNumber(item.monto);
     return;
   }
 
   const planBaseInput = e.target.closest('[data-plan-base-input]');
-  if(planBaseInput){ planBaseInput.value = moneyPlain(PLANIFICADOR.base); return; }
+  if(planBaseInput){ planBaseInput.value = moneyPlain(PLANNER.base); return; }
 
-  const boletaPropinaInputOut = e.target.closest('[data-boleta-propina-input]');
+  const boletaPropinaInputOut = e.target.closest('[data-receipt-tip-input]');
   if(boletaPropinaInputOut && state.boleta && state.boleta.propinaValor!==''){
     const v = safeEvalExpr(String(state.boleta.propinaValor));
     if(v!=null) boletaPropinaInputOut.value = state.boleta.propinaUnit==='%' ? String(v) : formatEditableNumber(v);
@@ -1846,26 +1846,26 @@ document.addEventListener('keydown', function(e: any){
   if(e.key==='Escape' && (state.openTxId || state.creatingNew || state.filterSheetOpen || state.linkFlow || state.boleta)) closeSheet();
 });
 
-// Evita que el navegador haga scroll automático de la hoja al enfocar un botón
-// (eso era lo que causaba el salto molesto al tocar acciones dentro del sheet).
+// Prevents the browser from auto-scrolling the sheet when a button gets focus
+// (that was causing the annoying jump when tapping actions inside the sheet).
 phone.addEventListener('mousedown', function(e: any){
   const btn = e.target.closest('button');
   if(btn) e.preventDefault();
 });
 
-/* ---------- reordenar sub-tabs de Resumen con drag and drop ---------- */
-// Funciona con mouse y con touch (Pointer Events unifica ambos). Un movimiento chico
-// sigue siendo un tap normal (lo maneja el click de siempre); solo pasa a "drag" si
-// el dedo/mouse se mueve más de un umbral, y ahí vamos reordenando en vivo mientras
-// se arrastra, sin tocar el resto de la vista (#resumen-content sigue intacto).
+/* ---------- reorder Resumen sub-tabs with drag and drop ---------- */
+// Works with both mouse and touch (Pointer Events unifies both). A small movement
+// still counts as a normal tap (handled by the usual click); it only switches to "drag" if
+// the finger/mouse moves past a threshold, and from there we reorder live while
+// dragging, without touching the rest of the view (#resumen-content stays intact).
 export const SUBTAB_DRAG_THRESHOLD = 6;
 phone.addEventListener('pointerdown', function(e: any){
   if(e.button!=null && e.button!==0) return;
-  const pill = e.target.closest('[data-resumen-sub]');
+  const pill = e.target.closest('[data-summary-sub]');
   const container = document.getElementById('resumen-subtabs');
   if(!pill || !container) return;
   setSubtabDrag({
-    id: pill.getAttribute('data-resumen-sub'),
+    id: pill.getAttribute('data-summary-sub'),
     pointerId: e.pointerId,
     startX: e.clientX,
     dragging: false,
@@ -1879,21 +1879,21 @@ phone.addEventListener('pointermove', function(e: any){
     subtabDrag.dragging = true;
     state.subtabDragId = subtabDrag.id;
     try{ subtabDrag.container.setPointerCapture(e.pointerId); }catch(err){}
-    subtabDrag.container.innerHTML = renderResumenSubtabsInner();
+    subtabDrag.container.innerHTML = renderSummarySubtabsInner();
   }
   e.preventDefault();
   const hovered = document.elementFromPoint(e.clientX, e.clientY);
-  const hoveredPill = hovered && hovered.closest && hovered.closest('[data-resumen-sub]');
+  const hoveredPill = hovered && hovered.closest && hovered.closest('[data-summary-sub]');
   if(!hoveredPill) return;
-  const hoveredId = hoveredPill.getAttribute('data-resumen-sub');
+  const hoveredId = hoveredPill.getAttribute('data-summary-sub');
   if(hoveredId===subtabDrag.id) return;
-  const order = state.resumenSubOrder;
+  const order = state.summarySubOrder;
   const from = order.indexOf(subtabDrag.id);
   const to = order.indexOf(hoveredId);
   if(from===-1 || to===-1) return;
   order.splice(from,1);
   order.splice(to,0,subtabDrag.id);
-  subtabDrag.container.innerHTML = renderResumenSubtabsInner();
+  subtabDrag.container.innerHTML = renderSummarySubtabsInner();
 });
 export function endSubtabDrag(e){
   if(!subtabDrag || e.pointerId!==subtabDrag.pointerId) return;
@@ -1903,12 +1903,12 @@ export function endSubtabDrag(e){
   setSubtabDrag(null);
   state.subtabDragId = null;
   if(wasDragging){
-    // El click (si el navegador llega a dispararlo) va sincrónico justo después de
-    // pointerup/mouseup dentro del mismo gesto — con 0ms alcanza para dejarlo pasar
-    // y no correr el riesgo de bloquear un tap real y posterior de la usuaria.
+    // The click (if the browser ends up firing it) happens synchronously right after
+    // pointerup/mouseup within the same gesture — 0ms is enough to let it through
+    // without risking blocking a real, later tap from the user.
     setSuppressNextSubtabClick(true);
     setTimeout(function(){ setSuppressNextSubtabClick(false); }, 0);
-    container.innerHTML = renderResumenSubtabsInner();
+    container.innerHTML = renderSummarySubtabsInner();
   }
 }
 phone.addEventListener('pointerup', endSubtabDrag);
@@ -1917,6 +1917,6 @@ phone.addEventListener('pointercancel', endSubtabDrag);
 export function overlayEl(){ return document.getElementById('sheet-overlay'); }
 
 export function renderIfListVisible(){
-  if(state.tab==='transacciones') renderTransaccionesView();
-  else if(state.tab==='resumen') renderResumenSubContent();
+  if(state.tab==='transacciones') renderTransactionsView();
+  else if(state.tab==='resumen') renderSummarySubContent();
 }

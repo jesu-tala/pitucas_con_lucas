@@ -1,13 +1,13 @@
-// jesu preguntó: "el punto 4 [presupuesto cruzado sin tener la app abierta] podría pasar
-// porque tenemos lo de clasificar ciertas transacciones como siempre de la misma categoría
-// -- ¿esto funciona bien? no lo he testeado". Investigando: SÍ existía una regla de
-// clasificación automática por comercio (reglasAgrupadas/applyLockRule), pero solo la
-// consultaba la importación de CSV de cartola (importCartolaRows) -- la importación
-// automática por correo (absorbImportedRows/txDesdeImportEmail) SIEMPRE dejaba pendiente
-// cualquier gasto/ingreso, sin importar que ya existiera una regla para ese comercio. Este
-// test primero confirma el bug tal cual estaba (documentado abajo, ya no reproducible tras el
-// fix) y después fija el comportamiento correcto: ambas importaciones deben tratar igual una
-// regla ya creada.
+// jesu asked: "could point 4 [budget crossed without having the app open] happen
+// because we have that thing about classifying certain transactions as always the same category
+// -- does this work correctly? I haven't tested it". Investigating: an automatic
+// classification-by-merchant rule (groupedRules/applyLockRule) DID exist, but it was only
+// consulted by the statement CSV import (importStatementRows) -- automatic
+// email import (absorbImportedRows/txFromEmailImport) ALWAYS left any expense/income
+// pending, regardless of whether a rule already existed for that merchant. This
+// test first confirms the bug as it was (documented below, no longer reproducible after the
+// fix) and then locks in the correct behavior: both imports must treat an
+// already-created rule the same way.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -15,31 +15,31 @@ const { openApp, check, finish } = require('./lib/test_kit');
 
   const resultado = await page.evaluate(() => {
     const D = window.__debug;
-    // t2, t4, t14 (Copec Providencia) ya vienen con reglaAuto:true + categoria transporte en
-    // los datos de ejemplo -- reglasAgrupadas() debería devolver esa regla.
-    const reglas = D.reglasAgrupadas();
+    // t2, t4, t14 (Copec Providencia) already come with reglaAuto:true + categoria transporte in
+    // the sample data -- groupedRules() should return that rule.
+    const reglas = D.groupedRules();
     const reglaCopec = reglas.find(r => r.comercio === 'Copec Providencia');
 
-    // Simula una fila tal cual la entrega transacciones_importadas para un gasto en el MISMO
-    // comercio que ya tiene regla, pero SIN categoría propia (así llegan hoy los gastos/ingresos
-    // desde el correo -- ver guessCatIdFromImportRow, que solo resuelve inversión).
+    // Simulate a row exactly as transacciones_importadas delivers it for an expense in the SAME
+    // merchant that already has a rule, but WITHOUT its own category (that's how expenses/income arrive today
+    // from email -- see guessCatIdFromImportRow, which only resolves investment platforms).
     const filaConRegla = {
       fecha: '2026-09-01', hora: '10:00', comercio: 'Copec Providencia',
       monto: 21000, tipo: 'gasto', medio_sugerido: null, fuente: 'gmail:banco_edwards_compra'
     };
-    const txConRegla = D.txDesdeImportEmail(filaConRegla);
+    const txConRegla = D.txFromEmailImport(filaConRegla);
 
-    // Comercio SIN ninguna regla creada -- debe seguir quedando pendiente, como siempre.
+    // Merchant WITHOUT any rule created -- it should still stay pending, as always.
     const filaSinRegla = {
       fecha: '2026-09-01', hora: '11:00', comercio: 'Almacén Don Pepe',
       monto: 5000, tipo: 'gasto', medio_sugerido: null, fuente: 'gmail:banco_edwards_compra'
     };
-    const txSinRegla = D.txDesdeImportEmail(filaSinRegla);
+    const txSinRegla = D.txFromEmailImport(filaSinRegla);
 
     return { reglaCopec, txConRegla, txSinRegla };
   });
 
-  check('reglasAgrupadas() ya trae una regla para "Copec Providencia" (transporte)', !!resultado.reglaCopec && resultado.reglaCopec.cat === 'transporte', resultado.reglaCopec);
+  check('groupedRules() ya trae una regla para "Copec Providencia" (transporte)', !!resultado.reglaCopec && resultado.reglaCopec.cat === 'transporte', resultado.reglaCopec);
 
   check('Una transacción importada por correo de un comercio CON regla se auto-clasifica (ya no queda pendiente)', resultado.txConRegla.estado === 'confirmado' && resultado.txConRegla.categorias.length === 1 && resultado.txConRegla.categorias[0].cat === 'transporte', resultado.txConRegla);
   check('...y queda marcada como reglaAuto (se ve el candadito, igual que si la hubiera clasificado a mano)', resultado.txConRegla.reglaAuto === true, resultado.txConRegla);

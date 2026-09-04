@@ -3,26 +3,26 @@ const { openApp, check, finish } = require('./lib/test_kit');
 (async () => {
   const { context, browser, page, errors } = await openApp({ viewport: { width: 420, height: 1400 } });
 
-  // Antes: con un solo segmento (100%, ej. un solo aporte a una plataforma este mes),
-  // buildDonut generaba un arco SVG cuyo punto de inicio y fin coinciden — se pinta como un
-  // punto en vez de un anillo completo. Forzamos ese escenario exacto: un solo mes con un
-  // solo aporte de inversión (a Fintual), como en la captura que mandó la usuaria.
+  // Before: with a single segment (100%, e.g. a single contribution to a platform this month),
+  // buildDonut generated an SVG arc whose start and end points coincide — it renders as a
+  // point instead of a full ring. We force that exact scenario: a single month with a
+  // single investment contribution (to Fintual), like in the screenshot the user sent.
   const info = await page.evaluate(() => {
     const d = window.__debug;
     d.state.tab = 'resumen';
-    d.state.resumenSub = 'balance';
-    const mesActual = d.MONTHS[d.state.monthIndex]; // el mes que Balance muestra por defecto
-    // Sacamos cualquier otra transacción de inversión de este mes, dejamos solo una — mutando
-    // el mismo array (splice), no reasignando d.TX = ... (eso solo cambiaría la referencia
-    // expuesta en el objeto de debug, no el arreglo interno del que dependen render()/monthTotals()).
-    for(let i=d.TX.length-1; i>=0; i--){
-      if(d.TX[i].tipo==='inversion' && d.TX[i].fecha.slice(0,7)===mesActual) d.TX.splice(i,1);
+    d.state.summarySub = 'balance';
+    const mesActual = d.MONTHS[d.state.monthIndex]; // the month Balance shows by default
+    // Remove any other investment transaction from this month, leaving only one — mutating
+    // the same array (splice), not reassigning d.TRANSACTIONS = ... (that would only change the reference
+    // exposed on the debug object, not the internal array that render()/monthTotals() depend on).
+    for(let i=d.TRANSACTIONS.length-1; i>=0; i--){
+      if(d.TRANSACTIONS[i].tipo==='inversion' && d.TRANSACTIONS[i].fecha.slice(0,7)===mesActual) d.TRANSACTIONS.splice(i,1);
     }
-    d.TX.push({id:'t_donut_single', fecha: mesActual + '-05', hora:'10:00', comercio:'Aporte Fintual',
+    d.TRANSACTIONS.push({id:'t_donut_single', fecha: mesActual + '-05', hora:'10:00', comercio:'Aporte Fintual',
       monto: 5000, medio:'cuenta_vista', tipo:'inversion', recurrencia:'variable', estado:'confirmado',
       categorias:[{cat:'fintual', monto:5000}], porCobrar:[], reglaAuto:false, nota:''});
     d.state.tab = 'resumen';
-    d.state.resumenSub = 'balance';
+    d.state.summarySub = 'balance';
     d.render();
     return { mesActual };
   });
@@ -40,7 +40,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
       html: wrap.outerHTML.slice(0, 300),
     };
   });
-  console.log('Con un solo aporte este mes, el donut dibuja un <circle> completo (no un punto degenerado):', JSON.stringify(svgCheck));
+  console.log('With a single contribution this month, the donut draws a full <circle> (not a degenerate point):', JSON.stringify(svgCheck));
   check('El donut dibuja un <circle> completo (no un punto degenerado)', svgCheck.found && svgCheck.hasCircle && svgCheck.nPaths === 0, svgCheck);
 
   await finish({ context, browser, errors });

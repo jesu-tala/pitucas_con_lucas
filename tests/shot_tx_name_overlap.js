@@ -1,8 +1,8 @@
-// Bug reportado: un comercio con nombre largo en la lista de Transacciones se dibujaba encima
-// del monto de al lado ("COMISION ADMINISTRACION MES..." tapando el "$12.840"), en vez de
-// cortarse con "..." como debería. Causa: .tx-name es un <span> (inline) -- overflow:hidden y
-// text-overflow:ellipsis no hacen nada en un elemento inline sin display:block/inline-block, así
-// que el texto se dibujaba a su ancho natural completo y se salía visualmente de su columna.
+// Reported bug: a merchant with a long name in the Transactions list was drawn on top
+// of the amount next to it ("COMISION ADMINISTRACION MES..." covering the "$12.840"), instead of
+// being cut off with "..." as it should. Cause: .tx-name is a <span> (inline) -- overflow:hidden and
+// text-overflow:ellipsis do nothing on an inline element without display:block/inline-block, so
+// the text was drawn at its full natural width and visually spilled out of its column.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -10,7 +10,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
 
   await page.evaluate(() => {
     const D = window.__debug;
-    D.TX.unshift({
+    D.TRANSACTIONS.unshift({
       id: 'test-nombre-largo', fecha: D.todayISO(), hora: '09:00',
       comercio: 'COMISION ADMINISTRACION MENSUAL CUENTA CORRIENTE NACIONAL', monto: 12840,
       medio: 'cuenta_vista', tipo: 'gasto', recurrencia: 'variable', estado: 'pendiente',

@@ -18,8 +18,8 @@ const TIMEOUT_MS = 60000;
 
 function discoverTestFiles() {
   const all = fs.readdirSync(DIR);
-  // shot_*.js y audit_*.js por patrón (no una lista fija) -- así un archivo audit_ nuevo entra
-  // solo a la suite, tal como ya dice DOCUMENTACION.md, sin tener que tocar este runner cada vez.
+  // shot_*.js and audit_*.js by pattern (not a fixed list) -- so a new audit_ file joins
+  // the suite on its own, just as DOCUMENTACION.md already states, without having to touch this runner each time.
   const shotFiles = all.filter(f => /^shot_.*\.js$/.test(f));
   const auditFiles = all.filter(f => /^audit_.*\.js$/.test(f));
   const set = new Set([...shotFiles, ...auditFiles]);

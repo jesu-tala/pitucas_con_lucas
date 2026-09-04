@@ -10,7 +10,7 @@
 //   (async () => {
 //     const { context, browser, page, errors } = await openApp();
 //     ... page.click(...), page.evaluate(...) ...
-//     check('descripción de lo que se prueba', someBooleanCondition, optionalExtraDetail);
+//     check('description of what is being tested', someBooleanCondition, optionalExtraDetail);
 //     await finish({ context, browser, errors });
 //   })();
 
@@ -20,9 +20,9 @@ const { chromium } = require('playwright');
 
 const APP_DIR = path.join(__dirname, '..', '..', 'public');
 
-// El sandbox de CI trae Chromium preinstalado en esta ruta fija; en una máquina de desarrollo
-// normal no existe, así que ahí se usa el Chromium que el propio Playwright gestiona (el que
-// deja `npx playwright install chromium`).
+// The CI sandbox comes with Chromium preinstalled at this fixed path; on a normal
+// development machine it doesn't exist, so there we use the Chromium that Playwright itself
+// manages (the one `npx playwright install chromium` leaves behind).
 const SANDBOX_CHROMIUM = '/opt/pw-browsers/chromium';
 const launchOpts = fs.existsSync(SANDBOX_CHROMIUM) ? { executablePath: SANDBOX_CHROMIUM } : {};
 

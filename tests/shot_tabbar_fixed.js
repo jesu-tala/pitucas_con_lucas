@@ -3,11 +3,11 @@
 // .phone used height:100vh and left a gap below the tab bar (rebote / rubber-band scroll on
 // iOS made the frame not reach the real bottom of the screen).
 //
-// También cubre el bug reportado al agregar la app a la pantalla de inicio (PWA standalone en
-// iOS): quedaba un resto de espacio vacío bajo la barra inferior. El arreglo fue fijar el alto
-// de .phone de forma explícita (100dvh, con --app-height puesto por JS como respaldo) en vez de
-// completarlo con "bottom:0" -- acá verificamos que esa variable se calcula y que .phone sigue
-// llegando exacto al borde inferior real.
+// Also covers the bug reported when adding the app to the home screen (standalone PWA on
+// iOS): there was leftover empty space under the bottom bar. The fix was to explicitly pin the
+// height of .phone (100dvh, with --app-height set by JS as a fallback) instead of
+// completing it with "bottom:0" -- here we verify that variable gets computed and that .phone still
+// reaches exactly the real bottom edge.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {

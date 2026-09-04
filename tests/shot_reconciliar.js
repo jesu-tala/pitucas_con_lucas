@@ -4,22 +4,22 @@ const path = require('path');
 (async () => {
   const { context, browser, page, errors } = await openApp();
   await page.evaluate(() => {
-    // En este entorno de pruebas no hay salida de red hacia cdnjs, así que apuntamos el
-    // worker de pdf.js a la copia local (solo para el test — en producción usa el CDN real).
+    // In this test environment there's no network access to cdnjs, so we point the
+    // pdf.js worker to the local copy (only for the test -- in production it uses the real CDN).
     if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
   });
 
-  // Vamos directo al menú de reconciliación.
+  // Go straight to the reconcile menu.
   await page.click('[data-tab="menu"]');
   await page.waitForTimeout(150);
   await page.click('[data-menu-open="reconciliar"]');
   await page.waitForTimeout(150);
 
-  const tieneInputArchivo = await page.$('[data-reconciliar-file-input]') !== null;
+  const tieneInputArchivo = await page.$('[data-reconcile-file-input]') !== null;
   check('Existe el input de archivo PDF', tieneInputArchivo);
 
-  // 1) Cartola de CUENTA CORRIENTE real (Banco Edwards)
-  const fileInput = await page.$('[data-reconciliar-file-input]');
+  // 1) Real CHECKING ACCOUNT statement (Banco Edwards)
+  const fileInput = await page.$('[data-reconcile-file-input]');
   await fileInput.setInputFiles(path.join(__dirname, 'fixtures', 'cartola_ejemplo.pdf'));
   await page.waitForTimeout(1500);
 
@@ -42,18 +42,18 @@ const path = require('path');
   const pagosTarjetaCount = await page.evaluate(() => window.__debug.state.reconciliar.movimientos.filter(m=>m.esEspecial==='pago_tarjeta').length);
   check('Filas "CARGO POR PAGO TC" detectadas como pago_tarjeta (esperado 6)', pagosTarjetaCount === 6, pagosTarjetaCount);
 
-  // Probar agregar uno de los movimientos sugeridos
-  const addBtn = await page.$('[data-reconciliar-agregar]');
-  const txCountBefore = await page.evaluate(() => window.__debug.TX.length);
+  // Test adding one of the suggested movements
+  const addBtn = await page.$('[data-reconcile-add]');
+  const txCountBefore = await page.evaluate(() => window.__debug.TRANSACTIONS.length);
   if (addBtn) await addBtn.click();
   await page.waitForTimeout(200);
-  const txCountAfter = await page.evaluate(() => window.__debug.TX.length);
+  const txCountAfter = await page.evaluate(() => window.__debug.TRANSACTIONS.length);
   check('Al apretar "+ Agregar" en un movimiento, se crea 1 transacción', txCountAfter === txCountBefore + 1, { txCountBefore, txCountAfter });
 
-  // Resetear y probar con la cartola de TARJETA (Visa)
-  await page.click('[data-reconciliar-reset]');
+  // Reset and test with the CARD statement (Visa)
+  await page.click('[data-reconcile-reset]');
   await page.waitForTimeout(150);
-  const fileInput2 = await page.$('[data-reconciliar-file-input]');
+  const fileInput2 = await page.$('[data-reconcile-file-input]');
   await fileInput2.setInputFiles(path.join(__dirname, 'fixtures', 'cartola_visa_dec.pdf'));
   await page.waitForTimeout(1500);
   const resultado2 = await page.evaluate(() => {

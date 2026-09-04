@@ -1,40 +1,40 @@
-// jesu reportó que si dos categorías del mismo tipo (ej. "Sueldo A" e "Sueldo B", ambas
-// ingreso) quedan con el mismo color, en los gráficos de torta se ven como un solo bloque
-// continuo -- no hay forma de distinguirlas a simple vista. Este test fija dos arreglos:
-// 1) el editor de categorías ahora avisa, en el momento de elegir el color, si otra categoría
-//    del mismo tipo ya lo está usando (categoriasConColor) -- así se evita crear el problema.
-// 2) el espacio entre segmentos vecinos del donut se ensanchó de 3° a 6° (buildDonut), para que
-//    dos segmentos que igual terminen con el mismo color al menos se vean como dos bloques
-//    separados, no uno solo.
+// jesu reported that if two categories of the same type (e.g. "Sueldo A" and "Sueldo B", both
+// ingreso) end up with the same color, they look like a single continuous block in the pie
+// charts -- there's no way to tell them apart at a glance. This test locks in two fixes:
+// 1) the category editor now warns, at the moment of picking the color, if another category
+//    of the same type is already using it (categoriesWithColor) -- preventing the problem in the first place.
+// 2) the gap between neighboring donut segments widened from 3° to 6° (buildDonut), so that
+//    two segments that do end up with the same color at least look like two separate
+//    blocks, not one.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
   const { context, browser, page, errors } = await openApp();
 
-  // ---------- 1) categoriasConColor detecta colisiones reales de los datos de ejemplo ----------
+  // ---------- 1) categoriesWithColor detects real collisions in the sample data ----------
   const colision = await page.evaluate(() => {
     const D = window.__debug;
     return {
-      // restoranes y compras vienen ambas como gasto/peach en los datos de ejemplo.
-      peachGasto: D.categoriasConColor('gasto', 'peach', null),
-      // ninguna categoría de INGRESO usa 'pink' en los datos de ejemplo -- no debería haber colisión.
-      pinkIngreso: D.categoriasConColor('ingreso', 'pink', null),
-      // al editar la propia categoría, no debe "colisionar consigo misma".
-      excluyeAsiMisma: D.categoriasConColor('gasto', 'peach', 'restoranes'),
+      // restoranes and compras both come as gasto/peach in the sample data.
+      peachGasto: D.categoriesWithColor('gasto', 'peach', null),
+      // no INGRESO category uses 'pink' in the sample data -- there shouldn't be a collision.
+      pinkIngreso: D.categoriesWithColor('ingreso', 'pink', null),
+      // when editing the category itself, it shouldn't "collide with itself".
+      excluyeAsiMisma: D.categoriesWithColor('gasto', 'peach', 'restoranes'),
     };
   });
-  check('categoriasConColor() detecta que "restoranes" y "compras" (ambas gasto) comparten el color peach', colision.peachGasto.includes('Restoranes y bares') && colision.peachGasto.includes('Compras'), colision.peachGasto);
+  check('categoriesWithColor() detecta que "restoranes" y "compras" (ambas gasto) comparten el color peach', colision.peachGasto.includes('Restoranes y bares') && colision.peachGasto.includes('Compras'), colision.peachGasto);
   check('Un color sin ninguna categoría de ese tipo no marca colisión', colision.pinkIngreso.length === 0, colision.pinkIngreso);
   check('Al excluir la propia categoría (editándola), no aparece ella misma en la lista', !colision.excluyeAsiMisma.includes('Restoranes y bares'), colision.excluyeAsiMisma);
 
-  // ---------- 1b) el editor de categorías muestra el aviso en pantalla ----------
+  // ---------- 1b) the category editor shows the warning on screen ----------
   await page.click('[data-tab="menu"]');
   await page.waitForTimeout(150);
   await page.click('[data-menu-open="categorias"]');
   await page.waitForTimeout(150);
-  // Crear una categoría nueva, cambiarla a tipo "ingreso" (sueldo=mint, pololos_extra=sky en
-  // los datos de ejemplo -- todos los demás colores están libres para ingreso) y elegir "mint"
-  // -- debería aparecer el aviso.
+  // Create a new category, switch it to type "ingreso" (sueldo=mint, pololos_extra=sky in
+  // the sample data -- every other color is free for ingreso) and pick "mint"
+  // -- the warning should appear.
   const tieneBotonNueva = await page.evaluate(() => !!document.querySelector('[data-add-cat]'));
   if (tieneBotonNueva) {
     await page.click('[data-add-cat]');
@@ -53,7 +53,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
     check('El editor de categorías avisa si el color elegido ya lo usa otra categoría del mismo tipo', false, 'no se encontró el botón para crear una categoría nueva ([data-cat-new])');
   }
 
-  // ---------- 2) el gap entre segmentos del donut es de 6°, no 3° ----------
+  // ---------- 2) the gap between donut segments is 6°, not 3° ----------
   const donut = await page.evaluate(() => {
     const D = window.__debug;
     const size = 172, strokeW = 20;
@@ -71,15 +71,15 @@ const { openApp, check, finish } = require('./lib/test_kit');
   });
   check('buildDonut() con 2 segmentos genera 2 arcos separados', donut.count === 2, donut);
   if (donut.count === 2) {
-    // Mismo cálculo que adentro de buildDonut: r = size/2 - strokeW/2 - 2, centro en (size/2,size/2).
+    // Same calculation as inside buildDonut: r = size/2 - strokeW/2 - 2, center at (size/2,size/2).
     const cx = donut.size / 2, cy = donut.size / 2;
     const r = donut.size / 2 - donut.strokeW / 2 - 2;
     const polar = (angleDeg) => ({
       x: cx + r * Math.cos(angleDeg * Math.PI / 180),
       y: cy + r * Math.sin(angleDeg * Math.PI / 180),
     });
-    // Con 2 segmentos de 50/50 partiendo en -90°: el primero barre 180-6=174° (termina en 84°),
-    // el segundo arranca en -90+180=90° -- un gap de exactamente 6°.
+    // With 2 segments of 50/50 starting at -90°: the first sweeps 180-6=174° (ends at 84°),
+    // the second starts at -90+180=90° -- a gap of exactly 6°.
     const finEsperado = polar(84);
     const inicioEsperado = polar(90);
     const cerca = (a, b) => Math.abs(a.x - b.x) < 0.05 && Math.abs(a.y - b.y) < 0.05;

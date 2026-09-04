@@ -5,8 +5,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
 
   const result = await page.evaluate(() => {
     const D = window.__debug;
-    const bch = D.PLATAFORMA_DATA.banco_chile.valorHistorial;
-    const metas = D.METAS_INVERSION.filter(m=>m.plataformaId==='banco_chile');
+    const bch = D.PLATFORM_DATA.banco_chile.valorHistorial;
+    const metas = D.INVESTMENT_GOALS.filter(m=>m.plataformaId==='banco_chile');
     const months = Object.keys(bch);
     const out = {};
     months.forEach(m=>{

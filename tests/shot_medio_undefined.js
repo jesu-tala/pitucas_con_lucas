@@ -1,9 +1,9 @@
-// Bug real encontrado revisando un screenshot de la usuaria: algunas transacciones (con un
-// medio de pago que ya no existe en MEDIOS, o sin medio nunca asignado) mostraban literalmente
-// la palabra "undefined" en la fila de la lista, en vez de algo legible -- porque medioInfo()
-// devolvía un objeto de respaldo sin la propiedad "corto" que usa esa fila. Este test fija ese
-// arreglo: cualquier tx con un medio inexistente debe mostrar el texto de respaldo, nunca la
-// palabra "undefined".
+// Real bug found while reviewing a screenshot from the user: some transactions (with a
+// payment method that no longer exists in PAYMENT_METHODS, or with no method ever assigned) literally
+// showed the word "undefined" in the list row, instead of something readable -- because paymentMethodInfo()
+// returned a fallback object without the "corto" property that row uses. This test locks in that
+// fix: any tx with a nonexistent payment method must show the fallback text, never the
+// word "undefined".
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -11,10 +11,10 @@ const { openApp, check, finish } = require('./lib/test_kit');
 
   const setup = await page.evaluate(() => {
     const D = window.__debug;
-    D.TX.push({
+    D.TRANSACTIONS.push({
       id: 't_medio_inexistente_test', fecha: D.todayISO(), hora: '10:00', comercio: 'Comercio Sin Medio',
       monto: 12345, medio: 'medio_que_no_existe_xyz', tipo: 'gasto', recurrencia: 'variable',
-      estado: 'confirmado', categorias: [{ cat: Object.keys(D.CATS)[0], monto: 12345 }],
+      estado: 'confirmado', categorias: [{ cat: Object.keys(D.CATEGORIES)[0], monto: 12345 }],
       porCobrar: [], reglaAuto: false, nota: ''
     });
     D.state.tab = 'transacciones';
@@ -29,17 +29,17 @@ const { openApp, check, finish } = require('./lib/test_kit');
     const sub = btn ? btn.querySelector('.tx-right-sub') : null;
     return sub ? sub.textContent : null;
   });
-  console.log('texto del medio en la fila:', JSON.stringify(row));
+  console.log('payment method text in the row:', JSON.stringify(row));
 
   check('la fila existe y tiene un tx-right-sub', row !== null, row);
   check('NO muestra literalmente la palabra "undefined"', !/undefined/i.test(row || ''), row);
-  // El texto real incluye el ícono emoji del medio pegado adelante (ej. "💳Sin medio"), sin
-  // espacio -- por eso "incluye" y no una igualdad exacta.
+  // The actual text includes the payment method's emoji icon stuck to the front (e.g. "💳Sin medio"), with no
+  // space -- that's why we check "includes" and not an exact equality.
   check('muestra el texto de respaldo legible ("Sin medio")', (row || '').includes('Sin medio'), row);
 
-  // Mismo chequeo dentro del detalle: abrir la hoja no debe romperse ni mostrar "undefined" en
-  // el selector de medio (el <option> seleccionado simplemente no calza con ninguno, que es
-  // aceptable -- lo que no puede pasar es un crash o texto roto en el resto del sheet).
+  // Same check inside the detail view: opening the sheet must not break or show "undefined" in
+  // the payment method selector (the selected <option> simply doesn't match any, which is
+  // acceptable -- what can't happen is a crash or broken text in the rest of the sheet).
   await page.click('[data-tx="t_medio_inexistente_test"]');
   await page.waitForTimeout(200);
   const sheetOk = await page.evaluate(() => !!document.querySelector('.sheet-top .merchant'));

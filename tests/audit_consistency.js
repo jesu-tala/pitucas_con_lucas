@@ -9,8 +9,8 @@ function parseMoney(txt){
   return neg ? -v : v;
 }
 
-// Compara dos cifras con tolerancia y reporta a través del check() compartido — mismo criterio
-// de "OK/FAIL" que tenía este script antes, solo que ahora pasa por el arnés común.
+// Compares two figures with a tolerance and reports through the shared check() — same
+// "OK/FAIL" criterion this script had before, just now going through the common harness.
 function checkClose(label, a, b, tol){
   tol = tol==null ? 1 : tol;
   const ok = Math.abs((a||0)-(b||0)) <= tol;
@@ -28,25 +28,25 @@ function checkClose(label, a, b, tol){
     const platforms = D.platformIds();
     const platformData = {};
     platforms.forEach(id => {
-      platformData[id] = { valorActual: D.platformValorActual(id), aportadoNeto: D.platformAportadoNeto(id) };
+      platformData[id] = { valorActual: D.platformCurrentValue(id), aportadoNeto: D.platformAportadoNeto(id) };
     });
-    const metas = D.METAS_INVERSION.map(m => ({ id: m.id, nombre: m.nombre, plataformaId: m.plataformaId, acumulado: D.metaAcumuladoActual(m), objetivo: m.montoObjetivo }));
+    const metas = D.INVESTMENT_GOALS.map(m => ({ id: m.id, nombre: m.nombre, plataformaId: m.plataformaId, acumulado: D.metaAcumuladoActual(m), objetivo: m.montoObjetivo }));
     const totalValorPlataformas = platforms.reduce((s,id)=>s+platformData[id].valorActual,0);
     const totalAportadoPlataformas = platforms.reduce((s,id)=>s+platformData[id].aportadoNeto,0);
-    const metaProgreso = D.metaProgresoTotal();
+    const metaProgreso = D.totalGoalProgress();
     const year2026 = D.yearTotals('2026');
-    // Promedio de los últimos 3 meses para la tarjeta de Proyección — replicamos EXACTAMENTE
-    // el criterio de proyeccionAportes() en plata-clara.html (MONTHS filtrados a <= mes real de
-    // hoy, últimos 3), en vez de asumir que siempre son los últimos 3 meses "con datos de demo"
-    // (realMonths es una lista fija; a medida que el calendario real avanza, el mes actual se
-    // suma a MONTHS y entra en ese promedio aunque todavía no tenga datos, así que un hardcode
-    // acá se desincroniza con lo que la app realmente muestra).
+    // Average of the last 3 months for the Projection card — we replicate EXACTLY
+    // the criterion from projectedContributions() in plata-clara.html (MONTHS filtered to <= the real
+    // current month, last 3), instead of assuming it's always the last 3 months "with demo data"
+    // (realMonths is a fixed list; as the real calendar advances, the current month gets
+    // added to MONTHS and enters that average even though it doesn't have data yet, so a hardcode
+    // here would get out of sync with what the app actually shows).
     const mesActual = D.todayISO().slice(0,7);
     const mesesProyeccion = D.MONTHS.filter(m => m <= mesActual).slice(-3);
     const last3 = mesesProyeccion.map(m=>D.monthTotals(m).inversiones);
     const avgLast3 = last3.length ? last3.reduce((a,b)=>a+b,0)/last3.length : 0;
     // banco_chile: platform valor should equal sum of its own metas' acumulado (per current design)
-    const bchMetas = D.METAS_INVERSION.filter(m=>m.plataformaId==='banco_chile');
+    const bchMetas = D.INVESTMENT_GOALS.filter(m=>m.plataformaId==='banco_chile');
     const bchMetasSum = bchMetas.reduce((s,m)=>s+D.metaAcumuladoActual(m),0);
     const defaultPlanBase = D.computeDefaultPlanBase();
     return { perMonth, platformData, metas, totalValorPlataformas, totalAportadoPlataformas, metaProgreso, year2026, avgLast3, bchMetasSum, defaultPlanBase };
@@ -82,7 +82,7 @@ function checkClose(label, a, b, tol){
   console.log(JSON.stringify(balanceByMonth,null,1));
 
   // ---------- Presupuesto view: total gasto per month + sum of category cards ----------
-  await page.click('[data-resumen-sub="presupuesto"]');
+  await page.click('[data-summary-sub="presupuesto"]');
   await page.waitForTimeout(150);
   for(let i=0;i<10;i++){
     const disabled = await page.$eval('[data-month-nav="-1"]', el=>el.disabled).catch(()=>true);
@@ -110,7 +110,7 @@ function checkClose(label, a, b, tol){
   console.log(JSON.stringify(presupuestoByMonth,null,1));
 
   // ---------- Evolución view: per-month detail + year totals ----------
-  await page.click('[data-resumen-sub="evolucion"]');
+  await page.click('[data-summary-sub="evolucion"]');
   await page.waitForTimeout(200);
   for (const mKey of realMonths){
     await page.click(`[data-evo-month="${mKey}"]`);
@@ -139,11 +139,11 @@ function checkClose(label, a, b, tol){
   console.log('\n=== EVOLUCION year card ===\n', yearCardText);
 
   // ---------- Inversiones view: platform + meta cards ----------
-  // Las plataformas ahora son un acordeón cerrado por defecto (state.platformAbierta) -- sus
-  // figuras (Total en esta plataforma / Aportado neto) y el resumen de metas de cada una solo
-  // existen en el DOM mientras está abierta, así que hay que abrir cada una (una a la vez, ya
-  // que abrir otra cierra la anterior) para poder leerlas.
-  await page.click('[data-resumen-sub="inversiones"]');
+  // Platforms are now an accordion closed by default (state.openPlatformId) -- their
+  // figures (Total on this platform / Net contributed) and each one's goal summary only
+  // exist in the DOM while it's open, so each one has to be opened (one at a time, since
+  // opening another one closes the previous one) in order to read them.
+  await page.click('[data-summary-sub="inversiones"]');
   await page.waitForTimeout(200);
   const platformIdsOnPage = await page.evaluate(() => [...document.querySelectorAll('[data-toggle-platform]')].map(el=>el.getAttribute('data-toggle-platform')));
   const platformCardData = {};
@@ -162,9 +162,9 @@ function checkClose(label, a, b, tol){
     platformCardData[id] = { valorEstimado: parseInt(result.figVals[0]||'0',10), aportadoNeto: parseInt(result.figVals[1]||'0',10) };
     if(id==='banco_chile') bchCombinedText = result.metaSummaryText;
   }
-  // La card de totales ahora muestra "Aportado neto" y "Ganancia/pérdida aprox." como dos
-  // cuadrados (.stat-tile) en vez de una línea de texto "Aportado neto: $X" -- se lee por
-  // elemento, no por regex sobre todo el innerText de la card.
+  // The totals card now shows "Aportado neto" and "Ganancia/pérdida aprox." as two
+  // tiles (.stat-tile) instead of a text line "Aportado neto: $X" -- it's read per
+  // element, not via regex over the whole card's innerText.
   const totalCardInfo = await page.evaluate(() => {
     const label = [...document.querySelectorAll('.platform-total-label')].find(el=>el.textContent.includes('Total invertido'));
     const card = label ? label.closest('.card') : null;
@@ -188,14 +188,14 @@ function checkClose(label, a, b, tol){
   console.log('\n=== INVERSIONES objetivo card ===\n', objetivoCardText);
   console.log('\n=== INVERSIONES banco_chile combined metas ===\n', bchCombinedText);
 
-  // El "Aportando $X/mes" del simulador ahora es un <input> editable (para que la usuaria pueda
-  // reemplazar el promedio por su propio monto), no texto plano -- así que su valor no aparece en
-  // innerText. Mientras no lo haya tocado, el promedio real vive en su placeholder.
-  const proyeccionAportePlaceholder = await page.$eval('[data-proy-aporte-input]', el => el.placeholder).catch(() => null);
+  // The simulator's "Aportando $X/mes" is now an editable <input> (so the user can
+  // replace the average with their own amount), not plain text -- so its value doesn't appear in
+  // innerText. As long as she hasn't touched it, the real average lives in its placeholder.
+  const proyeccionAportePlaceholder = await page.$eval('[data-proj-contribution-input]', el => el.placeholder).catch(() => null);
   console.log('\n=== PROYECCION aporte placeholder (promedio real) ===\n', proyeccionAportePlaceholder);
 
   const planBaseVal = await page.$eval('[data-plan-base-input]', el=>parseInt(el.value.replace(/[^\d\-]/g,''),10)||0).catch(()=>null);
-  console.log('\n=== PLANIFICADOR base default ===', planBaseVal);
+  console.log('\n=== PLANNER base default ===', planBaseVal);
 
   // ---------- Now run the actual cross-checks ----------
   console.log('\n\n========== CROSS-CHECKS ==========');

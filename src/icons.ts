@@ -47,9 +47,9 @@ export const ICONS = {
   bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10.5a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6.2H4c.5-.7 2-2.2 2-6.2Z"/><path d="M9.5 19a2.6 2.6 0 0 0 5 0"/></svg>'
 };
 export function icon(name,cls?){ return '<span class="icon-wrap'+(cls?(' '+cls):'')+'">'+ICONS[name]+'</span>'; }
-// Las categorías pueden usar un ícono de este set fijo (nombre conocido, ej. 'trending') O
-// directamente un emoji suelto (ej. '🛒') como valor de "icon" — esto último es lo que usan
-// las categorías por defecto y lo que se puede elegir/escribir en el editor de categorías.
-// Este helper decide cuál de los dos casos es y arma el HTML que corresponda.
+// Categories can use an icon from this fixed set (known name, e.g. 'trending') OR directly a
+// bare emoji (e.g. '🛒') as the "icon" value — the latter is what the default categories use
+// and what can be picked/typed in the category editor. This helper decides which of the two
+// cases it is and builds the corresponding HTML.
 export function catIconMarkup(name){ return ICONS[name]!==undefined ? ICONS[name] : '<span class="emoji-icon">'+name+'</span>'; }
 

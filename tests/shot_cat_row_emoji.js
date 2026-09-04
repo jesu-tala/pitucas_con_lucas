@@ -1,8 +1,8 @@
-// Regresión: la usuaria reportó que ya no veía los iconos/emojis de las categorías ("de los que
-// habíamos hablado antes") -- el bug estaba en renderCategoriaRows(), que dibujaba cada fila de
-// categoría (dentro del detalle de una transacción) con un simple punto de color (.cat-dot), sin
-// ícono ni emoji adentro. Ahora cada fila usa un avatar .cat-row-icon que sí muestra el ícono o
-// emoji real de la categoría (vía catIconMarkup), igual que en el resto de la app.
+// Regression: the user reported she no longer saw the category icons/emojis ("the ones
+// we'd talked about before") -- the bug was in renderCategoryRows(), which drew each
+// category row (inside a transaction's detail) with a plain color dot (.cat-dot), with no
+// icon or emoji inside. Now each row uses a .cat-row-icon avatar that does show the category's
+// real icon or emoji (via catIconMarkup), same as the rest of the app.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -11,8 +11,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.evaluate(() => { window.__debug.state.tab = 'transacciones'; window.__debug.render(); });
   await page.waitForTimeout(150);
 
-  // t6 = Sueldo Agosto, categoría única "sueldo", cuyo ícono en CATS es el emoji 💼 (no un ícono
-  // SVG con nombre conocido) -- el caso exacto que se rompía.
+  // t6 = Sueldo Agosto, single category "sueldo", whose icon in CATEGORIES is the emoji 💼 (not a named
+  // SVG icon) -- the exact case that was broken.
   await page.click('[data-tx="t6"]');
   await page.waitForTimeout(200);
 

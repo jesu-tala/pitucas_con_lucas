@@ -1,13 +1,13 @@
-// Segunda ronda de ajustes a Inversiones que pidió la usuaria después del rediseño:
-// (2) los cuadrados de "Aportado neto"/"Ganancia-pérdida aprox." más chicos/discretos.
-// (3) el objetivo de inversión TOTAL (mes a mes) también genera racha, igual que las metas
-//     por plataforma.
-// (4) dentro de una meta, la fila de "Comisión anual" separada de la barra de progreso y
-//     más chica/discreta; y los cuadraditos de mes se extienden hasta diciembre (no solo
-//     hasta el último mes con dato real).
-// (5) el simulador ya no es verde y su texto es bastante más breve.
-// (6)+(7) el % de inversión de Balance sale de la suma de "aporte mensual meta" de TODAS las
-//     metas (todas las plataformas), y en Inversiones se ve ese mismo monto mensual chiquito.
+// Second round of adjustments to Investments requested by the user after the redesign:
+// (2) the "Aportado neto"/"Ganancia-pérdida aprox." tiles are smaller/more discreet.
+// (3) the TOTAL investment goal (month by month) also generates a streak, same as the per-platform
+//     goals.
+// (4) inside a goal, the "Comisión anual" row is separated from the progress bar and
+//     smaller/more discreet; and the month tiles extend all the way to December (not only
+//     up to the last month with real data).
+// (5) the simulator is no longer green and its text is quite a bit shorter.
+// (6)+(7) Balance's investment % comes from the sum of "aporte mensual meta" across ALL
+//     goals (all platforms), and Investments shows that same small monthly amount.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -15,10 +15,10 @@ const { openApp, check, finish } = require('./lib/test_kit');
 
   await page.click('[data-tab="resumen"]');
   await page.waitForTimeout(150);
-  await page.click('[data-resumen-sub="inversiones"]');
+  await page.click('[data-summary-sub="inversiones"]');
   await page.waitForTimeout(200);
 
-  // ---------- (2) Cuadrados de totales más chicos ----------
+  // ---------- (2) Smaller total tiles ----------
   const totalTiles = await page.evaluate(() => {
     const label = [...document.querySelectorAll('.platform-total-label')].find(el => el.textContent.includes('Total invertido'));
     const grid = label ? label.closest('.card').querySelector('.stat-grid') : null;
@@ -33,17 +33,17 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('(2) La card de totales usa el modificador .stat-grid-compact', totalTiles && totalTiles.esCompacto === true, totalTiles);
   check('(2) El padding de esos cuadrados es más chico que el de Balance (14px)', totalTiles && totalTiles.paddingTop < 12, totalTiles);
 
-  // ---------- (3) Racha del objetivo total ----------
-  // Deja los últimos 3 meses (incluido el actual) marcados como cumplidos, para forzar una
-  // racha de 3 -- mismo criterio que metaRacha para una meta puntual.
+  // ---------- (3) Total goal streak ----------
+  // Marks the last 3 months (including the current one) as completed, to force a
+  // streak of 3 -- same criterion as metaRacha for a single goal.
   const rachaInfo = await page.evaluate(() => {
     const D = window.__debug;
     const year = D.todayISO().slice(0, 4);
     const mesActual = D.todayISO().slice(0, 7);
     const months = D.fullYearMonths(year).filter(m => m <= mesActual);
-    months.forEach(m => { D.METAS_TOTAL_CHECKS[m] = false; });
+    months.forEach(m => { D.TOTAL_GOAL_CHECKS[m] = false; });
     const last3 = months.slice(-3);
-    last3.forEach(m => { D.METAS_TOTAL_CHECKS[m] = true; });
+    last3.forEach(m => { D.TOTAL_GOAL_CHECKS[m] = true; });
     D.render();
     return { calculada: D.metaTotalRacha() };
   });
@@ -58,12 +58,12 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('(3) Aparece el badge de racha (3 🔥) junto al objetivo total', rachaUi.badgeTexto && rachaUi.badgeTexto.includes('3'), rachaUi);
   check('(3) El texto de abajo dice "Racha activa" con el objetivo total', rachaUi.rachaTexto.includes('Racha activa') && rachaUi.rachaTexto.includes('objetivo total'), rachaUi);
 
-  // ---------- (4) Dentro de una meta: comisión + cuadraditos hasta fin de año ----------
-  // Abre la plataforma Banco de Chile (banco_chile), que tiene 2 metas con comisión definida
-  // en null -- le ponemos comisión a "Fondo de emergencia" (m1) para poder ver su fila.
+  // ---------- (4) Inside a goal: commission + tiles up to year end ----------
+  // Opens the Banco de Chile platform (banco_chile), which has 2 goals with commission set
+  // to null -- we set a commission on "Fondo de emergencia" (m1) so we can see its row.
   await page.evaluate(() => {
     const D = window.__debug;
-    const m1 = D.METAS_INVERSION.find(m => m.id === 'm1');
+    const m1 = D.INVESTMENT_GOALS.find(m => m.id === 'm1');
     m1.comision = 1.2;
     D.render();
   });
@@ -86,12 +86,12 @@ const { openApp, check, finish } = require('./lib/test_kit');
   });
   check('(4a) La fila de comisión anual tiene separación con la barra de progreso (margin-top >= 8px)', metaCard && metaCard.marginTop >= 8, metaCard);
   check('(4a) Y se ve chica (font-size <= 11px)', metaCard && metaCard.fontSize <= 11, metaCard);
-  // m1 (Fondo de emergencia) tiene historial de abril a agosto 2026 -- los cuadraditos deberían
-  // llegar hasta diciembre (9 meses: Abr..Dic), no solo hasta Ago (5 meses).
+  // m1 (Fondo de emergencia) has history from April to August 2026 -- the tiles should
+  // reach all the way to December (9 months: Abr..Dic), not just up to Ago (5 months).
   check('(4b) Los cuadraditos de mes llegan hasta diciembre (9 meses: abr-dic), no solo hasta el último dato', metaCard && metaCard.chips.length === 9 && metaCard.chips[metaCard.chips.length - 1] === 'Dic', metaCard);
   check('   incluye un mes futuro sin dato real (Sep) como cuadradito no marcado', metaCard && metaCard.chips.includes('Sep'), metaCard);
 
-  // ---------- (5) Simulador: sin verde, texto breve ----------
+  // ---------- (5) Simulator: no green, short text ----------
   const simulador = await page.evaluate(() => {
     const card = document.querySelector('.proyeccion-card');
     const cs = card ? getComputedStyle(card) : null;
@@ -104,27 +104,27 @@ const { openApp, check, finish } = require('./lib/test_kit');
       mencionaSupuesto: (texto + ' ' + caption).includes('supuesto moderado'),
     };
   });
-  // El verde "sage" del tema (claro) es rgb(199, 217, 183) -- confirmamos que ya no es ese tono.
+  // The theme's "sage" green (light) is rgb(199, 217, 183) -- we confirm it's no longer that tone.
   check('(5) El fondo del simulador ya no es el verde sage de antes', simulador.bg !== 'rgb(199, 217, 183)', simulador);
   check('(5) El texto principal quedó breve (<140 caracteres, antes >220)', simulador.largoTexto < 140, simulador);
   check('(5) Ya no menciona el párrafo largo sobre el "supuesto moderado"', simulador.mencionaSupuesto === false, simulador);
 
-  // ---------- (6)+(7) % de inversión = suma de metas de TODAS las plataformas ----------
+  // ---------- (6)+(7) investment % = sum of goals across ALL platforms ----------
   const metaCheck = await page.evaluate(() => {
     const D = window.__debug;
-    const sumaAportes = D.METAS_INVERSION.reduce((s, m) => s + (m.aporteMensualMeta || 0), 0);
-    const esperado = { suma: sumaAportes, mensualCLP: D.metaInversionMensualCLP(), pct: D.metaInversionPct() };
+    const sumaAportes = D.INVESTMENT_GOALS.reduce((s, m) => s + (m.aporteMensualMeta || 0), 0);
+    const esperado = { suma: sumaAportes, mensualCLP: D.monthlyInvestmentGoalCLP(), pct: D.investmentGoalPct() };
     return esperado;
   });
-  check('(6/7 setup) metaInversionMensualCLP() = suma de aporteMensualMeta de TODAS las metas', metaCheck.mensualCLP === metaCheck.suma, metaCheck);
+  check('(6/7 setup) monthlyInvestmentGoalCLP() = suma de aporteMensualMeta de TODAS las metas', metaCheck.mensualCLP === metaCheck.suma, metaCheck);
 
-  // (7) En Inversiones, la card de "Objetivo de inversión" muestra ese mismo monto mensual.
+  // (7) In Investments, the "Objetivo de inversión" card shows that same monthly amount.
   const objetivoLine = await page.evaluate(() => document.body.textContent.match(/Aporte mensual objetivo: \$[\d.,]+ · \d+% de tus ingresos/)?.[0] || null);
   check('(7) Se ve "Aporte mensual objetivo" con el monto y % en Inversiones', !!objetivoLine, objetivoLine);
 
-  // (6) En Balance, la meta de Inversión (el %) es ese mismo cálculo -- se lee del texto fijo
-  // que dice "tu meta de Inversión (X%) sale sola de lo que ya definiste en Inversiones".
-  await page.click('[data-resumen-sub="balance"]');
+  // (6) In Balance, the Investment goal (the %) is that same calculation -- read from the fixed text
+  // that says "tu meta de Inversión (X%) sale sola de lo que ya definiste en Inversiones".
+  await page.click('[data-summary-sub="balance"]');
   await page.waitForTimeout(200);
   const balancePct = await page.evaluate(() => {
     const caption = [...document.querySelectorAll('.meta-caption')].map(el => el.textContent).find(t => t.includes('meta de Inversión'));

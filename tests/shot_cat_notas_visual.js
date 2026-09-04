@@ -6,30 +6,30 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.evaluate(() => { window.__debug.state.tab = 'transacciones'; window.__debug.render(); });
   await page.waitForTimeout(150);
 
-  // t2 = Copec Providencia, categoría única (Transporte)
+  // t2 = Copec Providencia, single category (Transporte)
   await page.click('[data-tx="t2"]');
   await page.waitForTimeout(200);
   await page.evaluate(() => document.querySelector('.sheet-scroll').scrollTo(0, 600));
   await page.waitForTimeout(150);
   await page.screenshot({ path: '/tmp/cat_notas_1.png' });
 
-  // Escribir una nota
+  // Write a note
   await page.fill('[data-tx-field="nota"]', 'Bencina antes del viaje a la playa');
   await page.waitForTimeout(150);
   await page.screenshot({ path: '/tmp/cat_notas_2.png' });
 
-  // Agregar una segunda categoría para ver el split con dots + $/%
-  await page.click('[data-add-catrow="t2"]');
+  // Add a second category to see the split with dots + $/%
+  await page.click('[data-add-cat-row="t2"]');
   await page.waitForTimeout(150);
   await page.screenshot({ path: '/tmp/cat_notas_3.png' });
 
-  // Nota: el diseño de esta fila cambió de un simple punto de color (.cat-dot) a un avatar con
-  // el ícono/emoji real de la categoría (.cat-row-icon) — la usuaria pidió volver a ver esos
-  // emojis, así que este check ahora bloquea ESE diseño en vez del punto plano viejo.
+  // Note: this row's design changed from a plain color dot (.cat-dot) to an avatar with
+  // the category's real icon/emoji (.cat-row-icon) — the user asked to see those
+  // emojis again, so this check now locks in THAT design instead of the old flat dot.
   const check1 = await page.evaluate(() => {
     const rows = Array.from(document.querySelectorAll('.cat-rows .split-row'));
     const icons = rows.map(r => !!r.querySelector('.cat-row-icon'));
-    const tx = window.__debug.TX.find(t => t.id === 't2');
+    const tx = window.__debug.TRANSACTIONS.find(t => t.id === 't2');
     return { nRows: rows.length, icons, nota: tx.nota, categorias: tx.categorias };
   });
   console.log('Filas de categoría con avatar de ícono:', JSON.stringify(check1));

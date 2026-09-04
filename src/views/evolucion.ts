@@ -1,16 +1,16 @@
-import { catInfo, montoAgregadoTx, plazoChip, txsOfMonth } from '../helpers';
+import { catInfo, aggregatedTxAmount, termChip, txsOfMonth } from '../helpers';
 import { ICONS } from '../icons';
 import { monthLabelFor } from '../shared-expenses';
 import { segmentedHtml } from '../sheet';
-import { MESES_LARGO, METAS_INVERSION, METAS_TOTAL_CHECKS, MONTHS, MONTH_LABEL, money, state, todayISO } from '../state';
-import { activePlatformIds, platformValorActual } from './inversiones';
-/* ===================== EVOLUCIÓN (Fase 3) ===================== */
+import { MONTHS_LONG, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, MONTH_LABEL, money, state, todayISO } from '../state';
+import { activePlatformIds, platformCurrentValue } from './inversiones';
+/* ===================== EVOLUTION (Phase 3) ===================== */
 export function monthTotals(monthKey){
   const monthTx = txsOfMonth(monthKey);
   let ingresos=0, gastos=0, inversiones=0;
   monthTx.forEach(t=>{
     if(t.estado==='no_es_gasto') return;
-    const monto = montoAgregadoTx(t);
+    const monto = aggregatedTxAmount(t);
     if(t.tipo==='ingreso') ingresos += monto;
     else if(t.tipo==='gasto') gastos += monto;
     else if(t.tipo==='inversion') inversiones += monto;
@@ -22,10 +22,10 @@ export function monthTotals(monthKey){
   };
 }
 
-// Suma los 12 meses del año completo (Enero-Diciembre) para mostrar el total anual en
-// Evolución — ingresos, gastos, inversiones, tasa de ahorro y tasa de gastos, agregado
-// para todo el año, no solo los meses que ya tienen movimientos (los que faltan cuentan
-// como $0, así que no inflan ni distorsionan la suma).
+// Adds up all 12 months of the full year (January-December) to show the annual total in
+// Evolution — income, expenses, investments, savings rate and spending rate, aggregated for
+// the whole year, not just the months that already have activity (the missing ones count as
+// $0, so they don't inflate or distort the sum).
 export function yearTotals(year){
   const months = fullYearMonths(year);
   let ingresos=0, gastos=0, inversiones=0;
@@ -40,33 +40,33 @@ export function yearTotals(year){
   };
 }
 
-// Proyección a futuro basada SOLO en tu ritmo real de aportes (promedio de los últimos
-// N meses con datos) — sin inventar ninguna rentabilidad ni tasa de retorno, siguiendo
-// el mismo principio que el resto de la app (nunca sugerimos un % de crecimiento). Es
-// "cuánto habrás puesto tú" en ese plazo, no una promesa de cuánto crecerá tu plata.
-// Único lugar de la app donde SÍ inventamos un número — a pedido explícito de la usuaria,
-// para poder proyectar a 20 años. Por defecto un retorno moderado y una inflación típica,
-// pero ambos quedan siempre editables a la vista, nunca escondidos como si fueran un hecho.
-export let PROYECCION_SUPUESTOS = {retornoAnual:6, inflacionAnual:3};
+// Future projection based ONLY on your real contribution pace (average of the last N months
+// with data) — without inventing any return or rate of return, following the same principle
+// as the rest of the app (we never suggest a growth %). It's "how much you will have put in"
+// over that term, not a promise of how much your money will grow.
+// The one place in the app where we DO invent a number — at the user's explicit request, to be
+// able to project 20 years out. A moderate return and a typical inflation rate by default, but
+// both stay editable in plain sight, never hidden as if they were a fact.
+export let PROJECTION_ASSUMPTIONS = {retornoAnual:6, inflacionAnual:3};
 
-export function proyeccionAportes(mesesPromedio, aniosProyeccion){
+export function projectedContributions(mesesPromedio, aniosProyeccion){
   const mesActual = todayISO().slice(0,7);
   const mesesConDatos = MONTHS.filter(m=>m<=mesActual).slice(-mesesPromedio);
   const promedioMensual = mesesConDatos.length
     ? mesesConDatos.reduce((s,m)=>s+monthTotals(m).inversiones,0)/mesesConDatos.length
     : 0;
-  // La usuaria puede reemplazar ese promedio por un monto mensual propio en el simulador
-  // (por ejemplo, para ver qué pasaría si aportara más o menos que su promedio real) — si no
-  // lo ha tocado (null), se sigue usando el promedio real de siempre.
-  const aporteMensualUsado = state.proySimulatedAporte!=null ? state.proySimulatedAporte : promedioMensual;
-  const totalActual = activePlatformIds().reduce((s,id)=>s+platformValorActual(id),0);
+  // The user can replace that average with their own monthly amount in the simulator (for
+  // example, to see what would happen if they contributed more or less than their real
+  // average) — if they haven't touched it (null), the real average keeps being used as always.
+  const aporteMensualUsado = state.simulatedContribution!=null ? state.simulatedContribution : promedioMensual;
+  const totalActual = activePlatformIds().reduce((s,id)=>s+platformCurrentValue(id),0);
   const aporteAnual = aporteMensualUsado*12;
-  // Referencia honesta: solo lo aportado, sin ningún % de retorno inventado.
+  // Honest reference: only what was contributed, with no invented return %.
   const proyectadoSinRetorno = totalActual + aporteAnual*aniosProyeccion;
 
-  // Proyección con retorno + inflación (tasa real vía Fisher), expresada en pesos de hoy.
-  const retornoAnual = PROYECCION_SUPUESTOS.retornoAnual;
-  const inflacionAnual = PROYECCION_SUPUESTOS.inflacionAnual;
+  // Projection with return + inflation (real rate via Fisher), expressed in today's pesos.
+  const retornoAnual = PROJECTION_ASSUMPTIONS.retornoAnual;
+  const inflacionAnual = PROJECTION_ASSUMPTIONS.inflacionAnual;
   const rReal = ((1+retornoAnual/100)/(1+inflacionAnual/100)) - 1;
   const factor = Math.pow(1+rReal, aniosProyeccion);
   const valorFuturoActual = totalActual*factor;
@@ -91,7 +91,7 @@ export function buildSparkline(values, w, h, color){
   '</svg>';
 }
 
-export function buildEvolucionBars(months, selMonth){
+export function buildEvolutionBars(months, selMonth){
   const totals = months.map(monthTotals);
   const maxVal = Math.max(1, ...totals.flatMap(t=>[t.ingresos,t.gastos,t.inversiones]));
   const W = 320, chartH = 128, padTop = 6, padBottom = 20, H = chartH+padTop+padBottom;
@@ -124,8 +124,8 @@ export function buildEvolucionBars(months, selMonth){
   return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block;overflow:visible;">'+out+'</svg>';
 }
 
-// Sólo los meses con datos reales de la meta (evita que meses futuros proyectados
-// por cuotas de tarjeta —que sí extienden MONTHS— aparezcan como "incumplidos").
+// Only the months with real data for the goal (avoids future months projected by card
+// installments —which DO extend MONTHS— from showing up as "not met").
 export function metaMonths(meta){
   return MONTHS.filter(m=> meta.historial[m]!=null);
 }
@@ -133,8 +133,8 @@ export function metaAcumuladoActual(meta){
   const months = metaMonths(meta);
   return months.length ? meta.historial[months[months.length-1]] : 0;
 }
-// Ganancia estimada de la meta: lo acumulado menos lo que realmente aportaste (nunca el
-// total) — es la base sobre la que se calcula su comisión, igual que en las plataformas.
+// Estimated profit of the goal: what's accumulated minus what you actually contributed (never
+// the total) — it's the base on which its fee is calculated, same as on the platforms.
 export function metaGananciaEstimada(meta){
   return Math.max(0, metaAcumuladoActual(meta) - (meta.aportadoNeto||0));
 }
@@ -147,55 +147,55 @@ export function metaRacha(meta){
   }
   return racha;
 }
-export function metasForPlataforma(id){
-  return METAS_INVERSION.filter(m=>m.plataformaId===id);
+export function goalsForPlatform(id){
+  return INVESTMENT_GOALS.filter(m=>m.plataformaId===id);
 }
-// Resumen combinado de las metas de UNA plataforma: suma de objetivo/acumulado, y una
-// racha combinada que solo se prende si TODAS las metas de esa plataforma tienen racha
-// activa hoy — en ese caso el número es la racha más corta (los meses en que las
-// cumpliste TODAS a la vez), no la más larga.
-export function platformMetasResumen(id){
-  const metas = metasForPlataforma(id);
+// Combined summary of the goals of ONE platform: sum of target/accumulated, and a combined
+// streak that only lights up if ALL of that platform's goals have an active streak today — in
+// that case the number is the shortest streak (the months in which you met ALL of them at
+// once), not the longest.
+export function platformGoalsSummary(id){
+  const metas = goalsForPlatform(id);
   const totalObjetivo = metas.reduce((s,m)=>s+m.montoObjetivo,0);
   const totalAcumulado = metas.reduce((s,m)=>s+metaAcumuladoActual(m),0);
   const rachas = metas.map(metaRacha);
   const rachaCombinada = (metas.length>0 && rachas.every(r=>r>0)) ? Math.min(...rachas) : 0;
   return {metas, totalObjetivo, totalAcumulado, rachaCombinada};
 }
-export function metaProgresoTotal(){
-  const totalObjetivo = METAS_INVERSION.reduce((s,m)=>s+m.montoObjetivo,0);
-  const totalAcumulado = METAS_INVERSION.reduce((s,m)=>s+metaAcumuladoActual(m),0);
+export function totalGoalProgress(){
+  const totalObjetivo = INVESTMENT_GOALS.reduce((s,m)=>s+m.montoObjetivo,0);
+  const totalAcumulado = INVESTMENT_GOALS.reduce((s,m)=>s+metaAcumuladoActual(m),0);
   return {totalObjetivo, totalAcumulado};
 }
-// 12 cuadraditos (enero-diciembre del año en curso) para marcar a mano si cumpliste tu
-// objetivo de inversión TOTAL ese mes — independiente de los checks de cada meta individual.
-// Un mes sin marcar se ve igual que "no cumplido" (no hay forma de distinguir "todavía no
-// llega" de "no lo marcaste"), lo cual está bien: es un hábito que tú llevas, no un cálculo.
-// Racha del objetivo de inversión TOTAL — mismo criterio que metaRacha (cuenta hacia atrás
-// desde el mes actual mientras esté marcado como cumplido), pero sobre METAS_TOTAL_CHECKS en
-// vez de los checks de una meta puntual. Antes esto no generaba ninguna racha, a diferencia
-// de las metas por plataforma, que sí la mostraban.
+// 12 little squares (January-December of the current year) to mark by hand whether you hit
+// your TOTAL investment goal that month — independent of each individual goal's own checks.
+// An unmarked month looks the same as "not met" (there's no way to tell "hasn't arrived yet"
+// apart from "you didn't mark it"), which is fine: it's a habit you keep, not a calculation.
+// Streak of the TOTAL investment goal — same rule as metaRacha (counts backward from the
+// current month while it's marked as met), but over TOTAL_GOAL_CHECKS instead of a single
+// goal's checks. This used to not generate any streak, unlike the per-platform goals, which
+// did show one.
 export function metaTotalRacha(){
   const year = todayISO().slice(0,4);
   const mesActual = todayISO().slice(0,7);
   const months = fullYearMonths(year).filter(m=>m<=mesActual);
   let racha = 0;
   for(let i=months.length-1;i>=0;i--){
-    if(METAS_TOTAL_CHECKS[months[i]]) racha++;
+    if(TOTAL_GOAL_CHECKS[months[i]]) racha++;
     else break;
   }
   return racha;
 }
-export function renderMetaTotalChecksGrid(){
+export function renderTotalChecksGrid(){
   const year = todayISO().slice(0,4);
   const months = fullYearMonths(year);
   const racha = metaTotalRacha();
   const cells = months.map(m=>{
-    const checked = !!METAS_TOTAL_CHECKS[m];
+    const checked = !!TOTAL_GOAL_CHECKS[m];
     const monthIdx = parseInt(m.slice(5,7),10)-1;
-    const short = MESES_LARGO[monthIdx].slice(0,3);
+    const short = MONTHS_LONG[monthIdx].slice(0,3);
     const label = short.charAt(0).toUpperCase()+short.slice(1);
-    return '<button class="meta-total-check-cell'+(checked?' done':'')+'" data-toggle-meta-total-check="'+m+'" aria-pressed="'+(checked?'true':'false')+'" aria-label="'+label+' '+year+(checked?': objetivo total cumplido':': no marcado')+'">'+
+    return '<button class="meta-total-check-cell'+(checked?' done':'')+'" data-toggle-goal-total-check="'+m+'" aria-pressed="'+(checked?'true':'false')+'" aria-label="'+label+' '+year+(checked?': objetivo total cumplido':': no marcado')+'">'+
       '<span class="mcc-icon">'+(checked?ICONS.check:ICONS.close)+'</span><span class="mcc-label">'+label+'</span>'+
     '</button>';
   }).join('');
@@ -207,45 +207,45 @@ export function renderMetaTotalChecksGrid(){
     '<div class="meta-racha">'+(racha>0 ? 'Racha activa — cumpliste tu objetivo total '+racha+' '+(racha===1?'mes':'meses')+' seguidos hasta hoy' : 'Sin racha activa — marca los meses en que cumpliste tu objetivo total') +'</div>';
 }
 
-export function renderMetaEditForm(meta, plataformaId?){
-  const d = state.metaDraft;
-  const ctxId = meta ? meta.plataformaId : (plataformaId || state.addMetaPlataformaId);
+export function renderGoalEditForm(meta, plataformaId?){
+  const d = state.goalDraft;
+  const ctxId = meta ? meta.plataformaId : (plataformaId || state.addGoalPlatformId);
   const ctxNombre = ctxId ? catInfo(ctxId).nombre : '';
   return '<div class="card meta-goal-card editing">'+
     (ctxNombre ? '<div class="meta-goal-ctx muted">'+(meta?'Meta en ':'Nueva meta en ')+ctxNombre+'</div>' : '')+
     '<label class="draft-label">Nombre de la meta</label>'+
-    '<input type="text" class="draft-input" data-meta-field="nombre" value="'+d.nombre.replace(/"/g,'&quot;')+'" placeholder="Ej: Fondo de emergencia">'+
+    '<input type="text" class="draft-input" data-goal-field="nombre" value="'+d.nombre.replace(/"/g,'&quot;')+'" placeholder="Ej: Fondo de emergencia">'+
     '<label class="draft-label" style="margin-top:12px;">Monto objetivo</label>'+
-    '<input type="text" inputmode="decimal" class="draft-input tabular" data-meta-field="montoObjetivo" value="'+d.montoObjetivo+'" placeholder="0">'+
+    '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="'+d.montoObjetivo+'" placeholder="0">'+
     '<label class="draft-label" style="margin-top:12px;">Aporte mensual meta</label>'+
-    '<input type="text" inputmode="decimal" class="draft-input tabular" data-meta-field="aporteMensualMeta" value="'+d.aporteMensualMeta+'" placeholder="0">'+
+    '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aporteMensualMeta" value="'+d.aporteMensualMeta+'" placeholder="0">'+
     '<label class="draft-label" style="margin-top:12px;">Plazo</label>'+
     segmentedHtml('meta-plazo', [{id:'corto',label:'Corto'},{id:'medio',label:'Medio'},{id:'largo',label:'Largo'}], d.plazo, false)+
     '<label class="draft-label" style="margin-top:12px;">Comisión anual / TAC (opcional)</label>'+
-    '<input type="text" inputmode="decimal" class="draft-input tabular" data-meta-field="comision" value="'+d.comision+'" placeholder="Ej: 1.1">'+
+    '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="comision" value="'+d.comision+'" placeholder="Ej: 1.1">'+
     '<div class="platform-hint muted">El % que te cobra el fondo específico de esta meta — ponlo tú, la app no te sugiere ningún número. Se calcula sobre tu ganancia, no sobre el total ahorrado.</div>'+
     '<div style="display:flex;gap:10px;margin-top:14px;">'+
-      '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-meta-edit>Cancelar</button>'+
-      '<button class="save-tx-btn" style="flex:1;" data-save-meta="'+(meta?meta.id:'nueva')+'">Guardar</button>'+
+      '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-goal-edit>Cancelar</button>'+
+      '<button class="save-tx-btn" style="flex:1;" data-save-goal="'+(meta?meta.id:'nueva')+'">Guardar</button>'+
     '</div>'+
-    (meta ? '<button class="budget-delete-link" data-delete-meta="'+meta.id+'">Eliminar meta</button>' : '')+
+    (meta ? '<button class="budget-delete-link" data-delete-goal="'+meta.id+'">Eliminar meta</button>' : '')+
   '</div>';
 }
 
-// Antes los cuadraditos de check solo llegaban hasta el último mes con dato real
-// (metaMonths) — así, si recién creaste la meta en agosto, septiembre en adelante ni
-// aparecía. Ahora se extienden desde el primer mes con dato (o el mes actual, si la meta es
-// nueva y todavía no tiene ninguno) hasta diciembre del año en curso, mismo criterio que ya
-// usa la grilla del objetivo total: los meses futuros se ven igual que "no marcado" — no hay
-// forma de distinguir "todavía no llega" de "no lo marcaste", y está bien así.
+// The check squares used to only go up to the last month with real data (metaMonths) — so if
+// you just created the goal in August, September onward wouldn't even show up. Now they extend
+// from the first month with data (or the current month, if the goal is new and doesn't have
+// any yet) through December of the current year, same rule the total-goal grid already uses:
+// future months look the same as "unmarked" — there's no way to tell "hasn't arrived yet" apart
+// from "you didn't mark it", and that's fine.
 export function metaChecksMonths(meta){
   const year = todayISO().slice(0,4);
   const tracked = metaMonths(meta);
   const start = tracked.length ? tracked[0] : todayISO().slice(0,7);
   return fullYearMonths(year).filter(m=>m>=start);
 }
-export function renderMetaGoalCard(meta){
-  if(state.editingMetaId===meta.id) return renderMetaEditForm(meta);
+export function renderGoalCard(meta){
+  if(state.editingGoalId===meta.id) return renderGoalEditForm(meta);
 
   const trackedMonths = metaMonths(meta);
   const acumulado = metaAcumuladoActual(meta);
@@ -263,7 +263,7 @@ export function renderMetaGoalCard(meta){
   const checksRow = metaChecksMonths(meta).map(m=>{
     const short = MONTH_LABEL[m].split(' ')[0].slice(0,3);
     const done = !!meta.checks[m];
-    return '<button class="meta-check-chip'+(done?' done':'')+'" data-toggle-meta-check="'+meta.id+'" data-toggle-meta-month="'+m+'">'+
+    return '<button class="meta-check-chip'+(done?' done':'')+'" data-toggle-goal-check="'+meta.id+'" data-toggle-goal-month="'+m+'">'+
       '<span class="mcc-icon">'+(done?ICONS.check:ICONS.close)+'</span><span class="mcc-label">'+short+'</span>'+
     '</button>';
   }).join('');
@@ -271,9 +271,9 @@ export function renderMetaGoalCard(meta){
   return '<div class="card meta-goal-card">'+
     '<div class="meta-goal-head">'+
       '<span class="meta-goal-name">'+meta.nombre+'</span>'+
-      plazoChip(meta.plazo)+
+      termChip(meta.plazo)+
       (racha>0 ? '<span class="meta-racha-badge">'+racha+' 🔥</span>' : '')+
-      '<button class="budget-edit-btn" data-edit-meta="'+meta.id+'" aria-label="Editar '+meta.nombre+'">'+ICONS.edit+'</button>'+
+      '<button class="budget-edit-btn" data-edit-goal="'+meta.id+'" aria-label="Editar '+meta.nombre+'">'+ICONS.edit+'</button>'+
     '</div>'+
     '<div class="meta-goal-figs"><span class="tabular gastado">'+money(acumulado)+'</span><span class="of-text"> de '+money(meta.montoObjetivo)+'</span><span class="budget-pct tabular">'+Math.round(pct)+'%</span></div>'+
     '<div class="budget-track"><div class="budget-fill" style="width:'+Math.max(0,Math.min(100,pct))+'%;background:var(--accent);"></div></div>'+
@@ -287,11 +287,11 @@ export function renderMetaGoalCard(meta){
   '</div>';
 }
 
-// Los 12 meses de un año completo (enero-diciembre), independiente de MONTHS (que solo
-// tiene los meses que realmente se han usado en Transacciones/Presupuesto). Evolución
-// quiere ver el año entero aunque los meses sin datos salgan en cero — así que generamos
-// las llaves y sus etiquetas al vuelo, sin tocar el MONTHS global (eso rompería el resto
-// de la app: navegación de Balance, metas, plataformas, etc).
+// The 12 months of a full year (January-December), independent of MONTHS (which only has the
+// months that have actually been used in Transactions/Budget). Evolution wants to show the
+// whole year even if the months with no data come out at zero — so we generate the keys and
+// their labels on the fly, without touching the global MONTHS (that would break the rest of
+// the app: Balance navigation, goals, platforms, etc).
 export function fullYearMonths(year){
   const out = [];
   for(let m=1;m<=12;m++){
@@ -302,11 +302,11 @@ export function fullYearMonths(year){
   return out;
 }
 
-export function renderEvolucionView(){
+export function renderEvolutionView(){
   const year = todayISO().slice(0,4);
   const months = fullYearMonths(year);
   const mesActual = todayISO().slice(0,7);
-  const selMonth = (state.evoSelectedMonth && months.includes(state.evoSelectedMonth)) ? state.evoSelectedMonth : mesActual;
+  const selMonth = (state.evolutionSelectedMonth && months.includes(state.evolutionSelectedMonth)) ? state.evolutionSelectedMonth : mesActual;
   const sel = monthTotals(selMonth);
 
   const legendRow = '<div class="evo-legend-row">'+
@@ -336,7 +336,7 @@ export function renderEvolucionView(){
     '<div class="section-title" style="margin-top:4px;">Ingresos, gastos e inversiones por mes</div>'+
     '<div class="card evo-card">'+
       legendRow+
-      buildEvolucionBars(months, selMonth)+
+      buildEvolutionBars(months, selMonth)+
       '<div class="evo-caption muted">Toca un mes para ver el detalle</div>'+
       '<div class="evo-detail-month">'+MONTH_LABEL[selMonth]+'</div>'+
       detailRow+
@@ -353,4 +353,3 @@ export function renderEvolucionView(){
 
   document.getElementById('resumen-content').innerHTML = html;
 }
-

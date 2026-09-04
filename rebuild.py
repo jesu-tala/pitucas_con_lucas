@@ -24,7 +24,7 @@ if tsc.returncode != 0:
 # lo envuelve en una única IIFE (mismo resultado final que la IIFE manual que tenía el
 # app.ts de una sola pieza); --target=es2019 mantiene el mismo nivel de sintaxis que usaba
 # tsc antes. Sin minificar y con --keep-names a propósito: rebuild.py más abajo ubica la línea
-# ancla regenerateCuotasFor(...) por texto y arma window.__debug con los nombres reales de
+# ancla regenerateInstallmentsFor(...) por texto y arma window.__debug con los nombres reales de
 # variables/funciones (TX, CATS, state, render, etc.) -- minificar o dejar que esbuild
 # renombre identificadores de nivel superior rompería esa inyección y, con ella, los ~45
 # tests de Playwright que leen window.__debug.*. --tree-shaking=false por el mismo motivo:
@@ -60,54 +60,54 @@ suffix = src[m.end():]    # everything after "\n</script>" (should be empty/whit
 # (tsc pasaba 2 espacios a 4; esbuild los deja en 2 pero además normaliza comillas simples a
 # dobles), así que se captura la indentación real de esa línea y se acepta cualquiera de las
 # dos comillas.
-anchor_re = re.compile(r'''^([ \t]*)regenerateCuotasFor\((['"])t31\2\);[ \t]*$''', re.M)
+anchor_re = re.compile(r'''^([ \t]*)regenerateInstallmentsFor\((['"])t31\2\);[ \t]*$''', re.M)
 anchor_matches = list(anchor_re.finditer(inline_js))
 assert len(anchor_matches) == 1, f"ancla encontrada {len(anchor_matches)} veces (se esperaba 1)"
 indent = anchor_matches[0].group(1)
 quote = anchor_matches[0].group(2)
-anchor = indent + "regenerateCuotasFor(" + quote + "t31" + quote + ");"
+anchor = indent + "regenerateInstallmentsFor(" + quote + "t31" + quote + ");"
 
 debug_block = anchor + "\n\n" + indent + """window.__debug = {
-""" + indent + """  TX: TX, CATS: CATS, MEDIOS: MEDIOS, PRESUPUESTOS: PRESUPUESTOS,
-""" + indent + """  METAS_INVERSION: METAS_INVERSION, PLATAFORMA_DATA: PLATAFORMA_DATA,
-""" + indent + """  PLANIFICADOR: PLANIFICADOR, MONTHS: MONTHS, MONTH_LABEL: MONTH_LABEL,
+""" + indent + """  TRANSACTIONS: TRANSACTIONS, CATEGORIES: CATEGORIES, PAYMENT_METHODS: PAYMENT_METHODS, BUDGETS: BUDGETS,
+""" + indent + """  INVESTMENT_GOALS: INVESTMENT_GOALS, PLATFORM_DATA: PLATFORM_DATA,
+""" + indent + """  PLANNER: PLANNER, MONTHS: MONTHS, MONTH_LABEL: MONTH_LABEL,
 """ + indent + """  state: state, render: render, monthTotals: monthTotals, yearTotals: yearTotals,
-""" + indent + """  metaAcumuladoActual: metaAcumuladoActual, metaProgresoTotal: metaProgresoTotal,
+""" + indent + """  metaAcumuladoActual: metaAcumuladoActual, totalGoalProgress: totalGoalProgress,
 """ + indent + """  platformIds: platformIds, platformAportadoNeto: platformAportadoNeto,
-""" + indent + """  platformValorActual: platformValorActual, computeDefaultPlanBase: computeDefaultPlanBase,
-""" + indent + """  ensureMedioForSugerido: ensureMedioForSugerido, guessMedioIdFromSuggestion: guessMedioIdFromSuggestion,
-""" + indent + """  lastSueldoTx: lastSueldoTx, mesActualTieneSueldo: mesActualTieneSueldo, todayISO: todayISO,
-""" + indent + """  parseCartolaPDF: parseCartolaPDF, buscarTxParecida: buscarTxParecida, crearTxDesdeMovimiento: crearTxDesdeMovimiento,
-""" + indent + """  METAS_GASTO_PCT: METAS_GASTO_PCT, metaInversionPct: metaInversionPct, metaInversionMensualCLP: metaInversionMensualCLP,
-""" + indent + """  ingresoMensualReferencia: ingresoMensualReferencia, sumaMetasGastoPct: sumaMetasGastoPct,
-""" + indent + """  presupuestoTotalMensual: presupuestoTotalMensual, sumaPresupuestosCategorias: sumaPresupuestosCategorias,
-""" + indent + """  pgBytesToArrayBuffer: pgBytesToArrayBuffer, tienePorCobrarTipo: tienePorCobrarTipo,
-""" + indent + """  get DATOS_TRANSFERENCIA(){ return DATOS_TRANSFERENCIA; }, set DATOS_TRANSFERENCIA(v){ DATOS_TRANSFERENCIA = v; },
-""" + indent + """  buildCobroWhatsAppText: buildCobroWhatsAppText, datosTransferenciaCompletos: datosTransferenciaCompletos,
-""" + indent + """  ensureCuentaVistaMedio: ensureCuentaVistaMedio, ensureMedioDesconocido: ensureMedioDesconocido,
-""" + indent + """  importCartolaRows: importCartolaRows, catInfo: catInfo, darPorPerdida: darPorPerdida,
+""" + indent + """  platformCurrentValue: platformCurrentValue, computeDefaultPlanBase: computeDefaultPlanBase,
+""" + indent + """  ensurePaymentMethodForSuggestion: ensurePaymentMethodForSuggestion, guessPaymentMethodIdFromSuggestion: guessPaymentMethodIdFromSuggestion,
+""" + indent + """  lastSalaryTx: lastSalaryTx, currentMonthHasSalary: currentMonthHasSalary, todayISO: todayISO,
+""" + indent + """  parseStatementPDF: parseStatementPDF, findSimilarTx: findSimilarTx, createTxFromMovement: createTxFromMovement,
+""" + indent + """  SPENDING_GOAL_PCT: SPENDING_GOAL_PCT, investmentGoalPct: investmentGoalPct, monthlyInvestmentGoalCLP: monthlyInvestmentGoalCLP,
+""" + indent + """  referenceMonthlyIncome: referenceMonthlyIncome, sumSpendingGoalPct: sumSpendingGoalPct,
+""" + indent + """  monthlyBudgetTotal: monthlyBudgetTotal, sumaPresupuestosCategorias: sumaPresupuestosCategorias,
+""" + indent + """  pgBytesToArrayBuffer: pgBytesToArrayBuffer, hasReceivableType: hasReceivableType,
+""" + indent + """  get TRANSFER_INFO(){ return TRANSFER_INFO; }, set TRANSFER_INFO(v){ TRANSFER_INFO = v; },
+""" + indent + """  buildChargeWhatsAppText: buildChargeWhatsAppText, transferInfoComplete: transferInfoComplete,
+""" + indent + """  ensureCheckingAccountMethod: ensureCheckingAccountMethod, ensureUnknownPaymentMethod: ensureUnknownPaymentMethod,
+""" + indent + """  importStatementRows: importStatementRows, catInfo: catInfo, writeOffReceivable: writeOffReceivable,
 """ + indent + """  catIconMarkup: catIconMarkup, updateSyncIndicator: updateSyncIndicator,
 """ + indent + """  inversionesMonthsCalendarYear: inversionesMonthsCalendarYear, moneyShort: moneyShort,
-""" + indent + """  activePlatformIds: activePlatformIds, pendientesGlobales: pendientesGlobales,
-""" + indent + """  pendienteVinculadaA: pendienteVinculadaA, metaTotalRacha: metaTotalRacha,
-""" + indent + """  metaChecksMonths: metaChecksMonths, metaRacha: metaRacha, METAS_TOTAL_CHECKS: METAS_TOTAL_CHECKS,
-""" + indent + """  fullYearMonths: fullYearMonths, moneyPlain: moneyPlain, money: money, proyeccionAportes: proyeccionAportes,
+""" + indent + """  activePlatformIds: activePlatformIds, allPendingReceivables: allPendingReceivables,
+""" + indent + """  pendingLinkedTo: pendingLinkedTo, metaTotalRacha: metaTotalRacha,
+""" + indent + """  metaChecksMonths: metaChecksMonths, metaRacha: metaRacha, TOTAL_GOAL_CHECKS: TOTAL_GOAL_CHECKS,
+""" + indent + """  fullYearMonths: fullYearMonths, moneyPlain: moneyPlain, money: money, projectedContributions: projectedContributions,
 """ + indent + """  notifApiSupported: notifApiSupported, pushWorkerConfigured: pushWorkerConfigured,
-""" + indent + """  checkPresupuestoPushAvisos: checkPresupuestoPushAvisos, enviarPushHogar: enviarPushHogar,
-""" + indent + """  get PRESUPUESTO_AVISOS_ENVIADOS(){ return PRESUPUESTO_AVISOS_ENVIADOS; },
-""" + indent + """  set PRESUPUESTO_AVISOS_ENVIADOS(v){ PRESUPUESTO_AVISOS_ENVIADOS = v; },
-""" + indent + """  catGastoEnMes: catGastoEnMes, txDesdeImportEmail: txDesdeImportEmail, reglasAgrupadas: reglasAgrupadas,
-""" + indent + """  categoriasConColor: categoriasConColor, buildDonut: buildDonut, enviarPushPrueba: enviarPushPrueba,
-""" + indent + """  presupuestoAvisoTexto: presupuestoAvisoTexto, intentarAbrirArchivoCartola: intentarAbrirArchivoCartola,
-""" + indent + """  get GRUPOS(){ return GRUPOS; }, set GRUPOS(v){ GRUPOS = v; },
-""" + indent + """  get GRUPO_PARTICIPANTES(){ return GRUPO_PARTICIPANTES; }, set GRUPO_PARTICIPANTES(v){ GRUPO_PARTICIPANTES = v; },
-""" + indent + """  get GASTOS_COMPARTIDOS(){ return GASTOS_COMPARTIDOS; }, set GASTOS_COMPARTIDOS(v){ GASTOS_COMPARTIDOS = v; },
-""" + indent + """  get SALDOS_PAGADOS(){ return SALDOS_PAGADOS; }, set SALDOS_PAGADOS(v){ SALDOS_PAGADOS = v; },
-""" + indent + """  get MAPEO_CATEGORIAS(){ return MAPEO_CATEGORIAS; }, set MAPEO_CATEGORIAS(v){ MAPEO_CATEGORIAS = v; },
-""" + indent + """  saldoGrupo: saldoGrupo, transferenciasSugeridas: transferenciasSugeridas, repartirIguales: repartirIguales,
-""" + indent + """  participantesDeGrupo: participantesDeGrupo, gastosDeGrupo: gastosDeGrupo,
-""" + indent + """  sincronizarGastosCompartidos: sincronizarGastosCompartidos, participanteIdDeUsuario: participanteIdDeUsuario,
-""" + indent + """  clasificarGastoCompartidoAjeno: clasificarGastoCompartidoAjeno, ensureMedioGrupoCompartido: ensureMedioGrupoCompartido,
+""" + indent + """  checkBudgetPushAlerts: checkBudgetPushAlerts, enviarPushHogar: enviarPushHogar,
+""" + indent + """  get BUDGET_ALERTS_SENT(){ return BUDGET_ALERTS_SENT; },
+""" + indent + """  set BUDGET_ALERTS_SENT(v){ BUDGET_ALERTS_SENT = v; },
+""" + indent + """  catMonthExpense: catMonthExpense, txFromEmailImport: txFromEmailImport, groupedRules: groupedRules,
+""" + indent + """  categoriesWithColor: categoriesWithColor, buildDonut: buildDonut, sendTestPush: sendTestPush,
+""" + indent + """  budgetAlertText: budgetAlertText, tryOpenStatementFile: tryOpenStatementFile,
+""" + indent + """  get GROUPS(){ return GROUPS; }, set GROUPS(v){ GROUPS = v; },
+""" + indent + """  get GROUP_PARTICIPANTS(){ return GROUP_PARTICIPANTS; }, set GROUP_PARTICIPANTS(v){ GROUP_PARTICIPANTS = v; },
+""" + indent + """  get SHARED_EXPENSES(){ return SHARED_EXPENSES; }, set SHARED_EXPENSES(v){ SHARED_EXPENSES = v; },
+""" + indent + """  get PAID_BALANCES(){ return PAID_BALANCES; }, set PAID_BALANCES(v){ PAID_BALANCES = v; },
+""" + indent + """  get CATEGORY_MAPPINGS(){ return CATEGORY_MAPPINGS; }, set CATEGORY_MAPPINGS(v){ CATEGORY_MAPPINGS = v; },
+""" + indent + """  groupBalances: groupBalances, suggestedTransfers: suggestedTransfers, splitEqually: splitEqually,
+""" + indent + """  participantsOfGroup: participantsOfGroup, expensesOfGroup: expensesOfGroup,
+""" + indent + """  syncSharedExpenses: syncSharedExpenses, participantIdForUser: participantIdForUser,
+""" + indent + """  classifySharedExpenseFromOthers: classifySharedExpenseFromOthers, ensureSharedExpensePaymentMethod: ensureSharedExpensePaymentMethod,
 """ + indent + """  get currentUser(){ return currentUser; }, set currentUser(v){ currentUser = v; }
 """ + indent + """};"""
 
