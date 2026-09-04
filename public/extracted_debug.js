@@ -6583,7 +6583,8 @@
 
   // src/app.ts
   function setAppHeight() {
-    document.documentElement.style.setProperty("--app-height", window.innerHeight + "px");
+    const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    document.documentElement.style.setProperty("--app-height", h + "px");
   }
   __name(setAppHeight, "setAppHeight");
   setAppHeight();

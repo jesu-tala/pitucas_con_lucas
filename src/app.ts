@@ -38,7 +38,16 @@ import { initSupabaseAuth } from './supabase';
    it, so .phone (which uses it as a fallback for 100dvh) always matches the real screen and
    never stays stuck on a stale measurement. */
 function setAppHeight(){
-  document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
+  // visualViewport.height (when available) shrinks when the iOS keyboard opens, since it's the
+  // ACTUALLY visible area -- window.innerHeight stays the same (the layout viewport doesn't
+  // change size, the keyboard just covers part of it). Using window.innerHeight here made
+  // .phone keep its full pre-keyboard height while the keyboard covered part of it, so a field
+  // near the bottom of the current view could end up hidden under the keyboard with nowhere to
+  // scroll it into (the browser's native "scroll the focused field into view" has no visible
+  // room to work with, since .phone itself doesn't know it needs to shrink). Following
+  // visualViewport's height instead makes .phone match what's actually visible on screen.
+  const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  document.documentElement.style.setProperty('--app-height', h + 'px');
 }
 setAppHeight();
 // The "leftover strip of space until the app repaints" from the note above happens because on
