@@ -11,6 +11,7 @@ import { activePlatformIds, generalCatIdFor, platformCurrentValue, platformIds, 
 import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
 import { renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
+import { buildReconcileDiff } from './reconcile';
 /* ===================== EVENT HANDLING (delegated) ===================== */
 export const phone = document.getElementById('phone');
 
@@ -1357,7 +1358,7 @@ phone.addEventListener('click', function(e: any){
   if(reconciliarReset){
     state.reconciliar = {archivo:null, cargando:false, error:null, tipo:null, movimientos:[], pagosTarjeta:null,
       disponibles: state.reconciliar.disponibles, usandoId:null, passwordDraft:'', errorPassword:null,
-      archivoBuffer:null, archivoNombrePendiente:null};
+      archivoBuffer:null, archivoNombrePendiente:null, eliminarSeleccionados:[]};
     renderMenuView();
     return;
   }
@@ -1433,6 +1434,42 @@ phone.addEventListener('click', function(e: any){
     renderMenuView();
     renderIfListVisible();
     toast(n===1 ? 'Se agregó 1 transacción' : 'Se agregaron '+n+' transacciones');
+    return;
+  }
+
+  // ---- Automatic reconciliation diff (see reconcile.ts) ----
+  const reconciliarDiffAddAltas = e.target.closest('[data-reconcile-diff-add-altas]');
+  if(reconciliarDiffAddAltas){
+    // Only "alta" confidence items ever get a one-click bulk action -- "media"/"baja" always
+    // land in "revisar" instead (see buildReconcileDiff), never auto-actionable in bulk.
+    const diff = buildReconcileDiff(state.reconciliar.movimientos, state.reconciliar.tipo);
+    const altas = diff.agregar.filter(function(item){ return item.confianza==='alta'; });
+    altas.forEach(function(item){
+      createTxFromMovement(item.movimiento);
+      item.movimiento.__match = findSimilarTx(item.movimiento); // keeps the movement list above in sync too
+    });
+    renderMenuView();
+    renderIfListVisible();
+    toast(altas.length===1 ? 'Se agregó 1 transacción' : 'Se agregaron '+altas.length+' transacciones');
+    return;
+  }
+  const reconciliarDiffElimConfirmar = e.target.closest('[data-reconcile-diff-elim-confirmar]');
+  if(reconciliarDiffElimConfirmar){
+    // Never trust the checkboxes alone: recompute the diff and only ever delete ids that are
+    // BOTH checked AND still a genuine eliminarPropuesto candidate right now (origen
+    // 'auto-mail'/'auto-cartola' only -- isProtectedOrigin transactions can never reach
+    // eliminarPropuesto in the first place, but this stays defense-in-depth against acting on a
+    // stale selection after the statement/transactions changed underneath it).
+    const diff = buildReconcileDiff(state.reconciliar.movimientos, state.reconciliar.tipo);
+    const idsPropuestos = diff.eliminarPropuesto.map(function(item){ return item.tx.id; });
+    const aEliminar = state.reconciliar.eliminarSeleccionados.filter(function(id){ return idsPropuestos.indexOf(id)!==-1; });
+    if(aEliminar.length){
+      setTransactions(TRANSACTIONS.filter(function(t){ return aEliminar.indexOf(t.id)===-1; }));
+      state.reconciliar.eliminarSeleccionados = [];
+      renderMenuView();
+      renderIfListVisible();
+      toast(aEliminar.length===1 ? 'Se eliminó 1 transacción' : 'Se eliminaron '+aEliminar.length+' transacciones');
+    }
     return;
   }
   const gotoPendingBtn = e.target.closest('[data-goto-pending]');
@@ -1515,6 +1552,20 @@ phone.addEventListener('change', function(e: any){
     if(compartirIncluirBox.checked && idx===-1) d.participantesIncluidos.push(pid);
     else if(!compartirIncluirBox.checked && idx!==-1) d.participantesIncluidos.splice(idx,1);
     renderSheet();
+    return;
+  }
+
+  // Per-item confirmation for "Posibles a eliminar" in the automatic reconciliation diff
+  // (see reconcile.ts) -- checking a box only stages it; nothing is deleted until "Eliminar
+  // seleccionadas" is pressed too (see the click handler below), never a single click.
+  const reconciliarElimCheck = e.target.closest('[data-reconcile-diff-elim-check]');
+  if(reconciliarElimCheck){
+    const txId = reconciliarElimCheck.getAttribute('data-reconcile-diff-elim-check');
+    const sel = state.reconciliar.eliminarSeleccionados;
+    const idx = sel.indexOf(txId);
+    if(reconciliarElimCheck.checked && idx===-1) sel.push(txId);
+    else if(!reconciliarElimCheck.checked && idx!==-1) sel.splice(idx,1);
+    renderMenuView();
     return;
   }
 

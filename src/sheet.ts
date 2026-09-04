@@ -762,7 +762,8 @@ export function saveDraftTx(){
     medio:d.medio, tipo:d.tipo, recurrencia:d.recurrencia,
     estado: d.categorias.length>0 ? 'confirmado' : 'pendiente',
     categorias: d.categorias.length>0 ? [{cat:d.categorias[0].cat, monto:Math.round(d.monto)}] : [],
-    porCobrar:[], reglaAuto:false, nota:''
+    porCobrar:[], reglaAuto:false, nota:'',
+    origen:'manual' // typed by hand right here -- the reconciliation engine (reconcile.ts) can never touch this
   };
   TRANSACTIONS.push(tx);
   ensureMonthExists(tx.fecha.slice(0,7));

@@ -111,7 +111,10 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  participantsOfGroup: participantsOfGroup, expensesOfGroup: expensesOfGroup,
 """ + indent + """  syncSharedExpenses: syncSharedExpenses, participantIdForUser: participantIdForUser,
 """ + indent + """  classifySharedExpenseFromOthers: classifySharedExpenseFromOthers, ensureSharedExpensePaymentMethod: ensureSharedExpensePaymentMethod,
-""" + indent + """  get currentUser(){ return currentUser; }, set currentUser(v){ currentUser = v; }
+""" + indent + """  get currentUser(){ return currentUser; }, set currentUser(v){ currentUser = v; },
+""" + indent + """  buildReconcileDiff: buildReconcileDiff, matchConfidence: matchConfidence, movementLineId: movementLineId,
+""" + indent + """  normalizeComercio: normalizeComercio, isAutomaticOrigin: isAutomaticOrigin, isProtectedOrigin: isProtectedOrigin,
+""" + indent + """  statementPeriod: statementPeriod, regenerateInstallmentsFor: regenerateInstallmentsFor
 """ + indent + """};"""
 
 inline_js_debug = inline_js.replace(anchor, debug_block, 1)

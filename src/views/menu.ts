@@ -1,6 +1,7 @@
 import { catInfo, dayLabel, txsOfMonth } from '../helpers';
 import { ICONS, catIconMarkup } from '../icons';
 import { render } from '../render';
+import { buildReconcileDiff, movementLineId } from '../reconcile';
 import { ensureMonthExists } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
 import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO } from '../state';
@@ -144,7 +145,12 @@ export function importStatementRows(rows){
     TRANSACTIONS.unshift({
       id: 'timp'+(nextImportId()), fecha: row.fecha, hora:'00:00', comercio: row.descripcion,
       monto, medio: ensureCheckingAccountMethod(), tipo, recurrencia: regla ? regla.recurrencia : 'variable', estado,
-      categorias, porCobrar:[], reglaAuto: !!(regla && regla.cat), nota:'Importado desde cartola CSV'
+      categorias, porCobrar:[], reglaAuto: !!(regla && regla.cat), nota:'Importado desde cartola CSV',
+      // Came from a cartola CSV upload -- same family as a PDF statement's "auto-cartola",
+      // reconcilable the same way (this older CSV path doesn't go through the diff engine's
+      // idempotency, but a transaction it created still needs the right origen so a LATER PDF
+      // reconciliation of the same period treats it correctly instead of as protected/manual).
+      origen:'auto-cartola'
     });
   });
   return {creadas: rows.length, conRegla, pendientes};
@@ -572,9 +578,15 @@ export async function parseStatementPDF(arrayBuffer, password){
     throw err;
   }
   const tipo = detectarTipoCartola(pagesWords);
-  if(tipo==='cuenta_corriente') return {tipo, movimientos: parseCuentaCorrienteMovs(pagesWords)};
-  if(tipo==='tarjeta_nacional') return {tipo, movimientos: parseTarjetaNacionalMovs(pagesWords)};
-  return {tipo:null, movimientos:[]};
+  let movimientos = [];
+  if(tipo==='cuenta_corriente') movimientos = parseCuentaCorrienteMovs(pagesWords);
+  else if(tipo==='tarjeta_nacional') movimientos = parseTarjetaNacionalMovs(pagesWords);
+  // Stamp a stable id on each line (its own fecha+monto+detalle+position in the statement) --
+  // parsing is deterministic, so re-processing the exact same file assigns the exact same ids,
+  // which is what buildReconcileDiff/createTxFromMovement rely on to never duplicate a line
+  // that was already turned into a transaction on a previous run (see reconcile.ts).
+  movimientos.forEach(function(m, idx){ m.fuenteLineaId = movementLineId(m, idx); });
+  return {tipo, movimientos};
 }
 
 // ---- Statements captured by email (Menu > "Reconciliar con la cartola") ----
@@ -629,6 +641,7 @@ export async function useImportedStatement(id, password){
     state.reconciliar.tipo = res.tipo;
     state.reconciliar.movimientos = res.movimientos;
     state.reconciliar.usandoId = null;
+    state.reconciliar.eliminarSeleccionados = [];
     renderMenuView();
     // It's marked "procesada" (processed) in the background — if this were to fail, worst
     // case it gets offered to you again next month (no risk of losing anything by mismarking it).
@@ -671,6 +684,7 @@ export async function tryOpenStatementFile(buffer, nombre, password){
     res.movimientos.forEach(function(m){ m.__match = findSimilarTx(m); });
     state.reconciliar.tipo = res.tipo;
     state.reconciliar.movimientos = res.movimientos;
+    state.reconciliar.eliminarSeleccionados = [];
     renderMenuView();
   }catch(err){
     state.reconciliar.cargando = false;
@@ -819,7 +833,90 @@ export function renderMenuReconciliar(){
     resumenTarjeta+
     (sinMatch.length ? '<button class="budget-add-link" data-reconcile-add-all style="margin-bottom:10px;">Agregar los '+sinMatch.length+' que faltan</button>' : '')+
     listaHtml+
+    renderReconcileDiffSection(R)+
     '<button class="budget-add-link" data-reconcile-reset style="margin-top:10px;">Probar con otro archivo</button>';
+}
+
+// The full diff against automatic ('auto-mail'/'auto-cartola') transactions for this
+// statement's own period (see reconcile.ts) -- ADDITIVE to the movement-by-movement list above
+// (kept as-is, still useful for the direct-upload case and covered by its own tests), not a
+// replacement: this section is the "review screen" for the whole statement at once. Every
+// deletion still requires an explicit per-item checkbox + a confirm click -- never a single
+// bulk-delete-everything button (non-negotiable, see DOCUMENTACION.md).
+export function renderReconcileDiffSection(R){
+  if(!R.movimientos.length) return '';
+  const diff = buildReconcileDiff(R.movimientos, R.tipo);
+  const totalAltas = diff.agregar.filter(function(i){ return i.confianza==='alta'; }).length;
+  if(!diff.agregar.length && !diff.eliminarPropuesto.length && !diff.revisar.length && !diff.manualesIgnoradas.length){
+    return '';
+  }
+
+  let html = '<div class="section-title">Revisión automática de este período</div>';
+
+  if(diff.agregar.length){
+    html += '<div class="card" style="padding:14px;margin-bottom:10px;">'+
+      '<div class="sheet-block-title" style="margin-bottom:6px;">Faltan en la app ('+diff.agregar.length+')</div>'+
+      '<p class="muted" style="margin-bottom:10px;">Están en la cartola pero ninguna transacción registrada calza con ellos.</p>'+
+      (totalAltas ? '<button class="budget-add-link" data-reconcile-diff-add-altas style="margin-bottom:8px;">Agregar las '+totalAltas+' de confianza alta</button>' : '')+
+      diff.agregar.map(function(item){
+        const m = item.movimiento;
+        return '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--border);">'+
+          '<div style="min-width:0;"><div style="font-weight:600;font-size:13px;">'+(m.comercioSugerido||m.detalle)+'</div>'+
+          '<div class="muted" style="font-size:11.5px;">'+dayLabel(m.fecha)+' · confianza '+item.confianza+'</div></div>'+
+          '<span class="tabular" style="font-weight:600;flex-shrink:0;">'+(m.tipoMov==='ingreso'?'+':'')+money(Math.abs(m.monto))+'</span>'+
+        '</div>';
+      }).join('')+
+    '</div>';
+  }
+
+  if(diff.eliminarPropuesto.length){
+    html += '<div class="card" style="padding:14px;margin-bottom:10px;">'+
+      '<div class="sheet-block-title" style="margin-bottom:6px;">Posibles a eliminar ('+diff.eliminarPropuesto.length+')</div>'+
+      '<p class="muted" style="margin-bottom:10px;">Registradas automáticamente, pero esta cartola no las respalda (o las muestra anuladas). Marca las que quieras eliminar — nunca se borran solas.</p>'+
+      diff.eliminarPropuesto.map(function(item){
+        const t = item.tx;
+        const checked = R.eliminarSeleccionados.indexOf(t.id)!==-1;
+        return '<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--border);cursor:pointer;">'+
+          '<input type="checkbox" data-reconcile-diff-elim-check="'+t.id+'" '+(checked?'checked':'')+' style="margin-top:3px;">'+
+          '<div style="min-width:0;flex:1;"><div style="font-weight:600;font-size:13px;">'+t.comercio+' — '+money(t.monto)+'</div>'+
+          '<div class="muted" style="font-size:11.5px;">'+dayLabel(t.fecha)+'</div>'+
+          '<div class="muted" style="font-size:11.5px;margin-top:2px;">'+item.motivo+'</div></div>'+
+        '</label>';
+      }).join('')+
+      '<button class="save-tx-btn" data-reconcile-diff-elim-confirmar style="margin-top:10px;width:100%;" '+(R.eliminarSeleccionados.length?'':'disabled')+'>Eliminar seleccionadas ('+R.eliminarSeleccionados.length+')</button>'+
+    '</div>';
+  }
+
+  if(diff.revisar.length){
+    html += '<div class="card" style="padding:14px;margin-bottom:10px;">'+
+      '<div class="sheet-block-title" style="margin-bottom:6px;">Para revisar a mano ('+diff.revisar.length+')</div>'+
+      '<p class="muted" style="margin-bottom:10px;">Coincidencia dudosa, o hay más de una candidata — no se toca nada automáticamente, decide tú.</p>'+
+      diff.revisar.map(function(item){
+        const m = item.movimiento;
+        const candidatosTxt = item.candidatos.map(function(t){ return t.comercio+' ('+dayLabel(t.fecha)+', '+money(t.monto)+')'; }).join(' · ');
+        return '<div style="padding:8px 0;border-top:1px solid var(--border);">'+
+          '<div style="font-weight:600;font-size:13px;">'+(m.comercioSugerido||m.detalle)+' — '+money(Math.abs(m.monto))+' ('+dayLabel(m.fecha)+')</div>'+
+          '<div class="muted" style="font-size:11.5px;">confianza '+item.confianza+' · posibles: '+candidatosTxt+'</div>'+
+        '</div>';
+      }).join('')+
+    '</div>';
+  }
+
+  if(diff.manualesIgnoradas.length){
+    html += '<details class="card" style="padding:14px;margin-bottom:10px;">'+
+      '<summary style="font-weight:700;font-size:13.5px;cursor:pointer;">Manuales que no se tocan ('+diff.manualesIgnoradas.length+')</summary>'+
+      '<p class="muted" style="margin:8px 0;">Son transacciones manuales — la reconciliación automática nunca las modifica ni elimina, aunque la cartola no las respalde.</p>'+
+      diff.manualesIgnoradas.map(function(item){
+        const t = item.tx;
+        return '<div style="padding:6px 0;border-top:1px solid var(--border);">'+
+          '<div style="font-weight:600;font-size:12.5px;">'+t.comercio+' — '+money(t.monto)+' ('+dayLabel(t.fecha)+')</div>'+
+          '<div class="muted" style="font-size:11px;">'+item.motivo+'</div>'+
+        '</div>';
+      }).join('')+
+    '</details>';
+  }
+
+  return html;
 }
 
 export function createTxFromMovement(m, opts?: {noEsGasto?: boolean}){
@@ -845,7 +942,14 @@ export function createTxFromMovement(m, opts?: {noEsGasto?: boolean}){
     estado: opts.noEsGasto ? 'no_es_gasto' : (catId ? 'confirmado' : 'pendiente'),
     categorias: (!opts.noEsGasto && catId) ? [{cat:catId, monto:Math.abs(m.monto)}] : [],
     porCobrar:[], reglaAuto:false,
-    nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola — marcada como "no es gasto"' : 'Agregada al reconciliar con la cartola'
+    nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola — marcada como "no es gasto"' : 'Agregada al reconciliar con la cartola',
+    // Came straight from a bank statement line, whether through the movement-by-movement
+    // "+ Agregar" flow or the diff's bulk "agregar" -- reconcile.ts is allowed to later propose
+    // deleting it (never a manual transaction). fuenteLineaId (when the movement has one, i.e.
+    // it went through parseStatementPDF's line-id assignment) is the hard idempotency guarantee:
+    // re-reconciling the exact same statement recognizes this line is already covered even if
+    // matchConfidence's fuzzy comparison would somehow miss it a second time.
+    origen:'auto-cartola', fuenteLineaId: m.fuenteLineaId
   });
   ensureMonthExists(m.fecha.slice(0,7));
 }
@@ -1060,7 +1164,10 @@ export function txFromEmailImport(row): Transaction {
     estado: catId ? 'confirmado' : 'pendiente',
     categorias: catId ? [{cat:catId, monto:Math.round(row.monto)}] : [],
     porCobrar:[], reglaAuto: !!(regla && regla.cat), nota:'Importado automáticamente desde tu correo',
-    importadoEmail:true
+    importadoEmail:true,
+    // Arrived by itself from the Apps Script email import -- reconcile.ts is allowed to later
+    // propose deleting it (e.g. if a card statement shows the underlying charge was reversed).
+    origen:'auto-mail'
   };
 }
 export async function absorbImportedRows(){
@@ -1142,6 +1249,10 @@ export function syncSharedExpenses(){
       nota: 'Tu parte de "'+g.descripcion+'"'+(pagador?' — pagó '+pagador.nombre:'')+(grupo?' · grupo '+grupo.nombre:''),
       groupId: g.grupo_id, sharedExpenseId: g.id, sharedByOthers:true,
       suggestedOriginCategory: mapeo ? null : (g.categoria_origen||null)
+      // origen deliberately left unset: this is a derived, never-persisted entry (see the note
+      // on sharedByOthers in types.ts) reflecting ANOTHER person's real transaction, not
+      // something a cartola of yours could ever back or contradict -- reconcile.ts's
+      // isProtectedOrigin() already treats "no origen" as protected, which is exactly right here.
     };
     TRANSACTIONS.push(tx);
     ensureMonthExists(tx.fecha.slice(0,7));
@@ -1275,20 +1386,22 @@ export async function crearGastoCompartido(opts){
   const miParte = miParticipanteId!=null ? (opts.reparto[miParticipanteId]||0) : 0;
   const otrosSplits = Object.keys(opts.reparto).filter(pid=>pid!==miParticipanteId).map(pid=>({persona: (GROUP_PARTICIPANTS.find(p=>p.id===pid)||{}).nombre||'', monto: opts.reparto[pid], pagado:false, tipo:'persona' as const, montoRecibido:null, linkedTxId:null, groupId:opts.groupId, participanteId:pid}));
 
+  // Built by hand from what she typed into "Agregar un gasto" -- same nature as saveDraftTx's
+  // "Nueva transacción", so it gets the same 'manual' origen (never touched by reconciliation).
   const txOrigen: Transaction = soyYoQuienPago ? {
     id:'gasto-'+Date.now(), fecha:opts.fecha, hora:todayISO()===opts.fecha ? new Date().toTimeString().slice(0,5) : '12:00',
     comercio:opts.descripcion, monto:Math.round(opts.monto), medio:opts.medio||ensureSharedExpensePaymentMethod(),
     tipo:'gasto', recurrencia:'variable', estado: otrosSplits.length ? 'por_cobrar' : 'confirmado',
     categorias: opts.categoriaId ? [{cat:opts.categoriaId, monto:Math.round(opts.monto)}] : [],
     porCobrar: otrosSplits.map(s=>({...s, sharedExpenseId:undefined})), reglaAuto:false, nota:'',
-    groupId: opts.groupId
+    groupId: opts.groupId, origen:'manual'
   } : {
     id:'gasto-'+Date.now(), fecha:opts.fecha, hora:'12:00',
     comercio:opts.descripcion, monto:Math.round(opts.monto), medio:opts.medio||ensureSharedExpensePaymentMethod(),
     tipo:'gasto', recurrencia:'variable', estado:'no_es_gasto',
     categorias:[], porCobrar:[], reglaAuto:false,
     nota:'Registrado por ti para el grupo, pero lo pagó otra persona — no cuenta en tu presupuesto.',
-    groupId: opts.groupId
+    groupId: opts.groupId, origen:'manual'
   };
   TRANSACTIONS.push(txOrigen);
   ensureMonthExists(txOrigen.fecha.slice(0,7));
