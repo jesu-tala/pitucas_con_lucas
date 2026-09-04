@@ -2377,7 +2377,10 @@
       gastos,
       inversiones,
       balance: ingresos - gastos - inversiones,
-      tasaAhorro: ingresos > 0 ? (ingresos - gastos) / ingresos * 100 : 0,
+      // Tasa de ahorro = cuánto de lo que ganaste realmente destinaste a invertir (no "lo que
+      // sobró" -- eso puede incluir plata sin invertir todavía, sentada en la cuenta corriente,
+      // que no es ahorro real en el sentido de construir patrimonio).
+      tasaAhorro: ingresos > 0 ? inversiones / ingresos * 100 : 0,
       tasaGastos: ingresos > 0 ? gastos / ingresos * 100 : 0
     };
   }
@@ -2397,7 +2400,10 @@
       ingresos,
       gastos,
       inversiones,
-      tasaAhorro: ingresos > 0 ? (ingresos - gastos) / ingresos * 100 : 0,
+      // Tasa de ahorro = cuánto de lo que ganaste realmente destinaste a invertir (no "lo que
+      // sobró" -- eso puede incluir plata sin invertir todavía, sentada en la cuenta corriente,
+      // que no es ahorro real en el sentido de construir patrimonio).
+      tasaAhorro: ingresos > 0 ? inversiones / ingresos * 100 : 0,
       tasaGastos: ingresos > 0 ? gastos / ingresos * 100 : 0
     };
   }
