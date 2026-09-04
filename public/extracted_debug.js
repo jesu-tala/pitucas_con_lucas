@@ -6747,13 +6747,15 @@
 
   // src/app.ts
   function setAppHeight() {
-    const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    document.documentElement.style.setProperty("--app-height", h + "px");
+    const vv = window.visualViewport;
+    if (vv && vv.height < window.innerHeight - 40) {
+      document.documentElement.style.setProperty("--app-height", vv.height + "px");
+    } else {
+      document.documentElement.style.removeProperty("--app-height");
+    }
   }
   __name(setAppHeight, "setAppHeight");
   setAppHeight();
-  setTimeout(setAppHeight, 50);
-  setTimeout(setAppHeight, 300);
   ["resize", "orientationchange", "pageshow", "visibilitychange"].forEach(function(ev) {
     window.addEventListener(ev, setAppHeight);
   });

@@ -37,27 +37,33 @@ import { initSupabaseAuth } from './supabase';
    We store the real height in a CSS variable and recompute it on any event that could change
    it, so .phone (which uses it as a fallback for 100dvh) always matches the real screen and
    never stays stuck on a stale measurement. */
+// Earlier versions of this function ALWAYS computed --app-height from JS (window.innerHeight,
+// later visualViewport.height) and set it unconditionally. That turned out to be the wrong
+// default: a CSS custom property, once set, never falls back to the plain `100dvh` in .phone's
+// rule again on its own -- so if our JS-measured value was ever a few pixels short of the real
+// screen (which happened on some iPhones, for reasons out of our control: how exactly iOS
+// reports window.innerHeight/visualViewport.height right after a PWA launches isn't fully
+// consistent), that gap stayed stuck under the tab bar for the whole session. Modern iOS
+// Safari's own `100dvh` calculation (the CSS fallback already in .phone's rule) handles the
+// "dynamic viewport" case more reliably than we can by re-reading a JS height ourselves --
+// that's specifically what `dvh` units exist to solve. So now this only steps in for the ONE
+// case CSS truly can't handle by itself: the on-screen keyboard opening, which shrinks
+// visualViewport.height without changing window.innerHeight (the "layout viewport" -- what
+// 100dvh is based on -- doesn't shrink for the keyboard, it just gets covered by it). Outside
+// of that, --app-height is left unset, so .phone's `height:var(--app-height, 100dvh)` uses
+// 100dvh directly.
 function setAppHeight(){
-  // visualViewport.height (when available) shrinks when the iOS keyboard opens, since it's the
-  // ACTUALLY visible area -- window.innerHeight stays the same (the layout viewport doesn't
-  // change size, the keyboard just covers part of it). Using window.innerHeight here made
-  // .phone keep its full pre-keyboard height while the keyboard covered part of it, so a field
-  // near the bottom of the current view could end up hidden under the keyboard with nowhere to
-  // scroll it into (the browser's native "scroll the focused field into view" has no visible
-  // room to work with, since .phone itself doesn't know it needs to shrink). Following
-  // visualViewport's height instead makes .phone match what's actually visible on screen.
-  const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-  document.documentElement.style.setProperty('--app-height', h + 'px');
+  const vv = window.visualViewport;
+  // 40px of slack: a real keyboard covers way more than that; this avoids false positives from
+  // normal small viewport-height jitter (address bar showing/hiding isn't a factor in
+  // standalone PWA mode, but keep some margin regardless).
+  if(vv && vv.height < window.innerHeight - 40){
+    document.documentElement.style.setProperty('--app-height', vv.height + 'px');
+  } else {
+    document.documentElement.style.removeProperty('--app-height');
+  }
 }
 setAppHeight();
-// The "leftover strip of space until the app repaints" from the note above happens because on
-// the very first paint of a freshly-opened PWA, window.innerHeight sometimes hasn't settled
-// into the real full screen height yet -- it corrects itself a moment later, but if nothing in
-// that session ever fires the events below (resize, switching tabs, etc.), that first wrong
-// value stays stuck. These two short retries (50ms and 300ms; if it hasn't settled by 300ms it
-// won't on its own) cover that gap without depending on the user doing anything.
-setTimeout(setAppHeight, 50);
-setTimeout(setAppHeight, 300);
 ['resize','orientationchange','pageshow','visibilitychange'].forEach(function(ev){
   window.addEventListener(ev, setAppHeight);
 });
