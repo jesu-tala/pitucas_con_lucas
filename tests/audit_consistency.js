@@ -45,7 +45,13 @@ function checkClose(label, a, b, tol){
     const mesesProyeccion = D.MONTHS.filter(m => m <= mesActual).slice(-3);
     const last3 = mesesProyeccion.map(m=>D.monthTotals(m).inversiones);
     const avgLast3 = last3.length ? last3.reduce((a,b)=>a+b,0)/last3.length : 0;
-    // banco_chile: platform valor should equal sum of its own metas' acumulado (per current design)
+    // banco_chile: its Aportado neto (a rollup, see platformAportadoNeto in views/inversiones.ts)
+    // should equal the sum of its own goals' Aportado neto -- it has no General-bucket
+    // transactions in the fixture, so nothing else should be feeding that rollup. This is a
+    // different invariant than before the goals-based redesign: a goal no longer has its own
+    // manually-tracked "current value" curve to compare against the platform's (that concept
+    // only lives at the platform level now, via PLATFORM_DATA.valorHistorial) -- see the note on
+    // INVESTMENT_GOALS in state.ts.
     const bchMetas = D.INVESTMENT_GOALS.filter(m=>m.plataformaId==='banco_chile');
     const bchMetasSum = bchMetas.reduce((s,m)=>s+D.metaAcumuladoActual(m),0);
     const defaultPlanBase = D.computeDefaultPlanBase();
@@ -227,7 +233,7 @@ function checkClose(label, a, b, tol){
   checkClose('Objetivo card acumulado', pm(objetivoCardText.match(/\$[\d.]+/)?.[0]), truth.metaProgreso.totalAcumulado);
   checkClose('Objetivo card objetivo', pm(objetivoCardText.match(/de (\$[\d.]+)/)?.[1]), truth.metaProgreso.totalObjetivo);
   checkClose('Banco de Chile combined metas total', pm(bchCombinedText.match(/\$[\d.]+/)?.[0]), truth.bchMetasSum);
-  checkClose('Banco de Chile platform card == sum of its metas', platformCardData.banco_chile.valorEstimado, truth.bchMetasSum);
+  checkClose('Banco de Chile platform card Aportado neto == sum of its metas (rollup)', platformCardData.banco_chile.aportadoNeto, truth.bchMetasSum);
 
   checkClose('Proyeccion promedio de los últimos 3 meses', pm(proyeccionAportePlaceholder), Math.round(truth.avgLast3));
   checkClose('Planificador base default', planBaseVal, truth.defaultPlanBase);

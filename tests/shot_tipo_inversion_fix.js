@@ -62,19 +62,28 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(100);
   await page.click('[data-seg="tipo"] [data-seg-val="inversion"]');
   await page.waitForTimeout(150);
+  // Since the goals-based redesign of investment categorization, the options here are Fintual's
+  // own goal(s) ("APV Fintual" = m3, seeded in the fixture) plus its "General" catch-all
+  // (fintual__general) -- never the bare platform id "fintual" itself anymore (see the note on
+  // INVESTMENT_GOALS in state.ts).
   const platformSelectOptions = await page.evaluate(() => {
     const sel = document.querySelector('[data-cat-select="0"]');
     return sel ? Array.from(sel.options).map(o => o.value) : null;
   });
-  check('2b) Tras pasar a Inversión, la fila de categoría ofrece las plataformas (Fintual, etc.)', platformSelectOptions && platformSelectOptions.includes('fintual'), platformSelectOptions);
+  check('2b) Tras pasar a Inversión, la fila de categoría ofrece las metas de Fintual (no la plataforma directa)',
+    platformSelectOptions && platformSelectOptions.includes('m3') && platformSelectOptions.includes('fintual__general') && !platformSelectOptions.includes('fintual'),
+    platformSelectOptions);
 
-  await page.selectOption('[data-cat-select="0"]', 'fintual');
+  const aportadoAntes = await page.evaluate(() => window.__debug.platformAportadoNeto('fintual'));
+  await page.selectOption('[data-cat-select="0"]', 'm3');
   await page.waitForTimeout(150);
   const finalState = await page.evaluate(() => {
     const t = window.__debug.TRANSACTIONS.find(x => x.id === 't_fintual_bug');
     return { tipo: t.tipo, categorias: t.categorias, aportado: window.__debug.platformAportadoNeto('fintual') };
   });
-  check('2c) Queda clasificada como aporte a Fintual y se refleja en el total aportado de la plataforma', finalState.tipo === 'inversion' && finalState.categorias[0].cat === 'fintual', finalState);
+  check('2c) Queda clasificada como aporte a la meta de Fintual y se refleja (roll-up) en el total aportado de la plataforma',
+    finalState.tipo === 'inversion' && finalState.categorias[0].cat === 'm3' && finalState.aportado === aportadoAntes + 100000,
+    { finalState, aportadoAntes });
 
   await finish({ context, browser, errors });
 })();

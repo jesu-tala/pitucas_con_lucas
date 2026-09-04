@@ -7,7 +7,7 @@ import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
 import { defaultShareDraft, myParticipantInGroup, renderGroupsView } from './views/grupos';
-import { platformCurrentValue, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
+import { activePlatformIds, generalCatIdFor, platformCurrentValue, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
 import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
 import { renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
@@ -478,8 +478,8 @@ phone.addEventListener('click', function(e: any){
     const meta = INVESTMENT_GOALS.find(m=>m.id===id);
     state.editingGoalId = id;
     state.goalDraft = meta
-      ? {nombre:meta.nombre, montoObjetivo:String(meta.montoObjetivo), aporteMensualMeta:String(meta.aporteMensualMeta), plazo:meta.plazo||'', comision:meta.comision!=null?String(meta.comision):''}
-      : {nombre:'', montoObjetivo:'', aporteMensualMeta:'', plazo:'', comision:''};
+      ? {nombre:meta.nombre, montoObjetivo:String(meta.montoObjetivo), aporteMensualMeta:String(meta.aporteMensualMeta), aportadoInicial:String(meta.startingAmount||0), mesInicio:meta.startMonth||todayISO().slice(0,7), plazo:meta.plazo||'', comision:meta.comision!=null?String(meta.comision):''}
+      : {nombre:'', montoObjetivo:'', aporteMensualMeta:'', aportadoInicial:'', mesInicio:todayISO().slice(0,7), plazo:'', comision:''};
     renderInvestmentsView();
     return;
   }
@@ -487,7 +487,7 @@ phone.addEventListener('click', function(e: any){
   if(addGoalBtn){
     state.editingGoalId = 'nueva';
     state.addGoalPlatformId = addGoalBtn.getAttribute('data-add-goal');
-    state.goalDraft = {nombre:'', montoObjetivo:'', aporteMensualMeta:'', plazo:'', comision:''};
+    state.goalDraft = {nombre:'', montoObjetivo:'', aporteMensualMeta:'', aportadoInicial:'', mesInicio:todayISO().slice(0,7), plazo:'', comision:''};
     renderInvestmentsView();
     return;
   }
@@ -507,20 +507,24 @@ phone.addEventListener('click', function(e: any){
     const comisionRaw = state.goalDraft.comision.trim();
     const comisionVal = comisionRaw==='' ? null : safeEvalExpr(comisionRaw);
     const comisionFinal = (comisionRaw!=='' && comisionVal!==null) ? comisionVal : null;
+    // "Aportado hasta ahora" (the seed for money put in before this goal was tracked here) and
+    // "mes de inicio" (which month it starts counting transactions from) -- both optional-ish:
+    // an empty/invalid value falls back to 0 / the current month, same forgiving behavior the
+    // rest of the numeric drafts in this app already have.
+    const aportadoInicialRaw = state.goalDraft.aportadoInicial.trim();
+    const aportadoInicialVal = aportadoInicialRaw==='' ? 0 : safeEvalExpr(aportadoInicialRaw);
+    const startingAmount = (aportadoInicialVal!==null && aportadoInicialVal>=0) ? Math.round(aportadoInicialVal) : 0;
+    const mesInicioRaw = (state.goalDraft.mesInicio||'').trim();
+    const startMonth = /^\d{4}-\d{2}$/.test(mesInicioRaw) ? mesInicioRaw : todayISO().slice(0,7);
     if(nombre && objetivo!==null && objetivo>0 && aporte!==null && aporte>=0){
       if(id==='nueva'){
         setGoalIdCounter(goalIdCounter+1);
         const newId = 'm'+goalIdCounter;
-        // A new goal starts its history from the current month — no "missed" months are
-        // invented for it retroactively, from before it existed.
-        const mesActual = todayISO().slice(0,7);
-        const historial: Record<string, number> = {}; historial[mesActual] = 0;
-        const checks: Record<string, boolean> = {}; checks[mesActual] = false;
-        INVESTMENT_GOALS.push({id:newId, nombre, montoObjetivo:Math.round(objetivo), aporteMensualMeta:Math.round(aporte), plataformaId:state.addGoalPlatformId, plazo:state.goalDraft.plazo||null, comision:comisionFinal, aportadoNeto:0, historial, checks});
+        INVESTMENT_GOALS.push({id:newId, nombre, montoObjetivo:Math.round(objetivo), aporteMensualMeta:Math.round(aporte), plataformaId:state.addGoalPlatformId, plazo:state.goalDraft.plazo||null, comision:comisionFinal, startMonth, startingAmount, checks:{}});
         toast('Meta creada: '+nombre);
       } else {
         const meta = INVESTMENT_GOALS.find(m=>m.id===id);
-        if(meta){ meta.nombre = nombre; meta.montoObjetivo = Math.round(objetivo); meta.aporteMensualMeta = Math.round(aporte); meta.plazo = state.goalDraft.plazo||null; meta.comision = comisionFinal; }
+        if(meta){ meta.nombre = nombre; meta.montoObjetivo = Math.round(objetivo); meta.aporteMensualMeta = Math.round(aporte); meta.plazo = state.goalDraft.plazo||null; meta.comision = comisionFinal; meta.startMonth = startMonth; meta.startingAmount = startingAmount; }
         toast('Meta actualizada');
       }
       state.editingGoalId = null;
@@ -538,6 +542,32 @@ phone.addEventListener('click', function(e: any){
     state.editingGoalId = null;
     toast('Meta eliminada');
     renderInvestmentsView();
+    return;
+  }
+  // "No tienes metas creadas" empty state, shown instead of the category picker when
+  // classifying an investment-type transaction and INVESTMENT_GOALS is still empty (there's
+  // nowhere meaningful to categorize it to yet) -- jumps straight into Inversiones with "new
+  // goal" already open, pre-selecting whichever platform the button carries (the platform whose
+  // General option would've been closest in the list, or the first active one as a fallback).
+  // The in-progress transaction/draft is closed along the way (same as any other navigation
+  // away from the sheet) -- there's no autosave for a half-filled draft elsewhere in the app
+  // either, so this doesn't lose anything that wasn't already recoverable by reopening it.
+  const gotoCreateGoalBtn = e.target.closest('[data-goto-create-goal]');
+  if(gotoCreateGoalBtn){
+    const platId = gotoCreateGoalBtn.getAttribute('data-goto-create-goal') || activePlatformIds()[0] || platformIds()[0];
+    closeSheet();
+    state.tab = 'resumen';
+    state.summarySub = 'inversiones';
+    if(platId){
+      state.openPlatformId = platId;
+      state.editingGoalId = 'nueva';
+      state.addGoalPlatformId = platId;
+      state.goalDraft = {nombre:'', montoObjetivo:'', aporteMensualMeta:'', aportadoInicial:'', mesInicio:todayISO().slice(0,7), plazo:'', comision:''};
+      toast('Crea tu meta y vuelve a clasificar esta transacción');
+    } else {
+      toast('Primero agrega una plataforma de inversión');
+    }
+    render();
     return;
   }
   const toggleMetaCheck = e.target.closest('[data-toggle-goal-check]');
@@ -613,7 +643,7 @@ phone.addEventListener('click', function(e: any){
   const deletePlatformBtn = e.target.closest('[data-delete-platform]');
   if(deletePlatformBtn){
     const id = deletePlatformBtn.getAttribute('data-delete-platform');
-    if(isCategoryInUse(id)){ toast('No puedes eliminar una plataforma con transacciones'); return; }
+    if(isCategoryInUse(id) || isCategoryInUse(generalCatIdFor(id))){ toast('No puedes eliminar una plataforma con transacciones'); return; }
     if(goalsForPlatform(id).length>0){ toast('Elimina primero sus metas'); return; }
     state.confirmDeletePlatformId = id;
     renderInvestmentsView();
@@ -628,7 +658,7 @@ phone.addEventListener('click', function(e: any){
   const confirmDeletePlatformBtn = e.target.closest('[data-confirm-delete-platform]');
   if(confirmDeletePlatformBtn){
     const id = confirmDeletePlatformBtn.getAttribute('data-confirm-delete-platform');
-    if(isCategoryInUse(id)){ toast('No puedes eliminar una plataforma con transacciones'); return; }
+    if(isCategoryInUse(id) || isCategoryInUse(generalCatIdFor(id))){ toast('No puedes eliminar una plataforma con transacciones'); return; }
     if(goalsForPlatform(id).length>0){ toast('Elimina primero sus metas'); return; }
     const nombre = catInfo(id).nombre;
     delete CATEGORIES[id];          // this also removes it from Menú > Categorías, which only lists what's in CATEGORIES

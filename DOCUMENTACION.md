@@ -154,7 +154,13 @@ Supabase (ver sección 5) o a un respaldo JSON descargable (Menú → Respaldo e
     mano**, así que una transacción sin categoría es invisible para cualquier filtro por
     categoría salvo que se active "Sin categoría" en Filtros.
   - `categorias`: array porque un gasto se puede dividir en varias categorías (`allowSplit` en
-    `renderCategoryRows`); una inversión nunca se divide (siempre una sola).
+    `renderCategoryRows`); una inversión nunca se divide (siempre una sola). Para `tipo:'inversion'`,
+    `cat` **nunca** es el id de una plataforma directamente — apunta al id de una `INVESTMENT_GOALS`
+    (meta) específica, o al bucket `"<platformId>__general"` de esa plataforma para un aporte que no
+    es de ninguna meta puntual (ver `investmentCatOptions()` en `views/inversiones.ts`). `catInfo(id)`
+    (en `helpers.ts`) resuelve las tres formas (categoría normal, meta, bucket General) para que el
+    resto de la app (lista de Transacciones, donuts de Balance/Presupuesto, editor de reglas,
+    filtros...) no tenga que saber cuál de las tres recibió.
   - `porCobrar`: `[{persona, monto, pagado, tipo:'persona'|'reembolso', montoRecibido,
     linkedTxId}]`. `'persona'` = alguien te debe su parte (se descuenta de Gastos al dividir,
     no cuando te pagan). `'reembolso'` = plata que vuelve después (isapre, seguro), el gasto ya
@@ -163,21 +169,31 @@ Supabase (ver sección 5) o a un respaldo JSON descargable (Menú → Respaldo e
     transacciones-cuota futuras (`cuotaProyectada`, `cuotaNumero`, `cuotaTotal`) y extiende
     `MONTHS` si hace falta.
 - **`CATEGORIES`** (objeto, `id → {nombre, tipo, color, icon}`): categorías. `icon` casi siempre es
-  un emoji suelto (ej. `'🛒'`); las 4 categorías de tipo `'inversion'` (fintual, racional,
-  banco_chile, buda) usan un nombre del set `ICONS` en vez de emoji — **son las plataformas de
-  inversión reales**, no categorías libres. `catIconMarkup(name)` resuelve ambos casos (ícono
+  un emoji suelto (ej. `'🛒'`); las categorías de tipo `'inversion'` (fintual, racional,
+  banco_chile, buda, + cualquier plataforma que la usuaria agregue) usan un nombre del set `ICONS`
+  en vez de emoji — **son las plataformas de inversión reales**, no categorías libres, y una
+  transacción nunca las usa directamente como su `cat` (ver la nota sobre `categorias` más arriba y
+  sobre `INVESTMENT_GOALS` más abajo). `catIconMarkup(name)` resuelve ambos casos (ícono
   con nombre → SVG; cualquier otra cosa → `<span class="emoji-icon">`).
 - **`PAYMENT_METHODS`** (objeto, `id → {nombre, corto, icon}`): medios de pago (tarjetas, cuenta vista,
   efectivo). `icon` sí es siempre un nombre del set `ICONS` (`'card' | 'bank' | 'cash'`).
 - **`BUDGETS`** (objeto, `catId → {meta, alertas:{80,90,100}}`) + `monthlyBudgetTotal`.
 - **`INVESTMENT_GOALS`** (array): metas estilo "Fintual" — `{id, nombre, montoObjetivo,
-  aporteMensualMeta, plataformaId, plazo, comision, aportadoNeto, historial:{mes:monto},
-  checks:{mes:bool}}`. Cada meta vive DENTRO de una plataforma (`plataformaId`); una plataforma
-  puede tener 0, 1 o varias metas.
+  aporteMensualMeta, plataformaId, plazo, comision, startMonth, startingAmount, checks:{mes:bool}}`.
+  Cada meta vive DENTRO de una plataforma (`plataformaId`); una plataforma puede tener 0, 1 o varias
+  metas. `aportadoNeto`/`historial` **ya no se guardan a mano** — se calculan siempre desde las
+  transacciones `tipo:'inversion'` categorizadas al id de la meta (`metaAportadoNeto(meta)` /
+  `metaHistorialAt(meta, mes)` en `views/evolucion.ts`), más el seed manual de `startingAmount` (lo
+  que ya tenía ahorrado antes de trackear la meta en la app) contado desde `startMonth` en adelante
+  — así una meta que en la vida real partió antes de que se creara en la app puede hacerse retroceder
+  sin inventar transacciones. `checks` sigue siendo 100% manual (el hábito de "cumplí mi aporte este
+  mes"), no se puede inferir de una transacción.
 - **`PLATFORM_DATA`** (objeto, `id → {valorHistorial:{mes:monto}, fechaActualizacion,
   tasaAnual, comision, plazo}`): valor aproximado que la usuaria actualiza a mano de vez en
-  cuando. El "aportado neto" de una plataforma **no** se guarda acá: siempre se calcula desde
-  las transacciones `tipo:'inversion'` ya clasificadas con esa categoría/plataforma.
+  cuando. El "aportado neto" de una plataforma (`platformAportadoNeto(id)` en `views/inversiones.ts`)
+  **no** se guarda acá: es un rollup de sus propias metas (`metaAportadoNeto` de cada una) más lo
+  categorizado a su bucket `"<id>__general"` — nunca una suma directa de transacciones por `cat===id`,
+  porque ninguna transacción usa ese id directamente (ver la nota sobre `categorias` más arriba).
 - **`PLANNER`** (`{base, metaPcts:{metaId:pct}}`): "cuánto de mi excedente mensual mando a
   cada meta", agrupado por plazo (Corto/Medio/Largo).
 - **`TOTAL_GOAL_CHECKS`** (`{mes:bool}`): check manual mes a mes de "¿cumplí mi objetivo de
@@ -320,8 +336,9 @@ Barras mes a mes de Ingresos/Gastos/Inversiones + detalle del mes seleccionado +
 año.
 
 ### Resumen → Inversiones
-- **Card de totales** ("Total invertido"): dos cuadrados compactos, Aportado neto y
-  Ganancia/pérdida aprox. (más chicos que los de Balance, `.stat-grid-compact`).
+- **Card de totales** ("Total invertido"): un cuadrado compacto con Aportado neto (más chico que
+  los de Balance, `.stat-grid-compact`) — ya no muestra "Ganancia/pérdida aprox." (se sacó a
+  pedido de la usuaria, no reintroducir).
 - **Objetivo de inversión (año actual)**: progreso acumulado vs. objetivo de todas las metas +
   una línea chica "Aporte mensual objetivo" (mismo monto que define el % de Inversión de
   Balance) + grilla de 12 meses para marcar "¿cumpliste tu objetivo total?" con racha (🔥) si
@@ -330,7 +347,23 @@ año.
   nombre + hace cuánto se actualizó + valor total. Abierta muestra valor/aportado, comisión
   (si no tiene metas propias), y sus metas (cada una con progreso, comisión — separada y en
   letra chica de la barra de progreso —, sparkline, y checks mensuales que se extienden desde
-  el primer mes con dato real hasta diciembre del año en curso, no solo hasta el último dato).
+  `startMonth` hasta diciembre del año en curso, no solo hasta el último mes con transacciones).
+  Crear/editar una meta (`renderGoalEditForm`) pide nombre, monto objetivo, aporte mensual meta,
+  **cuánto tienes ahorrado hasta ahora** (`startingAmount`) y **desde qué mes partiste** con la
+  meta (`startMonth`, `<input type="month">`) — así una meta que en la vida real es más vieja que
+  el momento en que se creó en la app puede arrancar su historial antes, sin inventar
+  transacciones. `platformAportadoNeto(id)` es la suma de `metaAportadoNeto()` de sus metas más
+  lo categorizado a su bucket `"<id>__general"` (ver más abajo), nunca una suma directa de
+  transacciones por `cat===id`.
+- **Categorización de una transacción `tipo:'inversion'`** (`renderCategoryRows`/
+  `renderDraftCategoryRow`/`investCatPickerGrid` en `sheet.ts`, opciones armadas por
+  `investmentCatOptions()` en `views/inversiones.ts`): ya no ofrece las plataformas — ofrece, por
+  cada plataforma activa, sus propias metas + un bucket `"[Plataforma] · General"` para un aporte
+  que no es de ninguna meta puntual (cuenta para el Aportado neto de la plataforma vía el rollup
+  de arriba, pero no para el progreso de ninguna meta). Si `INVESTMENT_GOALS` está vacío, en vez
+  del selector se muestra un estado vacío ("No tienes metas creadas") con un botón que lleva
+  directo a Inversiones con el formulario de "nueva meta" ya abierto (`data-goto-create-goal`,
+  ver `renderInvestGoalEmptyState` en `sheet.ts`).
 - **Gráfico "Aportado vs. valor"**: eje X fijo enero-diciembre del año actual (con huecos nulos
   donde falta algún dato de alguna plataforma activa), eje Y con etiquetas aproximadas
   (`moneyShort`, ej. "$1,2M").

@@ -1,4 +1,4 @@
-import { allCollected, capitalizeFirst, catInfo, dayLabel, netIncomeTx, lastSalaryTx, paymentMethodInfo, paymentMethodTagIcon, currentMonthHasSalary, pendingEffectiveAmount, hasReceivableType } from '../helpers';
+import { allCollected, capitalizeFirst, catInfo, categoryFilterMatches, dayLabel, netIncomeTx, lastSalaryTx, paymentMethodInfo, paymentMethodTagIcon, currentMonthHasSalary, pendingEffectiveAmount, hasReceivableType } from '../helpers';
 import { ICONS, catIconMarkup } from '../icons';
 import { getTx, openNewTxSheet, renderSheet } from '../sheet';
 import { MONTH_LABEL, TRANSACTIONS, money, normalize, state, todayISO } from '../state';
@@ -12,7 +12,12 @@ export function filteredTx(){
   else if(state.filter==='reembolso') list = list.filter(t=>t.estado==='por_cobrar' && hasReceivableType(t,'reembolso') && !allCollected(t));
   else if(state.filter==='pendientes') list = list.filter(t=>t.estado==='pendiente');
   if(state.categoryFilter){
-    list = list.filter(t=>t.categorias.some(c=>c.cat===state.categoryFilter));
+    // categoryFilter can be a plain category, a Goal's id, or (from a platform's "Ver
+    // transacciones →") a platform id -- in which case it should match every transaction that
+    // rolls up into that platform (any of its goals, or its General bucket), not just an exact
+    // id (a bare platform id is never itself a transaction's category, see catInfo() in
+    // helpers.ts).
+    list = list.filter(t=>t.categorias.some(c=>categoryFilterMatches(c.cat, state.categoryFilter)));
   }
   if(state.categoryFilterMonth){
     list = list.filter(t=>t.fecha.slice(0,7)===state.categoryFilterMonth);

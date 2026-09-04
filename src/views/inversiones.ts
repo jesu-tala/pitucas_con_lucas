@@ -3,7 +3,7 @@ import { ICONS, catIconMarkup } from '../icons';
 import { segmentedHtml } from '../sheet';
 import { CATEGORIES, UPDATE_THRESHOLD_DAYS, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, PLANNER, PLATFORM_DATA, TRANSACTIONS, computeDefaultPlanBase, money, moneyPlain, moneyPlainMasked, moneyShort, monthAbbr, state, todayISO } from '../state';
 import { monthlyInvestmentGoalCLP, investmentGoalPct } from '../ui/donut';
-import { totalGoalProgress, goalsForPlatform, platformGoalsSummary, projectedContributions, renderEvolutionView, renderGoalEditForm, renderGoalCard, renderTotalChecksGrid } from './evolucion';
+import { totalGoalProgress, goalsForPlatform, metaAportadoNeto, platformGoalsSummary, projectedContributions, renderEvolutionView, renderGoalEditForm, renderGoalCard, renderTotalChecksGrid } from './evolucion';
 import { CATEGORY_COLOR_CHOICES, CATEGORY_ICON_CHOICES, isCategoryInUse } from './menu';
 import { renderBalanceView, renderComingSoon, renderBudgetView } from './presupuesto';
 /* ===================== INVESTMENTS (Phase 4) ===================== */
@@ -17,13 +17,47 @@ export function platformIds(){
 export function isPlatformArchived(id){ return !!(PLATFORM_DATA[id] && PLATFORM_DATA[id].archivada); }
 export function activePlatformIds(){ return platformIds().filter(id=>!isPlatformArchived(id)); }
 export function archivedPlatformIds(){ return platformIds().filter(id=>isPlatformArchived(id)); }
-export function platformAportadoNeto(id){
+// A transaction never categorizes straight to a platform id anymore (see the note on
+// INVESTMENT_GOALS in state.ts) -- it points at one of the platform's Goals, or at this
+// catch-all bucket, for a contribution that isn't for any specific goal. It still counts
+// toward the platform's Aportado neto (see platformAportadoNeto below), just not toward any
+// one goal's own progress.
+export function generalCatIdFor(platformId){ return platformId+'__general'; }
+export function platformGeneralAmount(platformId){
+  const generalId = generalCatIdFor(platformId);
   let total = 0;
   TRANSACTIONS.forEach(t=>{
     if(t.tipo!=='inversion') return;
-    t.categorias.forEach(c=>{ if(c.cat===id) total += c.monto; });
+    t.categorias.forEach(c=>{ if(c.cat===generalId) total += c.monto; });
   });
   return total;
+}
+// Rollup, not a direct transaction sum: a platform's net contribution is whatever its own
+// Goals have accumulated (metaAportadoNeto, itself computed from transactions) plus whatever
+// landed in its General bucket. This is what lets requirement (4) hold -- categorizing to a
+// Goal counts both toward that goal AND toward its platform's total, automatically, without
+// double-entering anything.
+export function platformAportadoNeto(id){
+  return goalsForPlatform(id).reduce((s,m)=>s+metaAportadoNeto(m), 0) + platformGeneralAmount(id);
+}
+// Options offered when classifying an investment-type transaction: each active platform's
+// Goals, plus its "General" catch-all (see platformGeneralAmount above). A closed platform's
+// goals aren't offered for NEW classifications (isPlatformArchived), same as the platform
+// itself already wasn't -- unless the currently selected value already belongs to it, so an
+// old transaction pointing at a since-closed platform keeps showing its real category instead
+// of silently losing it from the dropdown.
+export function investmentCatOptions(selectedId?){
+  const out: {value:string, label:string, plataformaId:string, icon:string}[] = [];
+  platformIds().forEach(platId=>{
+    const plat = CATEGORIES[platId];
+    const generalId = generalCatIdFor(platId);
+    const goals = goalsForPlatform(platId);
+    const belongsHere = selectedId===generalId || goals.some(g=>g.id===selectedId);
+    if(isPlatformArchived(platId) && !belongsHere) return;
+    goals.forEach(g=> out.push({value:g.id, label:plat.nombre+' · '+g.nombre, plataformaId:platId, icon:plat.icon}));
+    out.push({value:generalId, label:plat.nombre+' · General', plataformaId:platId, icon:plat.icon});
+  });
+  return out;
 }
 export function platformValorMonths(id){
   return MONTHS.filter(m=> PLATFORM_DATA[id].valorHistorial[m]!=null);
@@ -181,7 +215,10 @@ export function renderPlatformEditForm(id){
 // keeps everything that already happened intact. With active goals, they have to be deleted
 // first in either case, so they don't end up pointing at a ghost platform.
 export function platformDeleteBlock(id){
-  const enUso = isCategoryInUse(id);
+  // A transaction never points at the bare platform id anymore (see generalCatIdFor above) --
+  // "in use" now means it has General-bucket transactions (isCategoryInUse(id) is also checked,
+  // defensively, in case any old-shape data with a bare platform id ever slips through).
+  const enUso = isCategoryInUse(id) || isCategoryInUse(generalCatIdFor(id));
   const tieneMetas = goalsForPlatform(id).length>0;
   if(tieneMetas){
     return '<div class="file-format-hint">No se puede cerrar ni eliminar: tiene metas asociadas. Elimínalas primero.</div>';

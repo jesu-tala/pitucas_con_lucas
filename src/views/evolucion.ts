@@ -2,8 +2,8 @@ import { catInfo, aggregatedTxAmount, termChip, txsOfMonth } from '../helpers';
 import { ICONS } from '../icons';
 import { monthLabelFor } from '../shared-expenses';
 import { segmentedHtml } from '../sheet';
-import { MONTHS_LONG, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, MONTH_LABEL, money, state, todayISO } from '../state';
-import { activePlatformIds, platformCurrentValue } from './inversiones';
+import { MONTHS_LONG, INVESTMENT_GOALS, TRANSACTIONS, TOTAL_GOAL_CHECKS, MONTHS, MONTH_LABEL, money, state, todayISO } from '../state';
+import { activePlatformIds, platformAportadoNeto, platformCurrentValue } from './inversiones';
 /* ===================== EVOLUTION (Phase 3) ===================== */
 export function monthTotals(monthKey){
   const monthTx = txsOfMonth(monthKey);
@@ -130,19 +130,67 @@ export function buildEvolutionBars(months, selMonth){
   return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block;overflow:visible;">'+out+'</svg>';
 }
 
-// Only the months with real data for the goal (avoids future months projected by card
-// installments —which DO extend MONTHS— from showing up as "not met").
+// Every transaction categorized straight to this goal (see the note on INVESTMENT_GOALS in
+// state.ts) -- a goal's progress is computed from these, never hand-typed.
+export function metaContribTxs(meta){
+  return TRANSACTIONS.filter(t=>t.tipo==='inversion' && t.categorias.some(c=>c.cat===meta.id));
+}
+// A transaction isn't split across goals (unlike gasto, investment rows aren't offered the
+// split UI — see renderCategoryRows' allowSplit), but summing every matching row instead of
+// assuming a single one is defensive and costs nothing.
+export function metaContribAmount(t, metaId){
+  return t.categorias.filter(c=>c.cat===metaId).reduce((s,c)=>s+c.monto,0);
+}
+// Total ever put into this goal: the seed from before it was tracked in the app (startingAmount,
+// set on the goal's own form) plus every transaction categorized to it since. This is what used
+// to be the hand-typed "aportadoNeto".
+export function metaAportadoNeto(meta){
+  const contribs = metaContribTxs(meta).reduce((s,t)=>s+metaContribAmount(t, meta.id), 0);
+  return (meta.startingAmount||0) + contribs;
+}
+// Cumulative total as of a given month (inclusive) -- null before the goal's startMonth (not
+// tracked yet, same "no data" meaning MONTHS/historial used before). This is what used to be a
+// single hand-typed historial[monthKey] entry; now it's derived on the fly from real
+// transactions, so it can't drift out of sync with what's actually categorized.
+export function metaHistorialAt(meta, monthKey){
+  const start = meta.startMonth || monthKey;
+  if(monthKey < start) return null;
+  const contribs = metaContribTxs(meta).filter(t=>t.fecha.slice(0,7)<=monthKey)
+    .reduce((s,t)=>s+metaContribAmount(t, meta.id), 0);
+  return (meta.startingAmount||0) + contribs;
+}
+// Sequential month range from the goal's startMonth through the latest month the app knows
+// about (MONTHS' last entry, which always includes the current month -- see
+// currentMonthIndex()). Built independently of MONTHS itself (rather than filtering it) because
+// a goal can start earlier than MONTHS' own earliest entry.
 export function metaMonths(meta){
-  return MONTHS.filter(m=> meta.historial[m]!=null);
+  const start = meta.startMonth || todayISO().slice(0,7);
+  const end = MONTHS[MONTHS.length-1] || start;
+  const out = [];
+  let y = parseInt(start.slice(0,4),10), m = parseInt(start.slice(5,7),10);
+  const ey = parseInt(end.slice(0,4),10), em = parseInt(end.slice(5,7),10);
+  while(y<ey || (y===ey && m<=em)){
+    out.push(y+'-'+String(m).padStart(2,'0'));
+    m++; if(m>12){ m=1; y++; }
+  }
+  return out;
 }
 export function metaAcumuladoActual(meta){
-  const months = metaMonths(meta);
-  return months.length ? meta.historial[months[months.length-1]] : 0;
+  return metaAportadoNeto(meta);
 }
-// Estimated profit of the goal: what's accumulated minus what you actually contributed (never
-// the total) — it's the base on which its fee is calculated, same as on the platforms.
+// Estimated profit of the goal: unlike a platform (which has its own manually-updated "current
+// value" to compare against what was contributed), a goal has no value curve of its own --
+// there's only ever been one place to type "what this is worth today" (the platform's Actualizar
+// valor form). So a goal's estimated gain is its share of the PLATFORM's own gain, prorated by
+// how much of that platform's total net contribution belongs to this goal -- same principle as
+// the platform-level estimate (renderPlatformGroup), just split proportionally instead of
+// invented from scratch. It's the base on which its own fee is calculated, same as on platforms.
 export function metaGananciaEstimada(meta){
-  return Math.max(0, metaAcumuladoActual(meta) - (meta.aportadoNeto||0));
+  const aportadoPlataforma = platformAportadoNeto(meta.plataformaId);
+  if(aportadoPlataforma<=0) return 0;
+  const gananciaPlataforma = Math.max(0, platformCurrentValue(meta.plataformaId) - aportadoPlataforma);
+  const share = metaAportadoNeto(meta)/aportadoPlataforma;
+  return gananciaPlataforma*share;
 }
 export function metaRacha(meta){
   const months = metaMonths(meta);
@@ -225,6 +273,12 @@ export function renderGoalEditForm(meta, plataformaId?){
     '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="'+d.montoObjetivo+'" placeholder="0">'+
     '<label class="draft-label" style="margin-top:12px;">Aporte mensual meta</label>'+
     '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aporteMensualMeta" value="'+d.aporteMensualMeta+'" placeholder="0">'+
+    '<label class="draft-label" style="margin-top:12px;">¿Cuánto tienes ahorrado hasta ahora?</label>'+
+    '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aportadoInicial" value="'+d.aportadoInicial+'" placeholder="0">'+
+    '<div class="platform-hint muted">Lo que ya tenías guardado para esta meta antes de empezar a registrarla acá. Se suma a lo que categorices desde el mes de inicio de abajo.</div>'+
+    '<label class="draft-label" style="margin-top:12px;">¿Desde qué mes partiste con esta meta?</label>'+
+    '<input type="month" class="draft-input" data-goal-field="mesInicio" value="'+d.mesInicio+'">'+
+    '<div class="platform-hint muted">Si empezaste antes de usar la app, hazla partir en ese mes — así tus transacciones antiguas de ese período también cuentan para el progreso.</div>'+
     '<label class="draft-label" style="margin-top:12px;">Plazo</label>'+
     segmentedHtml('meta-plazo', [{id:'corto',label:'Corto'},{id:'medio',label:'Medio'},{id:'largo',label:'Largo'}], d.plazo, false)+
     '<label class="draft-label" style="margin-top:12px;">Comisión anual / TAC (opcional)</label>'+
@@ -265,7 +319,7 @@ export function renderGoalCard(meta){
       '<span class="muted tabular">≈ '+money(gananciaMeta*comision/100)+'/año sobre tu ganancia</span>'+
     '</div>'
   ) : '';
-  const historialVals = trackedMonths.map(m=> meta.historial[m]);
+  const historialVals = trackedMonths.map(m=> metaHistorialAt(meta,m));
   const checksRow = metaChecksMonths(meta).map(m=>{
     const short = MONTH_LABEL[m].split(' ')[0].slice(0,3);
     const done = !!meta.checks[m];

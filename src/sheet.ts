@@ -2,11 +2,11 @@ import { allCollected, catInfo, dayLabel, paymentMethodInfo, pendingEffectiveAmo
 import { ICONS, catIconMarkup } from './icons';
 import { render } from './render';
 import { ensureMonthExists, safeEvalExpr } from './shared-expenses';
-import { CATEGORIES, CONTACTS, PAYMENT_METHODS, TRANSACTIONS, money, moneyPlainMasked, state, todayISO } from './state';
+import { CATEGORIES, CONTACTS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, money, moneyPlainMasked, state, todayISO } from './state';
 import { ReceivableItem, Transaction } from './types';
 import { toast } from './ui/toasts';
 import { renderShareGroupSection } from './views/grupos';
-import { isPlatformArchived } from './views/inversiones';
+import { activePlatformIds, investmentCatOptions, isPlatformArchived, platformIds } from './views/inversiones';
 import { advFilterCount } from './views/transacciones';
 /* ===================== DETAIL SHEET ===================== */
 export function getTx(id){ return TRANSACTIONS.find(t=>t.id===id); }
@@ -21,17 +21,26 @@ export function segmentedHtml(name, options, value, disabled?){
 // switch above and "Add category" always visible — so you classify or split without
 // first having to enter a separate "edit mode". `allowSplit` is turned off for investments
 // (there the platform is a single one, not something split across several).
+// isInvest transactions offer each of their platforms' Goals + "General" bucket options
+// (investmentCatOptions) instead of the plain CATEGORIES list -- see the note on
+// INVESTMENT_GOALS in state.ts. renderInvestGoalEmptyState() is shown instead of this whole
+// block when there isn't a single goal to offer yet (see renderSheetContent).
+function investOrPlainOptions(tipo, selectedCat){
+  if(tipo==='inversion') return investmentCatOptions(selectedCat).map(o=>({value:o.value, label:o.label}));
+  return Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo===tipo).map(k=>{
+    const icon = CATEGORIES[k].icon;
+    const label = (ICONS[icon]===undefined ? icon+' ' : '')+CATEGORIES[k].nombre;
+    return {value:k, label};
+  });
+}
 export function renderCategoryRows(t, allowSplit){
   const unit = allowSplit ? (state.splitCategoryUnit[t.id] || '$') : '$';
-  const catOptions = Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo===t.tipo && (t.tipo!=='inversion' || !isPlatformArchived(k) || (t.categorias[0] && t.categorias[0].cat===k)));
   const list = t.categorias.length ? t.categorias : [{cat:'', monto:t.monto}];
   const rows = list.map((c,idx)=>{
     const ci = c.cat ? catInfo(c.cat) : null;
-    const opts = '<option value="">Sin categoría</option>'+catOptions.map(k=>{
-      const icon = CATEGORIES[k].icon;
-      const label = (ICONS[icon]===undefined ? icon+' ' : '')+CATEGORIES[k].nombre;
-      return '<option value="'+k+'" '+(c.cat===k?'selected':'')+'>'+label+'</option>';
-    }).join('');
+    const opts = '<option value="">Sin categoría</option>'+investOrPlainOptions(t.tipo, c.cat).map(o=>
+      '<option value="'+o.value+'" '+(c.cat===o.value?'selected':'')+'>'+o.label+'</option>'
+    ).join('');
     const shown = unit==='%' ? (t.monto ? Math.round((c.monto/t.monto)*1000)/10 : 0) : c.monto;
     return '<div class="split-row" data-cat-row="'+idx+'">'+
       '<span class="cat-row-icon" style="--fill:'+(ci?'var(--cat-'+ci.color+'-fill)':'var(--surface-sunken)')+';--ink:'+(ci?'var(--cat-'+ci.color+'-ink)':'var(--text-tertiary)')+'">'+(ci?catIconMarkup(ci.icon):ICONS.more)+'</span>'+
@@ -139,15 +148,12 @@ export function renderChargeSplitBlock(t){
 // created transaction only supports one category (it can be split into several afterwards,
 // once saved, from its own detail), this row has no amount/% or "add another" button.
 export function renderDraftCategoryRow(d){
-  const catTipo = d.tipo==='inversion' ? 'inversion' : d.tipo;
-  const catOptions = Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo===catTipo && (catTipo!=='inversion' || !isPlatformArchived(k)));
   const chosen = d.categorias[0] ? d.categorias[0].cat : '';
+  if(d.tipo==='inversion' && INVESTMENT_GOALS.length===0) return renderInvestGoalEmptyState();
   const ci = chosen ? catInfo(chosen) : null;
-  const opts = '<option value="">Sin categoría</option>'+catOptions.map(k=>{
-    const icon = CATEGORIES[k].icon;
-    const label = (ICONS[icon]===undefined ? icon+' ' : '')+CATEGORIES[k].nombre;
-    return '<option value="'+k+'" '+(chosen===k?'selected':'')+'>'+label+'</option>';
-  }).join('');
+  const opts = '<option value="">Sin categoría</option>'+investOrPlainOptions(d.tipo, chosen).map(o=>
+    '<option value="'+o.value+'" '+(chosen===o.value?'selected':'')+'>'+o.label+'</option>'
+  ).join('');
   return '<div class="cat-rows"><div class="split-row" data-draft-cat-row>'+
     '<span class="cat-row-icon" style="--fill:'+(ci?'var(--cat-'+ci.color+'-fill)':'var(--surface-sunken)')+';--ink:'+(ci?'var(--cat-'+ci.color+'-ink)':'var(--text-tertiary)')+'">'+(ci?catIconMarkup(ci.icon):ICONS.more)+'</span>'+
     '<select data-draft-cat-select>'+opts+'</select>'+
@@ -162,6 +168,31 @@ export function catPickerGrid(tipoFilter, attrName, selectedId?){
     return '<button class="cat-picker-chip" data-'+attrName+'="'+k+'" '+(sel?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+catIconMarkup(c.icon)+' '+c.nombre+'</button>';
   }).join('')+'</div>';
 }
+// Same chip-grid look as catPickerGrid, but for classifying an investment-type transaction for
+// the first time (needsClassifying in renderSheetContent) -- offers Goals + General buckets
+// (investmentCatOptions) instead of a flat CATEGORIES list. Reuses the same data-pick-cat
+// attribute, so the existing click handler in events.ts (which just sets t.categorias to
+// whatever value it got) doesn't need to know or care which kind of picker produced it.
+export function investCatPickerGrid(selectedId?){
+  return '<div class="cat-picker-grid">'+investmentCatOptions(selectedId).map(o=>{
+    const sel = o.value===selectedId;
+    return '<button class="cat-picker-chip" data-pick-cat="'+o.value+'" '+(sel?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+catIconMarkup(o.icon)+' '+o.label+'</button>';
+  }).join('')+'</div>';
+}
+// Shown instead of the category picker for an investment-type transaction when there isn't a
+// single Goal to offer yet (INVESTMENT_GOALS is empty) -- requirement from the user: don't show
+// an effectively-empty picker, tell her she needs a goal first and take her straight there.
+// contextPlatformId lets a caller with a known platform in mind (e.g. an already-open
+// platform's "+ Agregar meta") pre-select it; otherwise it falls back to the first active
+// platform (or the first platform at all, if every one is closed).
+export function renderInvestGoalEmptyState(contextPlatformId?){
+  const platId = contextPlatformId || activePlatformIds()[0] || platformIds()[0] || '';
+  return '<div class="card placeholder-card" style="padding:18px 14px;">'+ICONS.inbox+
+    '<h3>No tienes metas creadas</h3>'+
+    '<p>Crea tu primera meta de inversión para poder clasificar tus aportes.</p>'+
+    (platId ? '<button class="save-tx-btn" style="width:100%;margin-top:10px;" data-goto-create-goal="'+platId+'">+ Crear meta de inversión</button>' : '')+
+  '</div>';
+}
 
 export function renderSheetContent(t){
   const isIncome = t.tipo==='ingreso';
@@ -172,13 +203,17 @@ export function renderSheetContent(t){
   // Before, you had to tap the category to enter a separate "edit mode" (chip -> grid).
   // Now, except for the first classification of an imported transaction (needsClassifying, which
   // still shows the big icon grid to choose for the first time), the category
-  // always shows as editable rows with a select — same as the rest of the app.
-  const categoriaSection = needsClassifying
-    ? (t.sharedByOthers
-        ? '<p class="cat-picker-hint">Este es tu parte de un gasto de grupo'+(t.suggestedOriginCategory?' que la otra persona anotó como "'+t.suggestedOriginCategory+'"':'')+'. Elige tu categoría y la próxima vez que registre algo así se va a clasificar sola.</p>'
-        : '<p class="cat-picker-hint">Todavía no le has puesto categoría. Elige una para clasificarla (y luego puedes activar el candado para que se repita sola).</p>')+
-      catPickerGrid(t.tipo, 'pick-cat')
-    : renderCategoryRows(t, !isInvest);
+  // always shows as editable rows with a select — same as the rest of the app. An investment
+  // transaction with no goal to offer yet gets the "No tienes metas creadas" empty state
+  // instead of either of those (see renderInvestGoalEmptyState).
+  const categoriaSection = (isInvest && INVESTMENT_GOALS.length===0)
+    ? renderInvestGoalEmptyState()
+    : needsClassifying
+      ? (t.sharedByOthers
+          ? '<p class="cat-picker-hint">Este es tu parte de un gasto de grupo'+(t.suggestedOriginCategory?' que la otra persona anotó como "'+t.suggestedOriginCategory+'"':'')+'. Elige tu categoría y la próxima vez que registre algo así se va a clasificar sola.</p>'
+          : '<p class="cat-picker-hint">Todavía no le has puesto categoría. Elige una para clasificarla (y luego puedes activar el candado para que se repita sola).</p>')+
+        (isInvest ? investCatPickerGrid() : catPickerGrid(t.tipo, 'pick-cat'))
+      : renderCategoryRows(t, !isInvest);
 
   // Before, a transaction already created as an investment stayed with a fixed chip ("edited in
   // Phase 4") and, conversely, one imported as an expense/income couldn't be switched to an
@@ -634,9 +669,14 @@ export function chipToggle(attrName, id, label, icon, active){
 }
 export function renderFilterSheetContent(){
   const af = state.advFilters;
+  // Investment platforms themselves are never a transaction's category anymore (see the note
+  // on INVESTMENT_GOALS in state.ts) -- filtering by them here would be a dead option that
+  // never matches anything, so they're swapped for the same Goal/General options the category
+  // picker itself offers.
   const catChips = '<div class="cat-picker-grid">'+
     chipToggle('toggle-filter-cat','__sin_cat__','Sin categoría', null, af.cats.includes('__sin_cat__'))+
-    Object.keys(CATEGORIES).map(k=>chipToggle('toggle-filter-cat', k, CATEGORIES[k].nombre, CATEGORIES[k].icon, af.cats.includes(k))).join('')+
+    Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo!=='inversion').map(k=>chipToggle('toggle-filter-cat', k, CATEGORIES[k].nombre, CATEGORIES[k].icon, af.cats.includes(k))).join('')+
+    investmentCatOptions().map(o=>chipToggle('toggle-filter-cat', o.value, o.label, o.icon, af.cats.includes(o.value))).join('')+
   '</div>';
   const medioChips = '<div class="cat-picker-grid">'+
     Object.keys(PAYMENT_METHODS).map(k=>chipToggle('toggle-filter-medio', k, PAYMENT_METHODS[k].nombre, PAYMENT_METHODS[k].icon, af.medios.includes(k))).join('')+

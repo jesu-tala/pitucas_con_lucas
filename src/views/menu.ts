@@ -7,7 +7,7 @@ import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS,
 import { PUSH_WORKER_URL, VAPID_PUBLIC_KEY, buildFullStateBlob, currentHouseholdId, currentUser, sb, translateAuthError } from '../supabase';
 import { CategoryMapping, Transaction } from '../types';
 import { toast } from '../ui/toasts';
-import { isPlatformArchived } from './inversiones';
+import { generalCatIdFor, isPlatformArchived } from './inversiones';
 import { catMonthExpense } from './presupuesto';
 /* ===================== MENU (Phase 4) ===================== */
 export const CATEGORY_ICON_CHOICES = ['tags','cart','car','utensils','home','film','heart','repeat','briefcase','laptop','plusCircle','trending','bank','coin','card','cash','users','layers','sparkle','more'];
@@ -1022,11 +1022,17 @@ export function ensureUnknownPaymentMethod(){
   if(!PAYMENT_METHODS[id]){ PAYMENT_METHODS[id] = {nombre:'Medio sin identificar', corto:'Sin identificar', icon:'card'}; }
   return id;
 }
+// An email import can tell WHICH platform a contribution went to (from the sender/subject),
+// but never which of that platform's goals it was for -- so the best it can do on its own is
+// that platform's "General" bucket (see generalCatIdFor/investmentCatOptions in
+// views/inversiones.ts); she can reclassify it to a specific goal later from the transaction's
+// detail, same as any other auto-classified import.
 export function guessCatIdFromImportRow(row){
   if(row.tipo!=='inversion') return null; // gasto/ingreso: let her choose, same as in CSV import
   const f = (row.fuente||'').toLowerCase();
   const candidatos = ['racional','fintual','banco_chile','buda'];
-  return candidatos.find(function(id){ return CATEGORIES[id] && f.indexOf(id.replace('_',''))>=0; }) || null;
+  const found = candidatos.find(function(id){ return CATEGORIES[id] && f.indexOf(id.replace('_',''))>=0; });
+  return found ? generalCatIdFor(found) : null;
 }
 
 // Previously, what the Google script found in the email sat in a separate inbox
