@@ -3,11 +3,16 @@
 // .phone used height:100vh and left a gap below the tab bar (rebote / rubber-band scroll on
 // iOS made the frame not reach the real bottom of the screen).
 //
-// Also covers the bug reported when adding the app to the home screen (standalone PWA on
-// iOS): there was leftover empty space under the bottom bar. The fix was to explicitly pin the
-// height of .phone (100dvh, with --app-height set by JS as a fallback) instead of
-// completing it with "bottom:0" -- here we verify that variable gets computed and that .phone still
-// reaches exactly the real bottom edge.
+// Also covers the bug reported (twice) when adding the app to the home screen (standalone PWA
+// on iOS): there was leftover empty space under the bottom bar. An earlier fix pinned .phone's
+// height to a value computed by JS (--app-height, read from window.innerHeight /
+// visualViewport.height) at all times -- but that JS-measured value occasionally came out a
+// few pixels short of the real screen on some iPhones, and once set, a CSS custom property
+// never falls back to 100dvh again on its own, so the gap stayed stuck. Now --app-height is
+// only defined while the on-screen keyboard is genuinely open (the one case 100dvh can't
+// handle by itself, see setAppHeight() in app.ts) -- in the normal case it stays undefined and
+// .phone relies on 100dvh directly, which the browser itself resolves correctly for this
+// "PWA on iOS" scenario without our help.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -31,8 +36,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
 
   check('A <=480px, .phone usa position:fixed (no height:100vh, que dejaba un hueco)', info.phonePosition === 'fixed', info.phonePosition);
   check('La tabbar queda al ras del borde inferior real de la pantalla (tolerancia 2px)', Math.abs(info.tabbarBottom - info.viewportHeight) <= 2, info);
-  check('--app-height quedó seteado por JS (respaldo para el hueco de la PWA instalada)', info.appHeight === info.viewportHeight + 'px', info.appHeight);
-  check('.phone llega exacto al alto real de la pantalla (tolerancia 2px)', Math.abs(info.phoneHeight - info.viewportHeight) <= 2, info);
+  check('--app-height queda SIN definir (sin teclado abierto, .phone usa 100dvh nativo directo)', info.appHeight === '', info.appHeight);
+  check('.phone llega exacto al alto real de la pantalla vía 100dvh, sin ayuda de JS (tolerancia 2px)', Math.abs(info.phoneHeight - info.viewportHeight) <= 2, info);
 
   await finish({ context, browser, errors });
 })();

@@ -165,7 +165,12 @@
        instante. El scroll real ya vive adentro de .view-scroll, así que el body/html de
        afuera no necesita (ni debe) poder moverse: lo fijamos para que ese rebote no exista. */
     html{ height:100%; overscroll-behavior:none; }
-    body{ height:100%; height:100dvh; overflow:hidden; overscroll-behavior:none; }
+    /* El fondo del body se pone del mismo color que .tabbar (--surface) acá, no --stage-bg
+       (que es notoriamente distinto -- beige vs. blanco) -- es la red de seguridad para el
+       bug de más abajo: si .phone alguna vez queda un pixel corto del borde real por cualquier
+       motivo, lo que se asoma detrás es del mismo color que la barra de abajo, invisible, en
+       vez de una franja de color claramente distinta pegada bajo los tabs. */
+    body{ height:100%; height:100dvh; overflow:hidden; overscroll-behavior:none; background:var(--surface); }
     .stage{ padding:0; align-items:stretch; min-height:100vh; min-height:100dvh; }
     .stage-inner{ max-width:none; gap:0; }
     .stage-caption{ display:none; }
@@ -177,10 +182,12 @@
          real de la pantalla. position:fixed + inset:0 fija el marco directo contra el viewport
          visible del navegador, sin depender de que ningún ancestro le "pase" el alto. */
       border-radius:0; box-shadow:none; border:none;
-      /* top+left+right fijos, pero el alto se fija explícito (100dvh, con --app-height de
-         respaldo puesto por JS) en vez de completarlo con "bottom:0" — un alto explícito no
-         depende de que el navegador vuelva a medir el borde inferior del viewport, que es
-         justo lo que a veces se atrasa en el primer dibujo de una PWA instalada. */
+      /* top+left+right fijos; el alto usa 100dvh directo (el navegador ya resuelve bien el
+         "viewport dinámico" de una PWA instalada, para eso existe la unidad dvh) -- ver
+         app.ts, setAppHeight(): --app-height solo se define por JS mientras el teclado está
+         genuinamente abierto (ahí sí hace falta, dvh no se achica con el teclado), y se
+         remueve el resto del tiempo para no arriesgarse a pisar el 100dvh nativo con un
+         cálculo propio que puede quedar un pelo corto en algunos iPhone. */
       position:fixed; top:0; left:0; right:0; max-height:none;
       height:100dvh; height:var(--app-height, 100dvh);
     }
