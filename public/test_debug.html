@@ -4505,7 +4505,7 @@
         const tipoAnterior = d.divisionTipo;
         d.divisionTipo = val;
         if (val !== "iguales") {
-          const t2 = getTx(d.txId);
+          const t2 = currentEditableTx();
           if (t2) {
             const base = computeShareAmounts(t2.monto, { ...d, divisionTipo: tipoAnterior });
             d.participantesIncluidos.forEach((id) => {
@@ -4597,7 +4597,7 @@
     }
     const paidBtn = e.target.closest("[data-toggle-paid]");
     if (paidBtn) {
-      const t = getTx(state.openTxId);
+      const t = currentEditableTx();
       const idx = parseInt(paidBtn.getAttribute("data-toggle-paid"), 10);
       if (t && t.porCobrar[idx]) {
         t.porCobrar[idx].pagado = !t.porCobrar[idx].pagado;
@@ -4776,7 +4776,7 @@
     }
     const copyChargeBtn = e.target.closest("[data-copy-charge]");
     if (copyChargeBtn) {
-      const t = getTx(copyChargeBtn.getAttribute("data-copy-charge"));
+      const t = currentEditableTx();
       const txt = t ? buildChargeWhatsAppText(t) : null;
       if (!txt) {
         toast("No hay cobros pendientes para copiar");
@@ -5118,7 +5118,7 @@
     }
     const actionBtn = e.target.closest("[data-action]");
     if (actionBtn) {
-      const t = getTx(actionBtn.getAttribute("data-tx"));
+      const t = currentEditableTx();
       const act = actionBtn.getAttribute("data-action");
       if (t) {
         if (act === "confirmar") {
@@ -5228,13 +5228,14 @@
     }
     const chargeUnitBtn = e.target.closest("[data-chargeunit]");
     if (chargeUnitBtn) {
-      state.splitCollectUnit[state.openTxId] = chargeUnitBtn.getAttribute("data-chargeunit");
+      const chargeUnitTx = currentEditableTx();
+      if (chargeUnitTx) state.splitCollectUnit[chargeUnitTx.id] = chargeUnitBtn.getAttribute("data-chargeunit");
       renderSheet();
       return;
     }
     const chargeSplitOpenBtn = e.target.closest("[data-charge-split-open]");
     if (chargeSplitOpenBtn) {
-      const t = getTx(chargeSplitOpenBtn.getAttribute("data-charge-split-open"));
+      const t = currentEditableTx();
       if (t) {
         state.shareDraft = hasReceivableType(t, "persona") ? draftFromExistingSplit(t) : defaultPersonaSplitDraft(t.id);
         state.splitCollectMode[t.id] = true;
@@ -5244,7 +5245,7 @@
     }
     const addReimbursementRow = e.target.closest("[data-add-reimbursement-row]");
     if (addReimbursementRow) {
-      const t = getTx(addReimbursementRow.getAttribute("data-add-reimbursement-row"));
+      const t = currentEditableTx();
       if (t) {
         t.porCobrar.push({ persona: "", monto: null, pagado: false, tipo: "reembolso", montoRecibido: null, linkedTxId: null });
         if (t.estado !== "por_cobrar") {
@@ -5320,7 +5321,7 @@
     }
     const rmChargeRow = e.target.closest("[data-charge-remove]");
     if (rmChargeRow) {
-      const t = getTx(state.openTxId);
+      const t = currentEditableTx();
       const idx = parseInt(rmChargeRow.getAttribute("data-charge-remove"), 10);
       if (t && t.porCobrar[idx]) {
         t.porCobrar.splice(idx, 1);
@@ -5650,7 +5651,7 @@
     if (shareConfirmBtn) {
       const txId = shareConfirmBtn.getAttribute("data-share-confirm");
       const d = state.shareDraft;
-      const t = getTx(txId);
+      const t = currentEditableTx();
       if (d && t && d.txId === txId && d.pagadoPorId && d.participantesIncluidos.length > 0) {
         const reparto = computeShareAmounts(t.monto, d);
         const suma = shareAmountsSum(reparto, d.participantesIncluidos);
@@ -6160,9 +6161,9 @@
     }
     const cobroAmt = e.target.closest("[data-charge-amount]");
     if (cobroAmt) {
-      const t = getTx(state.openTxId);
+      const t = currentEditableTx();
       const idx = parseInt(cobroAmt.getAttribute("data-charge-amount"), 10);
-      if (t) {
+      if (t && t.porCobrar[idx]) {
         const unit = state.splitCollectUnit[t.id] || "$";
         const v = safeEvalExpr(cobroAmt.value);
         if (v !== null) {
@@ -6183,7 +6184,7 @@
       const id = shareValueInput.getAttribute("data-share-value");
       const d = state.shareDraft;
       d.customValues[id] = shareValueInput.value;
-      const t = getTx(d.txId);
+      const t = currentEditableTx();
       if (t) {
         const reparto = computeShareAmounts(t.monto, d);
         const suma = shareAmountsSum(reparto, d.participantesIncluidos);
@@ -6215,9 +6216,9 @@
     }
     const cobroName = e.target.closest("[data-charge-name]");
     if (cobroName) {
-      const t = getTx(state.openTxId);
+      const t = currentEditableTx();
       const idx = parseInt(cobroName.getAttribute("data-charge-name"), 10);
-      if (t) {
+      if (t && t.porCobrar[idx]) {
         t.porCobrar[idx].persona = cobroName.value;
       }
       return;
@@ -6499,9 +6500,9 @@
     }
     const cobroAmt = e.target.closest("[data-charge-amount]");
     if (cobroAmt) {
-      const t = getTx(state.openTxId);
+      const t = currentEditableTx();
       const idx = parseInt(cobroAmt.getAttribute("data-charge-amount"), 10);
-      if (t && t.porCobrar[idx].monto != null) {
+      if (t && t.porCobrar[idx] && t.porCobrar[idx].monto != null) {
         const unit = state.splitCollectUnit[t.id] || "$";
         const shown = unit === "%" ? t.porCobrar[idx].monto / t.monto * 100 : t.porCobrar[idx].monto;
         cobroAmt.value = formatEditableNumber(shown);
@@ -7288,6 +7289,11 @@
     return TRANSACTIONS.find((t) => t.id === id);
   }
   __name(getTx, "getTx");
+  var DRAFT_TX_ID = "__draft__";
+  function currentEditableTx() {
+    return state.creatingNew ? state.draftTx : state.openTxId ? getTx(state.openTxId) : null;
+  }
+  __name(currentEditableTx, "currentEditableTx");
   function segmentedHtml(name, options, value, disabled) {
     return '<div class="segmented" data-seg="' + name + '">' + options.map(
       (o) => '<button data-seg-val="' + o.id + '" class="' + (value === o.id ? "active" : "") + '" ' + (disabled ? "disabled" : "") + ">" + o.label + "</button>"
@@ -7322,6 +7328,7 @@
   }
   __name(renderCategoryRows, "renderCategoryRows");
   function renderPersonaSettlementRows(t) {
+    const isDraft = t.id === DRAFT_TX_ID;
     const personaEntries = t.porCobrar.map((p, idx) => ({ p, idx })).filter((x) => x.p.tipo === "persona");
     if (personaEntries.length === 0) {
       return '<button class="split-add" data-charge-split-open="' + t.id + '">' + ICONS.users + " Dividir este gasto con alguien</button>";
@@ -7331,8 +7338,8 @@
       const etiqueta = isDebo ? "Le debes a " + (p.persona || "esta persona") : (p.persona || "Sin nombre") + " te debe";
       const nameField = '<span style="flex:1;min-width:0;"><span class="persona-label" style="font-size:13px;font-weight:600;">' + etiqueta + "</span></span>";
       const amtField = '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">' + moneyPlainMasked(pendingEffectiveAmount(p)) + "</span>";
-      const linkBtn = !p.pagado && !isDebo ? '<button class="link-btn" data-link-pending="' + idx + '" aria-label="Vincular a un dep\xF3sito">' + ICONS.inbox + "</button>" : "";
-      const writeOffLink = !p.pagado && !isDebo ? '<button class="split-toggle-link" data-write-off="' + idx + '" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida \u2014 pasarla a gasto de este mes</button>' : "";
+      const linkBtn = !p.pagado && !isDebo && !isDraft ? '<button class="link-btn" data-link-pending="' + idx + '" aria-label="Vincular a un dep\xF3sito">' + ICONS.inbox + "</button>" : "";
+      const writeOffLink = !p.pagado && !isDebo && !isDraft ? '<button class="split-toggle-link" data-write-off="' + idx + '" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida \u2014 pasarla a gasto de este mes</button>' : "";
       return '<div><div class="split-row' + (p.pagado ? " paid" : "") + '" data-charge-row="' + idx + '"><button class="chk-pagado' + (p.pagado ? " checked" : "") + '" data-toggle-paid="' + idx + '" aria-label="Marcar como ' + (isDebo ? "pagado" : "cobrado") + '" aria-pressed="' + (p.pagado ? "true" : "false") + '">' + ICONS.check + "</button>" + nameField + amtField + linkBtn + '<button class="rm-btn" data-charge-remove="' + idx + '">' + ICONS.trash + "</button></div>" + writeOffLink + "</div>";
     }).join("");
     return rows + '<button class="split-toggle-link" data-charge-split-open="' + t.id + '" style="display:block;margin-top:4px;">Editar reparto</button>';
@@ -7343,6 +7350,7 @@
     if (!mode) {
       return "";
     }
+    const isDraft = t.id === DRAFT_TX_ID;
     const hasPersona = hasReceivableType(t, "persona");
     const hasReembolso = hasReceivableType(t, "reembolso");
     const soloPersona = hasPersona && !hasReembolso;
@@ -7356,7 +7364,7 @@
       const shown = !montoConocido ? "" : unit === "%" ? Math.round(p.monto / t.monto * 1e3) / 10 : p.monto;
       const nameField = p.pagado ? '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span class="pend-tipo-tag">Reembolso</span><span class="persona-label" style="font-size:13px;font-weight:600;">' + (p.persona || "Sin nombre") + "</span></span>" : '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;"><span class="pend-tipo-tag">Reembolso</span><input type="text" class="persona-label" style="width:100%;" data-charge-name="' + idx + '" value="' + p.persona + '" placeholder="Isapre, seguro\u2026"></span>';
       const amtField = p.pagado ? '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">' + moneyPlainMasked(pendingEffectiveAmount(p)) + " " + unit + (p.montoRecibido != null && p.monto != null && p.montoRecibido !== p.monto ? '<span class="pend-esperado muted">de ' + moneyPlainMasked(p.monto) + " esperado</span>" : "") + "</span>" : '<span class="num-wrap persona-amt"><input type="text" inputmode="decimal" data-charge-amount="' + idx + '" value="' + shown + '" placeholder="Por confirmar"><span>' + unit + "</span></span>";
-      const linkBtn = p.pagado ? "" : '<button class="link-btn" data-link-pending="' + idx + '" aria-label="Vincular a un dep\xF3sito">' + ICONS.inbox + "</button>";
+      const linkBtn = p.pagado || isDraft ? "" : '<button class="link-btn" data-link-pending="' + idx + '" aria-label="Vincular a un dep\xF3sito">' + ICONS.inbox + "</button>";
       return '<div><div class="split-row' + (p.pagado ? " paid" : "") + '" data-charge-row="' + idx + '"><button class="chk-pagado' + (p.pagado ? " checked" : "") + '" data-toggle-paid="' + idx + '" aria-label="Marcar ' + (p.persona || "este reembolso") + ' como pagado" aria-pressed="' + (p.pagado ? "true" : "false") + '">' + ICONS.check + "</button>" + nameField + amtField + linkBtn + '<button class="rm-btn" data-charge-remove="' + idx + '">' + ICONS.trash + "</button></div></div>";
     }).join("");
     const totalCobro = receivableTotal(t);
@@ -7365,7 +7373,7 @@
     const bad = tuParte < 0;
     const tieneCobroPersonaPendiente = t.porCobrar.some((p) => p.tipo === "persona" && !p.pagado && p.direccion !== "debo");
     const copyBtn = tieneCobroPersonaPendiente ? '<button class="boleta-entry-link" data-copy-charge="' + t.id + '">' + ICONS.copy + " Copiar para WhatsApp</button>" : "";
-    return '<div class="split-block">' + (todosPagados ? '<div class="cobro-banner-done">' + ICONS.checkCircle + "<span>Ya te pagaron/reembolsaron todo lo de esta transacci\xF3n.</span></div>" : "") + (soloReembolso ? "" : '<button class="boleta-entry-link" data-open-receipt="' + t.id + '">' + ICONS.camera + " Subir foto de la boleta y repartir autom\xE1tico</button>") + personaSection + '<div class="split-mode-row" style="margin-top:14px;"><span class="muted" style="font-size:12.5px;">Reembolso pendiente</span><div class="mini-toggle"><button data-chargeunit="$" class="' + (unit === "$" ? "active" : "") + '">$</button><button data-chargeunit="%" class="' + (unit === "%" ? "active" : "") + '">%</button></div></div>' + (reembolsoRows || '<p class="muted" style="font-size:12.5px;padding:6px 0;">Agrega el reembolso que esperas por este gasto (isapre, seguro, etc).</p>') + (soloPersona ? "" : '<button class="split-add" data-add-reimbursement-row="' + t.id + '">' + ICONS.plus + " Agregar reembolso</button>") + '<div class="split-remaining"><span>Tu parte del gasto</span><span class="' + (bad ? "bad" : "ok") + ' tabular">' + money(tuParte) + "</span></div>" + copyBtn + "</div>";
+    return '<div class="split-block">' + (todosPagados ? '<div class="cobro-banner-done">' + ICONS.checkCircle + "<span>Ya te pagaron/reembolsaron todo lo de esta transacci\xF3n.</span></div>" : "") + (soloReembolso || isDraft ? "" : '<button class="boleta-entry-link" data-open-receipt="' + t.id + '">' + ICONS.camera + " Subir foto de la boleta y repartir autom\xE1tico</button>") + personaSection + '<div class="split-mode-row" style="margin-top:14px;"><span class="muted" style="font-size:12.5px;">Reembolso pendiente</span><div class="mini-toggle"><button data-chargeunit="$" class="' + (unit === "$" ? "active" : "") + '">$</button><button data-chargeunit="%" class="' + (unit === "%" ? "active" : "") + '">%</button></div></div>' + (reembolsoRows || '<p class="muted" style="font-size:12.5px;padding:6px 0;">Agrega el reembolso que esperas por este gasto (isapre, seguro, etc).</p>') + (soloPersona ? "" : '<button class="split-add" data-add-reimbursement-row="' + t.id + '">' + ICONS.plus + " Agregar reembolso</button>") + '<div class="split-remaining"><span>Tu parte del gasto</span><span class="' + (bad ? "bad" : "ok") + ' tabular">' + money(tuParte) + "</span></div>" + copyBtn + "</div>";
   }
   __name(renderChargeSplitBlock, "renderChargeSplitBlock");
   function renderDraftCategoryRow(d) {
@@ -7398,6 +7406,10 @@
     return '<div class="card placeholder-card" style="padding:18px 14px;">' + ICONS.inbox + "<h3>No tienes metas creadas</h3><p>Crea tu primera meta de inversi\xF3n para poder clasificar tus aportes.</p>" + (platId ? '<button class="save-tx-btn" style="width:100%;margin-top:10px;" data-goto-create-goal="' + platId + '">+ Crear meta de inversi\xF3n</button>' : "") + "</div>";
   }
   __name(renderInvestGoalEmptyState, "renderInvestGoalEmptyState");
+  function renderQuickActionsBlock(t) {
+    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones r\xE1pidas</div><div class="quick-actions"><button class="action-btn ' + (t.estado === "confirmado" ? "selected" : "") + '" data-action="confirmar" data-tx="' + t.id + '">' + ICONS.checkCircle + ' Confirmar gasto</button><button class="action-btn ' + (hasReceivableType(t, "persona") ? "selected" : "") + '" data-action="porcobrar_persona" data-tx="' + t.id + '">' + ICONS.users + ' Por cobrar a alguien</button><button class="action-btn ' + (hasReceivableType(t, "reembolso") ? "selected" : "") + '" data-action="porcobrar_reembolso" data-tx="' + t.id + '">' + ICONS.inbox + ' Reembolso pendiente</button><button class="action-btn ' + (t.estado === "no_es_gasto" ? "selected" : "") + '" data-action="noesgasto" data-tx="' + t.id + '">' + ICONS.ban + " No es gasto</button></div></div>" + (t.estado === "por_cobrar" ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>' + renderChargeSplitBlock(t) + "</div>" : "");
+  }
+  __name(renderQuickActionsBlock, "renderQuickActionsBlock");
   function renderSheetContent(t) {
     const isIncome = t.tipo === "ingreso";
     const isInvest = t.tipo === "inversion";
@@ -7420,7 +7432,7 @@
       const vinculo = pendingLinkedTo(t.id);
       if (!vinculo && (t.categorias.length > 0 || allPendingReceivables().length === 0)) return "";
       return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos</div>' + (vinculo ? '<div class="cobro-banner-done">' + ICONS.checkCircle + "<span>Vinculado a " + (vinculo.persona || "un pendiente") + " \xB7 " + vinculo.comercio + '</span></div><button class="split-toggle-link" data-unlink-income="' + t.id + '">Quitar v\xEDnculo</button>' : '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Si este dep\xF3sito corresponde a un cobro o reembolso pendiente, vinc\xFAlalo para tacharlo de la lista.</p><button class="action-btn" data-open-link-income="' + t.id + '">' + ICONS.inbox + " Vincular a un pendiente</button>") + "</div>";
-    })() : '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones r\xE1pidas</div><div class="quick-actions"><button class="action-btn ' + (t.estado === "confirmado" ? "selected" : "") + '" data-action="confirmar" data-tx="' + t.id + '">' + ICONS.checkCircle + ' Confirmar gasto</button><button class="action-btn ' + (hasReceivableType(t, "persona") ? "selected" : "") + '" data-action="porcobrar_persona" data-tx="' + t.id + '">' + ICONS.users + ' Por cobrar a alguien</button><button class="action-btn ' + (hasReceivableType(t, "reembolso") ? "selected" : "") + '" data-action="porcobrar_reembolso" data-tx="' + t.id + '">' + ICONS.inbox + ' Reembolso pendiente</button><button class="action-btn ' + (t.estado === "no_es_gasto" ? "selected" : "") + '" data-action="noesgasto" data-tx="' + t.id + '">' + ICONS.ban + " No es gasto</button></div></div>" + (t.estado === "por_cobrar" ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>' + renderChargeSplitBlock(t) + "</div>" : "")) + renderShareGroupSection(t) + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nota</div><input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="' + t.id + '" value="' + (t.nota || "").replace(/"/g, "&quot;") + '" placeholder="Agregar notas personales"></div>' + importedBlock + (state.confirmDeleteTxId === t.id ? '<div class="sheet-delete-confirm"><p class="muted" style="font-size:12.5px;margin:0 0 10px;">\xBFSeguro que quieres eliminar esta transacci\xF3n? No se puede deshacer.</p><div style="display:flex;gap:8px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="' + t.id + '">Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="' + t.id + '">S\xED, eliminar</button></div></div>' : '<div class="sheet-bottom-actions"><button class="sheet-delete-btn" data-ask-delete-tx="' + t.id + '" aria-label="Eliminar transacci\xF3n">' + ICONS.trash + '</button><button class="sheet-done-btn" data-close-sheet-done>' + ICONS.check + " Listo</button></div>");
+    })() : renderQuickActionsBlock(t)) + renderShareGroupSection(t) + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nota</div><input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="' + t.id + '" value="' + (t.nota || "").replace(/"/g, "&quot;") + '" placeholder="Agregar notas personales"></div>' + importedBlock + (state.confirmDeleteTxId === t.id ? '<div class="sheet-delete-confirm"><p class="muted" style="font-size:12.5px;margin:0 0 10px;">\xBFSeguro que quieres eliminar esta transacci\xF3n? No se puede deshacer.</p><div style="display:flex;gap:8px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="' + t.id + '">Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="' + t.id + '">S\xED, eliminar</button></div></div>' : '<div class="sheet-bottom-actions"><button class="sheet-delete-btn" data-ask-delete-tx="' + t.id + '" aria-label="Eliminar transacci\xF3n">' + ICONS.trash + '</button><button class="sheet-done-btn" data-close-sheet-done>' + ICONS.check + " Listo</button></div>");
   }
   __name(renderSheetContent, "renderSheetContent");
   function openSheet(txId) {
@@ -7451,6 +7463,13 @@
       // marked option), but internally the draft kept pointing at 'visa_bch' — if you didn't
       // touch the selector, it would save like that, broken. Now it starts with the first real payment
       // method you already have, so what shows as selected and what gets saved always match.
+      // A fixed sentinel id (see DRAFT_TX_ID) instead of no id at all -- it lets Acciones rápidas/
+      // Cobros y reembolsos pendientes (state.splitCollectMode/splitCollectUnit, state.shareDraft.txId,
+      // the data-tx/data-action/data-charge-* attributes rendered by renderQuickActionsBlock/
+      // renderChargeSplitBlock) treat this draft exactly like "a transaction with that id" without
+      // any extra branching in those render functions -- see currentEditableTx() above for the
+      // other half of this (resolving it back from events.ts).
+      id: DRAFT_TX_ID,
       comercio: "",
       monto: 0,
       fecha: todayISO(),
@@ -7459,10 +7478,17 @@
       tipo: tipoInicial || "gasto",
       recurrencia: "variable",
       categorias: [],
-      porCobrar: []
+      porCobrar: [],
+      // Undefined (not yet set) rather than a real estado -- Acciones rápidas has something to
+      // toggle from a clean slate; saveDraftTx() below only falls back to the old
+      // categorías-based default when this is still undefined (the user never touched the block).
+      estado: void 0
     };
     state.addingPaymentMethod = false;
     state.newPaymentMethodDraft = { nombre: "", ultimos4: "" };
+    delete state.splitCollectMode[DRAFT_TX_ID];
+    delete state.splitCollectUnit[DRAFT_TX_ID];
+    if (state.shareDraft && state.shareDraft.txId === DRAFT_TX_ID) state.shareDraft = null;
     document.getElementById("sheet-overlay").classList.add("open");
     renderSheet();
     document.getElementById("sheet-content").scrollTop = 0;
@@ -7709,7 +7735,12 @@
     const nm = state.newPaymentMethodDraft;
     const isInvestDraft = d.tipo === "inversion";
     const newPaymentMethodForm = state.addingPaymentMethod ? '<div class="new-medio-form"><label class="draft-label">Nombre de la tarjeta o medio</label><input type="text" class="draft-input" data-new-payment-method-field="nombre" value="' + nm.nombre.replace(/"/g, "&quot;") + '" placeholder="Ej: Visa Falabella, Mach\u2026"><label class="draft-label" style="margin-top:12px;">\xDAltimos 4 d\xEDgitos (opcional)</label><input type="text" inputmode="numeric" maxlength="4" class="draft-input" data-new-payment-method-field="ultimos4" value="' + nm.ultimos4.replace(/"/g, "&quot;") + '" placeholder="Ej: 1234"><div style="display:flex;gap:10px;margin-top:12px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-new-payment-method>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-new-payment-method ' + (nm.nombre.trim() ? "" : "disabled") + ">Agregar</button></div></div>" : "";
-    return '<div class="sheet-top" style="padding-top:4px;"><div class="meta" style="font-size:13px;font-weight:700;color:var(--text);">Nueva transacci\xF3n</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Comercio y monto</div><div class="draft-field"><label class="draft-label">Comercio</label><input type="text" class="draft-input" data-draft-field="comercio" value="' + d.comercio.replace(/"/g, "&quot;") + '" placeholder="Ej: Jumbo, Uber, Sueldo\u2026"></div><div class="draft-field" style="margin-top:14px;"><label class="draft-label">Monto</label><input type="text" inputmode="decimal" class="draft-input amount tabular" data-draft-field="monto" value="' + (d.monto || "") + '" placeholder="0"></div><div class="draft-field" style="margin-top:14px;"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-draft-field="fecha" value="' + d.fecha + '"></div></div><div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + segmentedHtml("draft-tipo", tipoOpts, d.tipo) + (isInvestDraft ? "" : '<div class="draft-label" style="margin:16px 0 7px;">Recurrencia</div>' + segmentedHtml("draft-recurrencia", [{ id: "variable", label: "Variable" }, { id: "mensual", label: "Mensual" }, { id: "anual", label: "Anual" }], d.recurrencia)) + '</div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa</div>' + renderDraftCategoryRow(d) + '</div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Medio de pago</div>' + (state.addingPaymentMethod ? "" : '<select class="draft-select" data-draft-field="medio">' + medioOpts + "</select>") + newPaymentMethodForm + '</div><button class="save-tx-btn" data-save-draft="1" ' + (canSave ? "" : "disabled") + ">Guardar transacci\xF3n</button>" + (canSave ? "" : '<div class="field-error">Ponle un nombre de comercio y un monto para poder guardar.</div>');
+    return '<div class="sheet-top" style="padding-top:4px;"><div class="meta" style="font-size:13px;font-weight:700;color:var(--text);">Nueva transacci\xF3n</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Comercio y monto</div><div class="draft-field"><label class="draft-label">Comercio</label><input type="text" class="draft-input" data-draft-field="comercio" value="' + d.comercio.replace(/"/g, "&quot;") + '" placeholder="Ej: Jumbo, Uber, Sueldo\u2026"></div><div class="draft-field" style="margin-top:14px;"><label class="draft-label">Monto</label><input type="text" inputmode="decimal" class="draft-input amount tabular" data-draft-field="monto" value="' + (d.monto || "") + '" placeholder="0"></div><div class="draft-field" style="margin-top:14px;"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-draft-field="fecha" value="' + d.fecha + '"></div></div><div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + segmentedHtml("draft-tipo", tipoOpts, d.tipo) + (isInvestDraft ? "" : '<div class="draft-label" style="margin:16px 0 7px;">Recurrencia</div>' + segmentedHtml("draft-recurrencia", [{ id: "variable", label: "Variable" }, { id: "mensual", label: "Mensual" }, { id: "anual", label: "Anual" }], d.recurrencia)) + '</div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa</div>' + renderDraftCategoryRow(d) + "</div>" + // Acciones rápidas (marcar por cobrar a alguien/reembolso pendiente/no es gasto) BEFORE the
+    // transaction is even saved -- the whole point of this fix, mirroring exactly what a gasto's
+    // detail already offers after saving (same block, same events.ts handlers, resolved via
+    // currentEditableTx() instead of getTx() while state.creatingNew is true). Only for gasto,
+    // same gating as the saved-tx detail (there isIncome/isInvest both skip it).
+    (d.tipo === "gasto" ? renderQuickActionsBlock(d) : "") + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Medio de pago</div>' + (state.addingPaymentMethod ? "" : '<select class="draft-select" data-draft-field="medio">' + medioOpts + "</select>") + newPaymentMethodForm + '</div><button class="save-tx-btn" data-save-draft="1" ' + (canSave ? "" : "disabled") + ">Guardar transacci\xF3n</button>" + (canSave ? "" : '<div class="field-error">Ponle un nombre de comercio y un monto para poder guardar.</div>');
   }
   __name(renderNewTxSheetContent, "renderNewTxSheetContent");
   function saveDraftTx() {
@@ -7726,14 +7757,25 @@
       medio: d.medio,
       tipo: d.tipo,
       recurrencia: d.recurrencia,
-      estado: d.categorias.length > 0 ? "confirmado" : "pendiente",
+      // d.estado is only ever set once Acciones rápidas has been touched on the draft (see
+      // renderQuickActionsBlock/the data-action dispatcher in events.ts, both now operating on
+      // state.draftTx via currentEditableTx() the same way they operate on a saved Transaction) --
+      // the old categorías-based default is still the fallback for the plain "just save it" path,
+      // exactly as it always was.
+      estado: d.estado || (d.categorias.length > 0 ? "confirmado" : "pendiente"),
       categorias: d.categorias.length > 0 ? [{ cat: d.categorias[0].cat, monto: Math.round(d.monto) }] : [],
-      porCobrar: [],
+      // Same reasoning: whatever porCobrar rows (persona and/or reembolso) got built pre-save
+      // carry straight over -- this is a data-continuity fix, not a new accounting rule, so a
+      // gasto created with "Por cobrar a alguien" already filled in ends up identical to one
+      // saved bare and then edited the old two-step way.
+      porCobrar: d.porCobrar && d.porCobrar.length > 0 ? d.porCobrar : [],
       reglaAuto: false,
       nota: "",
       origen: "manual"
       // typed by hand right here -- the reconciliation engine (reconcile.ts) can never touch this
     };
+    if (d.pagador) tx.pagador = d.pagador;
+    if (d.divisionTipo) tx.divisionTipo = d.divisionTipo;
     TRANSACTIONS.push(tx);
     ensureMonthExists(tx.fecha.slice(0, 7));
     if (state.createExpenseFromGroupId) {

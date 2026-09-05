@@ -11,6 +11,26 @@ import { advFilterCount } from './views/transacciones';
 /* ===================== DETAIL SHEET ===================== */
 export function getTx(id){ return TRANSACTIONS.find(t=>t.id===id); }
 
+// Sentinel id given to state.draftTx (see openNewTxSheet) so every t.id-keyed thing this
+// feature already relied on for a SAVED transaction (state.splitCollectMode/splitCollectUnit,
+// state.shareDraft.txId, the data-tx/data-share-confirm/data-charge-split-open attributes
+// rendered into the sheet's HTML) keeps working unchanged for the in-progress draft too, with
+// zero special-casing per call site -- the draft just behaves like "a transaction whose id is
+// '__draft__'" for all of these, even though it never goes into TRANSACTIONS.
+export const DRAFT_TX_ID = '__draft__';
+
+// The single "transaction being edited right now" that Acciones rápidas/Cobros y reembolsos
+// pendientes (and the "Dividir este gasto" split-draft they can open, for the no-group case)
+// operate on -- a real, already-saved Transaction most of the time, or state.draftTx while
+// state.creatingNew is true (the NEW-transaction sheet, before "Guardar transacción" is ever
+// pressed). Every handler in events.ts for this family of interactions resolves its target
+// through this helper instead of getTx(id) directly, so the exact same code serves both cases:
+// there's only ever one sheet open at a time, so unlike saved transactions (which need a real id
+// to disambiguate one row from another in a list), nothing here needs to know an id at all.
+export function currentEditableTx(){
+  return state.creatingNew ? state.draftTx : (state.openTxId ? getTx(state.openTxId) : null);
+}
+
 export function segmentedHtml(name, options, value, disabled?){
   return '<div class="segmented" data-seg="'+name+'">'+options.map(o=>
     '<button data-seg-val="'+o.id+'" class="'+(value===o.id?'active':'')+'" '+(disabled?'disabled':'')+'>'+o.label+'</button>'
@@ -72,6 +92,13 @@ export function renderCategoryRows(t, allowSplit){
 // renaming or re-amounting now happens by reopening the draft ("Editar reparto") rather than
 // inline — that's what makes the "sum must match the total, always" rule actually enforceable.
 function renderPersonaSettlementRows(t){
+  // "Link to an incoming deposit" and "write off" both assume this transaction already has a
+  // life of its own to relate to another one (a real deposit that already exists, or turning
+  // an unpaid share into a NEW expense transaction) -- neither makes sense before this
+  // transaction itself has even been saved once, so both are deferred until after saving
+  // instead of offered on the draft (see the DOCUMENTACION.md-style note on renderChargeSplitBlock
+  // for the parallel decision on "subir foto de la boleta").
+  const isDraft = t.id===DRAFT_TX_ID;
   const personaEntries = t.porCobrar.map((p,idx)=>({p,idx})).filter(x=>x.p.tipo==='persona');
   if(personaEntries.length===0){
     return '<button class="split-add" data-charge-split-open="'+t.id+'">'+ICONS.users+' Dividir este gasto con alguien</button>';
@@ -85,11 +112,12 @@ function renderPersonaSettlementRows(t){
     const amtField = '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">'+moneyPlainMasked(pendingEffectiveAmount(p))+'</span>';
     // Linking to an incoming deposit only makes sense when money comes TO you ('me_deben') — a
     // 'debo' row settles when YOU pay someone else, there's no deposit to link, just a manual
-    // "mark as paid" (the chk-pagado button, offered either way).
-    const linkBtn = (!p.pagado && !isDebo) ? '<button class="link-btn" data-link-pending="'+idx+'" aria-label="Vincular a un depósito">'+ICONS.inbox+'</button>' : '';
+    // "mark as paid" (the chk-pagado button, offered either way). Also never on the draft (isDraft).
+    const linkBtn = (!p.pagado && !isDebo && !isDraft) ? '<button class="link-btn" data-link-pending="'+idx+'" aria-label="Vincular a un depósito">'+ICONS.inbox+'</button>' : '';
     // Same reasoning for "dar por perdida": that only ever applies to money owed TO you that
-    // never arrives — you can't "write off" a debt you owe.
-    const writeOffLink = (!p.pagado && !isDebo)
+    // never arrives — you can't "write off" a debt you owe (and, same as linking, not before
+    // this transaction is even saved).
+    const writeOffLink = (!p.pagado && !isDebo && !isDraft)
       ? '<button class="split-toggle-link" data-write-off="'+idx+'" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida — pasarla a gasto de este mes</button>'
       : '';
     return '<div>'+
@@ -109,6 +137,12 @@ export function renderChargeSplitBlock(t){
   if(!mode){
     return '';
   }
+  // Same "doesn't make sense before this transaction exists yet" reasoning as the persona
+  // rows' link/write-off buttons above -- a reimbursement's own link button gets the same
+  // treatment further below, and "subir foto de la boleta" is deferred entirely (it both reads
+  // an existing transaction via getTx and, on save, replaces its committed porCobrar) rather
+  // than trying to make receipt-scanning itself draft-aware for what's a rarely-used shortcut.
+  const isDraft = t.id===DRAFT_TX_ID;
   // "Charge someone" and "Pending reimbursement" are separate actions — if this transaction
   // only has committed rows of one type, the reimbursement side of this block specializes: it
   // doesn't offer to add a reimbursement once it's already a pure persona split (soloPersona).
@@ -143,7 +177,7 @@ export function renderChargeSplitBlock(t){
           (p.montoRecibido!=null && p.monto!=null && p.montoRecibido!==p.monto ? '<span class="pend-esperado muted">de '+moneyPlainMasked(p.monto)+' esperado</span>' : '')+
         '</span>'
       : '<span class="num-wrap persona-amt"><input type="text" inputmode="decimal" data-charge-amount="'+idx+'" value="'+shown+'" placeholder="Por confirmar"><span>'+unit+'</span></span>';
-    const linkBtn = p.pagado ? '' : '<button class="link-btn" data-link-pending="'+idx+'" aria-label="Vincular a un depósito">'+ICONS.inbox+'</button>';
+    const linkBtn = (p.pagado || isDraft) ? '' : '<button class="link-btn" data-link-pending="'+idx+'" aria-label="Vincular a un depósito">'+ICONS.inbox+'</button>';
     return '<div>'+
       '<div class="split-row'+(p.pagado?' paid':'')+'" data-charge-row="'+idx+'">'+
         '<button class="chk-pagado'+(p.pagado?' checked':'')+'" data-toggle-paid="'+idx+'" aria-label="Marcar '+(p.persona||'este reembolso')+' como pagado" aria-pressed="'+(p.pagado?'true':'false')+'">'+ICONS.check+'</button>'+
@@ -168,7 +202,7 @@ export function renderChargeSplitBlock(t){
     : '';
   return '<div class="split-block">'+
     (todosPagados ? '<div class="cobro-banner-done">'+ICONS.checkCircle+'<span>Ya te pagaron/reembolsaron todo lo de esta transacción.</span></div>' : '')+
-    (soloReembolso ? '' : '<button class="boleta-entry-link" data-open-receipt="'+t.id+'">'+ICONS.camera+' Subir foto de la boleta y repartir automático</button>')+
+    (soloReembolso || isDraft ? '' : '<button class="boleta-entry-link" data-open-receipt="'+t.id+'">'+ICONS.camera+' Subir foto de la boleta y repartir automático</button>')+
     personaSection+
     '<div class="split-mode-row" style="margin-top:14px;"><span class="muted" style="font-size:12.5px;">Reembolso pendiente</span>'+
       '<div class="mini-toggle"><button data-chargeunit="$" class="'+(unit==='$'?'active':'')+'">$</button><button data-chargeunit="%" class="'+(unit==='%'?'active':'')+'">%</button></div>'+
@@ -231,6 +265,24 @@ export function renderInvestGoalEmptyState(contextPlatformId?){
     '<p>Crea tu primera meta de inversión para poder clasificar tus aportes.</p>'+
     (platId ? '<button class="save-tx-btn" style="width:100%;margin-top:10px;" data-goto-create-goal="'+platId+'">+ Crear meta de inversión</button>' : '')+
   '</div>';
+}
+
+// "Acciones rápidas" (confirmar / por cobrar a alguien / reembolso pendiente / no es gasto),
+// shared by an already-saved gasto's detail (renderSheetContent) and, since this fix, the
+// NEW-transaction draft screen (renderNewTxSheetContent) so a fresh gasto can be marked as
+// por-cobrar/reembolso/no-es-gasto BEFORE ever tapping "Guardar transacción" instead of only
+// after -- both call sites pass either a real Transaction or state.draftTx, and everything this
+// block reads (t.estado, hasReceivableType, renderChargeSplitBlock) only looks at t.porCobrar/
+// t.estado, so the same markup and event handling (routed through currentEditableTx() in
+// events.ts, not this function's own t) works unchanged for both.
+function renderQuickActionsBlock(t){
+  return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones rápidas</div><div class="quick-actions">'+
+      '<button class="action-btn '+(t.estado==='confirmado'?'selected':'')+'" data-action="confirmar" data-tx="'+t.id+'">'+ICONS.checkCircle+' Confirmar gasto</button>'+
+      '<button class="action-btn '+(hasReceivableType(t,'persona')?'selected':'')+'" data-action="porcobrar_persona" data-tx="'+t.id+'">'+ICONS.users+' Por cobrar a alguien</button>'+
+      '<button class="action-btn '+(hasReceivableType(t,'reembolso')?'selected':'')+'" data-action="porcobrar_reembolso" data-tx="'+t.id+'">'+ICONS.inbox+' Reembolso pendiente</button>'+
+      '<button class="action-btn '+(t.estado==='no_es_gasto'?'selected':'')+'" data-action="noesgasto" data-tx="'+t.id+'">'+ICONS.ban+' No es gasto</button>'+
+    '</div></div>'+
+    (t.estado==='por_cobrar' ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>'+renderChargeSplitBlock(t)+'</div>' : '');
 }
 
 export function renderSheetContent(t){
@@ -365,13 +417,7 @@ export function renderSheetContent(t){
                 '<button class="action-btn" data-open-link-income="'+t.id+'">'+ICONS.inbox+' Vincular a un pendiente</button>')+
           '</div>';
         })()
-      : '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones rápidas</div><div class="quick-actions">'+
-          '<button class="action-btn '+(t.estado==='confirmado'?'selected':'')+'" data-action="confirmar" data-tx="'+t.id+'">'+ICONS.checkCircle+' Confirmar gasto</button>'+
-          '<button class="action-btn '+(hasReceivableType(t,'persona')?'selected':'')+'" data-action="porcobrar_persona" data-tx="'+t.id+'">'+ICONS.users+' Por cobrar a alguien</button>'+
-          '<button class="action-btn '+(hasReceivableType(t,'reembolso')?'selected':'')+'" data-action="porcobrar_reembolso" data-tx="'+t.id+'">'+ICONS.inbox+' Reembolso pendiente</button>'+
-          '<button class="action-btn '+(t.estado==='no_es_gasto'?'selected':'')+'" data-action="noesgasto" data-tx="'+t.id+'">'+ICONS.ban+' No es gasto</button>'+
-        '</div></div>'+
-        (t.estado==='por_cobrar' ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>'+renderChargeSplitBlock(t)+'</div>' : '')
+      : renderQuickActionsBlock(t)
     )
 
     + renderShareGroupSection(t)
@@ -418,11 +464,28 @@ export function openNewTxSheet(tipoInicial?){
     // marked option), but internally the draft kept pointing at 'visa_bch' — if you didn't
     // touch the selector, it would save like that, broken. Now it starts with the first real payment
     // method you already have, so what shows as selected and what gets saved always match.
+    // A fixed sentinel id (see DRAFT_TX_ID) instead of no id at all -- it lets Acciones rápidas/
+    // Cobros y reembolsos pendientes (state.splitCollectMode/splitCollectUnit, state.shareDraft.txId,
+    // the data-tx/data-action/data-charge-* attributes rendered by renderQuickActionsBlock/
+    // renderChargeSplitBlock) treat this draft exactly like "a transaction with that id" without
+    // any extra branching in those render functions -- see currentEditableTx() above for the
+    // other half of this (resolving it back from events.ts).
+    id: DRAFT_TX_ID,
     comercio:'', monto:0, fecha: todayISO(), hora:'12:00', medio: Object.keys(PAYMENT_METHODS)[0] || 'efectivo',
-    tipo: tipoInicial || 'gasto', recurrencia:'variable', categorias:[], porCobrar:[]
+    tipo: tipoInicial || 'gasto', recurrencia:'variable', categorias:[], porCobrar:[],
+    // Undefined (not yet set) rather than a real estado -- Acciones rápidas has something to
+    // toggle from a clean slate; saveDraftTx() below only falls back to the old
+    // categorías-based default when this is still undefined (the user never touched the block).
+    estado: undefined
   };
   state.addingPaymentMethod = false;
   state.newPaymentMethodDraft = {nombre:'', ultimos4:''};
+  // A previous draft's "por cobrar a alguien" state (or the $/％ unit toggle for its
+  // reembolsos) must not leak into this fresh one -- the draft itself is a brand new object
+  // above, but these three live in maps/state keyed by the SAME sentinel id across drafts.
+  delete state.splitCollectMode[DRAFT_TX_ID];
+  delete state.splitCollectUnit[DRAFT_TX_ID];
+  if(state.shareDraft && state.shareDraft.txId===DRAFT_TX_ID) state.shareDraft = null;
   document.getElementById('sheet-overlay').classList.add('open');
   renderSheet();
   document.getElementById('sheet-content').scrollTop = 0;
@@ -783,6 +846,13 @@ export function renderNewTxSheetContent(d){
 
     '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categoría</div>'+renderDraftCategoryRow(d)+'</div>'+
 
+    // Acciones rápidas (marcar por cobrar a alguien/reembolso pendiente/no es gasto) BEFORE the
+    // transaction is even saved -- the whole point of this fix, mirroring exactly what a gasto's
+    // detail already offers after saving (same block, same events.ts handlers, resolved via
+    // currentEditableTx() instead of getTx() while state.creatingNew is true). Only for gasto,
+    // same gating as the saved-tx detail (there isIncome/isInvest both skip it).
+    (d.tipo==='gasto' ? renderQuickActionsBlock(d) : '')+
+
     '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Medio de pago</div>'+
       (state.addingPaymentMethod ? '' : '<select class="draft-select" data-draft-field="medio">'+medioOpts+'</select>')+
       newPaymentMethodForm+
@@ -799,11 +869,26 @@ export function saveDraftTx(){
   const tx: Transaction = {
     id, fecha:d.fecha, hora:d.hora, comercio:d.comercio.trim(), monto:Math.round(d.monto),
     medio:d.medio, tipo:d.tipo, recurrencia:d.recurrencia,
-    estado: d.categorias.length>0 ? 'confirmado' : 'pendiente',
+    // d.estado is only ever set once Acciones rápidas has been touched on the draft (see
+    // renderQuickActionsBlock/the data-action dispatcher in events.ts, both now operating on
+    // state.draftTx via currentEditableTx() the same way they operate on a saved Transaction) --
+    // the old categorías-based default is still the fallback for the plain "just save it" path,
+    // exactly as it always was.
+    estado: d.estado || (d.categorias.length>0 ? 'confirmado' : 'pendiente'),
     categorias: d.categorias.length>0 ? [{cat:d.categorias[0].cat, monto:Math.round(d.monto)}] : [],
-    porCobrar:[], reglaAuto:false, nota:'',
+    // Same reasoning: whatever porCobrar rows (persona and/or reembolso) got built pre-save
+    // carry straight over -- this is a data-continuity fix, not a new accounting rule, so a
+    // gasto created with "Por cobrar a alguien" already filled in ends up identical to one
+    // saved bare and then edited the old two-step way.
+    porCobrar: d.porCobrar && d.porCobrar.length>0 ? d.porCobrar : [],
+    reglaAuto:false, nota:'',
     origen:'manual' // typed by hand right here -- the reconciliation engine (reconcile.ts) can never touch this
   };
+  // pagador/divisionTipo only mean anything once there's a persona split (see commitPersonaSplit
+  // in shared-expenses.ts, which is exactly what "Por cobrar a alguien" runs pre-save too) --
+  // undefined on a plain draft, same as an untouched field on any other new Transaction literal.
+  if(d.pagador) tx.pagador = d.pagador;
+  if(d.divisionTipo) tx.divisionTipo = d.divisionTipo;
   TRANSACTIONS.push(tx);
   ensureMonthExists(tx.fecha.slice(0,7));
   if(state.createExpenseFromGroupId){
