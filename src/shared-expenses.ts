@@ -16,6 +16,17 @@ export function expensesOfGroup(groupId: string): SharedExpense[] {
 export function splitsOfExpense(g: SharedExpense): ExpenseSplit[] {
   return g.reparto || [];
 }
+// The participant (with an account) that corresponds to this user_id within this group, or
+// null if that user isn't a member (shouldn't happen if the tables are consistent, but an
+// expense from a group I'm no longer a member of shouldn't break the app). Lives here (not in
+// menu.ts, where it used to be defined) because it's pure data lookup over GROUP_PARTICIPANTS,
+// same spirit as participantsOfGroup above — both views/menu.ts (learned category mapping) and
+// views/grupos.ts (group detail tabs) need it, and this module is the shared home for pure
+// group-data helpers so neither view has to import from the other.
+export function participantIdForUser(groupId: string, userId: string | null): string | null {
+  const p = GROUP_PARTICIPANTS.find(x=>x.grupo_id===groupId && x.user_id===userId);
+  return p ? p.id : null;
+}
 
 // paid = everything this participant paid (was pagado_por) on group expenses.
 // owed = their share of the split of ALL group expenses (whether they paid or not).

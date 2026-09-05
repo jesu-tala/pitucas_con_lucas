@@ -334,15 +334,42 @@ Gastos compartidos estilo Tricount. Sin ningún grupo creado: pantalla vacía co
 un grupo" / "Unirme con un código". Con grupos: lista de tarjetas (una por grupo) con un
 resumen del saldo propio.
 
-Detalle de un grupo (`renderGroupDetail`):
-- **Tarjeta de balance propio** (coloreada según el signo: te deben / debes).
-- **Desglose por persona**: avatar + nombre + saldo de cada participante, con un botón "Saldar"
-  cuando corresponde — llama `registerPaidBalance`, que **solo** escribe un registro contable
-  (`saldos_pagados`) y nunca crea ninguna transacción (ver sección 3, es una decisión explícita
-  y no negociable).
-- **Feed de gastos del grupo**, reutilizando la estética de fila de Transacciones (`.tx-item`).
-- **Agregar un gasto** (dentro del grupo) y **agregar un participante sin cuenta propia** (solo
-  nombre + color, para alguien que no usa la app).
+Detalle de un grupo (`renderGroupDetail`): 3 sub-tabs estilo Tricount (Gastos/Balances/
+Transferencias), mismo patrón visual y estructural que los sub-tabs de "Resumen" (`.subtabs`/
+`.subtab`, `data-group-tab`, respaldado por `state.groupDetailTab`) salvo que acá no hay
+drag-to-reorder (son 3 pestañas fijas). **El motor de saldos no cambió para esta vista** —
+`groupBalances()`/`suggestedTransfers()` (sección 3) son exactamente las mismas funciones puras
+de siempre; las 3 pestañas solo renderizan lo que ya calculaban, hasta ahora `suggestedTransfers`
+ni se mostraba en pantalla. El botón "Eliminar grupo" (y su confirmación) se sigue mostrando
+igual en las 3 pestañas, no es específico de ninguna.
+
+- **Gastos** (pestaña por defecto): total gastado por el grupo (suma de `expensesOfGroup`) +
+  feed de TODOS los gastos del grupo (de cualquier participante, no solo los míos —
+  `expensesOfGroup` ya traía esto), más reciente primero. Cada fila muestra un ícono de
+  categoría (mismo círculo `.tx-avatar` que usa Transacciones), quién pagó, entre quiénes se
+  dividió (resuelto desde `reparto`) y la fecha. El ícono de categoría es *best-effort*
+  (`categoryForSharedExpense`, `views/grupos.ts`): `categoria_origen` es solo un **nombre** en la
+  taxonomía de quien registró el gasto (nunca un id), así que solo se resuelve si (a) el gasto lo
+  registré yo mismo (nombre igual a una de mis propias categorías) o (b) ya existe un mapeo
+  aprendido (`CATEGORY_MAPPINGS`, el mismo que usa `syncSharedExpenses`) — si ninguna aplica,
+  cae al ícono genérico de siempre. Tocar una fila expande su detalle (reparto completo,
+  participante por participante) en una tarjeta `.sheet-block.card` inline, sin abrir un sheet
+  aparte.
+- **Balances**: (1) saldo neto de cada participante (avatar + nombre + saldo — verde si le
+  deben, durazno si debe; por construcción siempre suman $0). (2) **Reembolsos sugeridos**
+  (`suggestedTransfers`, el mismo algoritmo greedy de siempre): la lista mínima de
+  transferencias que deja a todo el grupo en $0, **de TODO el grupo** (incluye lo que se deben
+  otras personas entre sí, no solo lo mío) en formato "X → Y: $monto", destacando visualmente las
+  que me involucran. Cada una tiene un botón "Marcar como pagado" que llama `registerPaidBalance`
+  con esos dos participantes exactos. "Agregar persona" (sin cuenta propia) vive en esta pestaña,
+  junto al desglose por persona.
+- **Transferencias**: historial de `PAID_BALANCES` de este grupo (quién, cuánto, cuándo — más
+  reciente primero) + un formulario para registrar una transferencia manual (alguien pagó por
+  fuera de la app, entre cualquier par de participantes). El botón "Marcar como pagado" de
+  Balances y este formulario manual llaman **exactamente la misma** `registerPaidBalance` — un
+  solo camino para registrar un saldo pagado, sea sugerido o manual — que **solo** escribe un
+  registro contable (`saldos_pagados`) y nunca crea ninguna transacción (ver sección 3, es una
+  decisión explícita y no negociable).
 - Invitar a alguien más al grupo comparte el `invite_code` (uuid); unirse pide ese código + el
   nombre con el que se quiere aparecer (`joinGroup`, RPC `unirse_a_grupo` en Supabase).
 
@@ -551,7 +578,11 @@ es un script Node independiente.
   `window.__debug` (`GROUPS`/`GROUP_PARTICIPANTS`/`SHARED_EXPENSES`/`PAID_BALANCES`), y
   compara a mano `groupBalances`/`suggestedTransfers`/`syncSharedExpenses` contra
   lo esperado, incluyendo que el mapeo aprendido "pegue" solo en un resync y que no haya doble
-  conteo en `monthTotals`.
+  conteo en `monthTotals`. También trae una segunda fixture de 4 participantes que fija, de forma
+  explícita, los 3 invariantes que la pestaña "Balances" (ver sección 4) da por sentados: los
+  saldos netos SIEMPRE suman $0, aplicar TODAS las transferencias sugeridas deja a todo el mundo
+  en exactamente $0 (no solo los totales cuadrando por casualidad), y una transferencia manual
+  (no sugerida) ajusta únicamente los dos saldos involucrados, en la dirección correcta.
 - **`shot_compartir_grupo.js`** / **`shot_clasificar_ajeno.js`**: la parte de UI de gastos
   compartidos (abrir/cerrar el form de "Compartir con un grupo", recalculo en vivo del reparto,
   clasificar la entrada derivada de un gasto ajeno y ver que el mapeo aprendido se aplique solo
@@ -567,6 +598,16 @@ es un script Node independiente.
   la regresión de una fila `porCobrar` legado (sin `pagador`/`divisionTipo`/`direccion`) y el
   enmascarado en modo demo. Misma limitación que `shot_compartir_grupo.js` con la escritura real
   a Supabase del caso con grupo.
+- **`shot_grupo_detalle_tabs.js`**: UI de las 3 pestañas del detalle de un grupo (Gastos/
+  Balances/Transferencias) — cambiar de pestaña, que cada una muestre lo que le corresponde
+  (ícono de categoría/quién pagó/entre quiénes/fecha en Gastos; ambas secciones y el destacado de
+  "me involucra" en Balances; historial + form manual en Transferencias), que "Marcar como
+  pagado" y el formulario manual pasen por el mismo `registerPaidBalance`, y que el modo demo
+  enmascare los montos nuevos. Mismo criterio que `shot_grupo_eliminar.js`: como `registerPaidBalance`
+  tampoco puede escribir de verdad en este sandbox, esas dos acciones se verifican por su
+  contrato de fallo explícito (toast, nunca silencio) — que el saldo resultante de una
+  transferencia exitosa se refleje bien en `groupBalances`/en la pestaña Transferencias se prueba
+  inyectando directo el `PAID_BALANCES` que una escritura real habría dejado.
 - Convención: **todo bug fix o cambio de comportamiento agrega/actualiza un test** que bloquee
   que vuelva a pasar — nunca se corrige "a mano" sin dejar cobertura.
 - Un test que NO necesita abrir el navegador (por ejemplo, comparar `manifest.json` contra

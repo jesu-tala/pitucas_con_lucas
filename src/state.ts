@@ -452,6 +452,11 @@ export const state: AppState = {
   // "Share with a group" inside a expense transaction's detail/creation:
   shareDraft:null,              // null, or {groupId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
   confirmDeleteGroupId:null,
+  // ---- Group detail: 3 Tricount-style sub-tabs (see views/grupos.ts renderGroupDetail) ----
+  groupDetailTab:'gastos',      // 'gastos' | 'balances' | 'transferencias' -- which sub-tab is open
+  openGroupExpenseId:null,      // id of the SharedExpense whose inline detail card is expanded in "Gastos", or null
+  showManualTransferForm:false, // true while "Registrar una transferencia" (manual, Tab "Transferencias") is open
+  manualTransferDraft:null,     // null, or {deId, aId, monto, fecha}
   // groupId of origin when "new transaction" was opened from a group's "Add an expense"
   // button (instead of Transactions' +) -- saveDraftTx() uses it to, on save, leave the
   // transaction open in its detail with "Share with a group" already pre-filled with this

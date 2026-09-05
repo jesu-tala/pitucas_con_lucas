@@ -1,12 +1,12 @@
 import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
-import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, splitEqually, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, groupBalances, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit } from './shared-expenses';
+import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, splitEqually, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup } from './shared-expenses';
 import { RECEIPT_EXAMPLES, receiptItemIdCounter, receiptTotal, closeSheet, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
 import { CATEGORIES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
-import { defaultShareDraft, myParticipantInGroup, renderGroupsView } from './views/grupos';
+import { defaultShareDraft, renderGroupsView } from './views/grupos';
 import { activePlatformIds, generalCatIdFor, platformCurrentValue, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
 import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
 import { renderBudgetView } from './views/presupuesto';
@@ -1193,20 +1193,64 @@ phone.addEventListener('click', function(e: any){
     }
     return;
   }
-  const groupSettleBtn = e.target.closest('[data-group-settle]');
-  if(groupSettleBtn){
-    const [gid, otroId] = groupSettleBtn.getAttribute('data-group-settle').split('|');
-    const mi = myParticipantInGroup(gid);
-    if(mi){
-      const saldos = groupBalances(gid);
-      const miSaldo = (saldos.find(s=>s.participantId===mi.id)||{balance:0}).balance;
-      const suSaldo = (saldos.find(s=>s.participantId===otroId)||{balance:0}).balance;
-      const monto = Math.min(Math.abs(miSaldo), Math.abs(suSaldo));
-      if(monto>0){
-        const promesa = (miSaldo<0 && suSaldo>0) ? registerPaidBalance(gid, mi.id, otroId, monto)
-          : (miSaldo>0 && suSaldo<0) ? registerPaidBalance(gid, otroId, mi.id, monto) : Promise.resolve(false);
-        promesa.then(function(ok){ toast(ok?'Cuenta saldada':'No se pudo registrar el saldo'); renderGroupsView(); });
-      }
+  // Sub-tabs of a group's detail (Gastos/Balances/Transferencias) -- same simple pattern as
+  // data-summary-sub (no drag here, only 3 fixed tabs).
+  const groupTabBtn = e.target.closest('[data-group-tab]');
+  if(groupTabBtn){
+    state.groupDetailTab = groupTabBtn.getAttribute('data-group-tab');
+    state.openGroupExpenseId = null; // switching tabs closes any expanded expense detail
+    renderGroupsView();
+    return;
+  }
+  // Tab "Gastos": tapping a row expands its inline detail card (.sheet-block.card) right below
+  // the feed -- tapping the same row again (or the card's own "Cerrar") collapses it.
+  const groupExpenseOpenBtn = e.target.closest('[data-group-expense-open]');
+  if(groupExpenseOpenBtn){
+    const id = groupExpenseOpenBtn.getAttribute('data-group-expense-open');
+    state.openGroupExpenseId = state.openGroupExpenseId===id ? null : id;
+    renderGroupsView();
+    return;
+  }
+  const groupExpenseCloseBtn = e.target.closest('[data-group-expense-close]');
+  if(groupExpenseCloseBtn){ state.openGroupExpenseId = null; renderGroupsView(); return; }
+  // Tab "Balances" -> "Marcar como pagado" on a suggested transfer: registers exactly that
+  // transfer (any two participants, not just "me") through the same registerPaidBalance() used
+  // by the manual-transfer form below -- one single call path for both.
+  const markTransferBtn = e.target.closest('[data-mark-transfer-paid]');
+  if(markTransferBtn){
+    const [gid, fromId, toId, montoStr] = markTransferBtn.getAttribute('data-mark-transfer-paid').split('|');
+    registerPaidBalance(gid, fromId, toId, parseInt(montoStr,10)).then(function(ok){
+      toast(ok ? 'Transferencia registrada' : 'No se pudo registrar la transferencia — revisa tu conexión');
+      renderGroupsView();
+    });
+    return;
+  }
+  // Tab "Transferencias": manual entry (someone paid outside the app) -- same registerPaidBalance().
+  const manualTransferOpenBtn = e.target.closest('[data-manual-transfer-open]');
+  if(manualTransferOpenBtn){
+    const gid = manualTransferOpenBtn.getAttribute('data-manual-transfer-open');
+    const participantes = participantsOfGroup(gid);
+    state.showManualTransferForm = true;
+    state.manualTransferDraft = {
+      deId: participantes[0] ? participantes[0].id : null,
+      aId: participantes[1] ? participantes[1].id : (participantes[0] ? participantes[0].id : null),
+      monto: 0, fecha: todayISO()
+    };
+    renderGroupsView();
+    return;
+  }
+  const manualTransferCancelBtn = e.target.closest('[data-manual-transfer-cancel]');
+  if(manualTransferCancelBtn){ state.showManualTransferForm = false; renderGroupsView(); return; }
+  const manualTransferConfirmBtn = e.target.closest('[data-manual-transfer-confirm]');
+  if(manualTransferConfirmBtn){
+    const gid = manualTransferConfirmBtn.getAttribute('data-manual-transfer-confirm');
+    const d = state.manualTransferDraft;
+    if(d && d.deId && d.aId && d.deId!==d.aId && d.monto>0){
+      registerPaidBalance(gid, d.deId, d.aId, d.monto).then(function(ok){
+        state.showManualTransferForm = false;
+        toast(ok ? 'Transferencia registrada' : 'No se pudo registrar la transferencia — revisa tu conexión');
+        renderGroupsView();
+      });
     }
     return;
   }
@@ -1612,6 +1656,20 @@ phone.addEventListener('change', function(e: any){
     }
     return;
   }
+  // Manual transfer form (group detail, tab "Transferencias") -- "de"/"a" selects and the date
+  // input change live; the amount field (text, Tricount-style expressions) is handled in the
+  // 'input' listener below, same split as the rest of the app's money fields.
+  const manualTransferSelect = e.target.closest('[data-manual-transfer-field="deId"], [data-manual-transfer-field="aId"]');
+  if(manualTransferSelect && state.manualTransferDraft){
+    state.manualTransferDraft[manualTransferSelect.getAttribute('data-manual-transfer-field')] = manualTransferSelect.value;
+    renderGroupsView();
+    return;
+  }
+  const manualTransferDate = e.target.closest('[data-manual-transfer-field="fecha"]');
+  if(manualTransferDate && state.manualTransferDraft){
+    state.manualTransferDraft.fecha = manualTransferDate.value;
+    return;
+  }
 
   // Per-item confirmation for "Posibles a eliminar" in the automatic reconciliation diff
   // (see reconcile.ts) -- checking a box only stages it; nothing is deleted until "Eliminar
@@ -1954,6 +2012,18 @@ phone.addEventListener('input', function(e: any){
   const participantDraftField = e.target.closest('[data-participant-draft-field]');
   if(participantDraftField){
     state.participantDraft[participantDraftField.getAttribute('data-participant-draft-field')] = participantDraftField.value;
+    return;
+  }
+  const manualTransferMonto = e.target.closest('[data-manual-transfer-field="monto"]');
+  if(manualTransferMonto && state.manualTransferDraft){
+    const v = safeEvalMoneyExpr(manualTransferMonto.value);
+    if(v!==null) state.manualTransferDraft.monto = v;
+    liveFormatThousands(manualTransferMonto);
+    const confirmBtn = document.querySelector<HTMLButtonElement>('[data-manual-transfer-confirm]');
+    if(confirmBtn){
+      const d = state.manualTransferDraft;
+      confirmBtn.disabled = !(d.deId && d.aId && d.deId!==d.aId && d.monto>0);
+    }
     return;
   }
 

@@ -155,5 +155,107 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('el mes no dobla-cuenta ni cuenta de más lo sin clasificar: total de gasto = solo lo ya categorizado',
     resultado.mesTotales.gastos === gastoEsperado, { esperado: gastoEsperado, real: resultado.mesTotales.gastos });
 
+  // ================== Grupos: 3 tabs (Gastos/Balances/Transferencias) -- balance engine invariants ==================
+  // The tabs themselves (views/grupos.ts) are pure UI over groupBalances()/suggestedTransfers() --
+  // neither function's math changed for this feature. What's new here is pinning down, explicitly,
+  // the two invariants the "Balances" tab depends on: (1) net balances always sum to $0 (already
+  // true by construction — paid totals == owed totals across a group's expenses, and every
+  // transfer counts once for the sender and once for the receiver — but never asserted on its own
+  // before), and (2) applying EVERY suggested transfer leaves EVERYONE at exactly $0, not just the
+  // two totals matching by coincidence. A 4-participant group is used on purpose (the earlier
+  // fixture above only ever has a single creditor, "Yo" — this one has two, so suggestedTransfers'
+  // greedy pairing has to switch creditors mid-way, and one of the 3 resulting transfers doesn't
+  // involve "Yo" at all, exactly the "todos los reembolsos del grupo, no solo los míos" case the
+  // new "Balances" tab has to render).
+  const resultado2 = await page.evaluate(() => {
+    const D = window.__debug;
+    D.currentUser = { id: 'user-ana' };
+    D.GROUPS = [{ id: 'g2', nombre: 'Viaje', icono: '✈️', creado_por: 'user-ana', invite_code: 'y', created_at: '' }];
+    D.GROUP_PARTICIPANTS = [
+      { id: 'q1', grupo_id: 'g2', user_id: 'user-ana', nombre: 'Ana', color: 'lavender' },
+      { id: 'q2', grupo_id: 'g2', user_id: 'user-beto', nombre: 'Beto', color: 'mint' },
+      { id: 'q3', grupo_id: 'g2', user_id: 'user-caro', nombre: 'Caro', color: 'peach' },
+      { id: 'q4', grupo_id: 'g2', user_id: 'user-dana', nombre: 'Dana', color: 'sky' }
+    ];
+    // paid: q1=90000, q2=0, q3=60000, q4=30000 (total 180000)
+    // owed: q1=30000, q2=50000, q3=55000, q4=45000 (total 180000)
+    // balance: q1=+60000, q2=-50000, q3=+5000, q4=-15000 (sum 0)
+    D.SHARED_EXPENSES = [
+      { id: 'f1', grupo_id: 'g2', descripcion: 'Cabaña', categoria_origen: null, monto: 90000,
+        fecha: '2026-09-01', pagado_por: 'q1', registrado_por: 'user-ana', division_tipo: 'montos',
+        tx_origen_id: 'tx-f1', reparto: [{ id:'rf1', gasto_compartido_id:'f1', participante_id:'q1', monto:10000 },
+          { id:'rf2', gasto_compartido_id:'f1', participante_id:'q2', monto:30000 },
+          { id:'rf3', gasto_compartido_id:'f1', participante_id:'q3', monto:30000 },
+          { id:'rf4', gasto_compartido_id:'f1', participante_id:'q4', monto:20000 }] },
+      { id: 'f2', grupo_id: 'g2', descripcion: 'Supermercado viaje', categoria_origen: null, monto: 60000,
+        fecha: '2026-09-02', pagado_por: 'q3', registrado_por: 'user-caro', division_tipo: 'iguales',
+        tx_origen_id: 'tx-f2', reparto: [{ id:'rf5', gasto_compartido_id:'f2', participante_id:'q1', monto:15000 },
+          { id:'rf6', gasto_compartido_id:'f2', participante_id:'q2', monto:15000 },
+          { id:'rf7', gasto_compartido_id:'f2', participante_id:'q3', monto:15000 },
+          { id:'rf8', gasto_compartido_id:'f2', participante_id:'q4', monto:15000 }] },
+      { id: 'f3', grupo_id: 'g2', descripcion: 'Bencina viaje', categoria_origen: null, monto: 30000,
+        fecha: '2026-09-03', pagado_por: 'q4', registrado_por: 'user-dana', division_tipo: 'montos',
+        tx_origen_id: 'tx-f3', reparto: [{ id:'rf9', gasto_compartido_id:'f3', participante_id:'q1', monto:5000 },
+          { id:'rf10', gasto_compartido_id:'f3', participante_id:'q2', monto:5000 },
+          { id:'rf11', gasto_compartido_id:'f3', participante_id:'q3', monto:10000 },
+          { id:'rf12', gasto_compartido_id:'f3', participante_id:'q4', monto:10000 }] }
+    ];
+    D.PAID_BALANCES = [];
+
+    const balancesAntes = D.groupBalances('g2');
+    const sumaAntes = balancesAntes.reduce((s, x) => s + x.balance, 0);
+    const transfers = D.suggestedTransfers('g2');
+
+    // Apply a single MANUAL transfer (a real debtor paying a real creditor, but for an amount
+    // that ISN'T one of the suggested ones -- Beto pays Ana $2,000 "out of band", same as the
+    // "Transferencias" tab's manual-entry form) and check it shifts ONLY those two balances, by
+    // exactly that amount, in the right direction.
+    D.PAID_BALANCES.push({ id: 'manual1', grupo_id: 'g2', de_participante: 'q2', a_participante: 'q1', monto: 2000, fecha: '2026-09-04' });
+    const balancesTrasManual = D.groupBalances('g2');
+    D.PAID_BALANCES = []; // undo -- the next step needs the ORIGINAL balances, not on top of this
+
+    // Now apply EVERY suggested transfer (as registerPaidBalance would, once its Supabase write
+    // succeeds) and recompute: this is the "Balances" tab's contract -- tapping "marcar como
+    // pagado" on every suggested row must leave the whole group at exactly $0, no leftovers.
+    transfers.forEach(t => D.PAID_BALANCES.push({
+      id: 'auto-' + t.from + '-' + t.to, grupo_id: 'g2', de_participante: t.from, a_participante: t.to, monto: t.monto, fecha: '2026-09-05'
+    }));
+    const balancesTrasTodos = D.groupBalances('g2');
+
+    return { balancesAntes, sumaAntes, transfers, balancesTrasManual, balancesTrasTodos };
+  });
+
+  console.log('=== GRUPOS: TABS (BALANCES/TRANSFERENCIAS) — RESULTADO ===');
+  console.log(JSON.stringify(resultado2, null, 1));
+
+  const b2 = id => resultado2.balancesAntes.find(s => s.participantId === id);
+  check('(4 participantes) saldo antes: Ana +60.000, Beto -50.000, Caro +5.000, Dana -15.000',
+    b2('q1').balance === 60000 && b2('q2').balance === -50000 && b2('q3').balance === 5000 && b2('q4').balance === -15000,
+    resultado2.balancesAntes);
+  check('los saldos netos del grupo SIEMPRE suman $0 (invariante de la pestaña "Balances")',
+    resultado2.sumaAntes === 0, resultado2.sumaAntes);
+
+  check('las transferencias sugeridas son el mínimo posible (3, no 4): Beto y Dana le pagan a Ana, y Dana también le paga a Caro',
+    resultado2.transfers.length === 3 &&
+    resultado2.transfers.some(t => t.from === 'q2' && t.to === 'q1' && t.monto === 50000) &&
+    resultado2.transfers.some(t => t.from === 'q4' && t.to === 'q1' && t.monto === 10000) &&
+    resultado2.transfers.some(t => t.from === 'q4' && t.to === 'q3' && t.monto === 5000),
+    resultado2.transfers);
+  check('  Ana SÍ participa en 2 de esas 3 transferencias (las que le pagan a ella)',
+    resultado2.transfers.filter(t => t.from === 'q1' || t.to === 'q1').length === 2, resultado2.transfers);
+  check('  pero la transferencia Dana → Caro NO involucra a Ana -- "todos los reembolsos del grupo", no solo los propios',
+    resultado2.transfers.some(t => t.from !== 'q1' && t.to !== 'q1'), resultado2.transfers);
+
+  const bManual = id => resultado2.balancesTrasManual.find(s => s.participantId === id);
+  check('una transferencia MANUAL (Beto → Ana, $2.000) ajusta exactamente esos dos saldos y nada más',
+    bManual('q2').balance === -50000 + 2000 && bManual('q1').balance === 60000 - 2000 &&
+    bManual('q3').balance === 5000 && bManual('q4').balance === -15000,
+    resultado2.balancesTrasManual);
+  check('  y el grupo sigue sumando $0 después de esa transferencia manual',
+    resultado2.balancesTrasManual.reduce((s, x) => s + x.balance, 0) === 0);
+
+  check('aplicar TODAS las transferencias sugeridas deja a los 4 participantes exactamente en $0',
+    resultado2.balancesTrasTodos.every(s => s.balance === 0), resultado2.balancesTrasTodos);
+
   await finish({ context, browser, errors });
 })();
