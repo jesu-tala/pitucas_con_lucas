@@ -1,8 +1,9 @@
-import { dayLabel } from '../helpers';
-import { ICONS } from '../icons';
-import { expensesOfGroup, participantsOfGroup, computeShareAmounts, shareAmountsSum, groupBalances, suggestedTransfers } from '../shared-expenses';
+import { catInfo, dayLabel } from '../helpers';
+import { ICONS, catIconMarkup } from '../icons';
+import { expensesOfGroup, participantsOfGroup, participantIdForUser, computeShareAmounts, shareAmountsSum, groupBalances, suggestedTransfers } from '../shared-expenses';
 import { segmentedHtml } from '../sheet';
-import { CONTACTS, GROUPS, GROUP_PARTICIPANTS, money, state } from '../state';
+import { CATEGORIES, CATEGORY_MAPPINGS, CONTACTS, GROUPS, GROUP_PARTICIPANTS, PAID_BALANCES, money, state } from '../state';
+import { SharedExpense } from '../types';
 import { currentUser } from '../supabase';
 /* ===================== GROUPS (shared expenses) ===================== */
 // Round avatar with the participant's initial + color -- same category-color reuse approach
@@ -219,72 +220,219 @@ export function renderJoinGroupForm(){
     '</div>';
 }
 
-export function renderGroupDetail(groupId){
-  const g = GROUPS.find(x=>x.id===groupId);
-  const cont = document.getElementById('view-root');
-  if(!g){ state.openGroupId = null; renderGroupsList(); return; }
+/* ===================== Group detail: 3 Tricount-style sub-tabs =====================
+   Same visual/structural pattern as "Resumen" (.subtabs/.subtab, see inversiones.ts
+   renderSummarySubtabsInner) -- just without drag-to-reorder (only 3 fixed tabs, nothing to
+   rearrange). The balance engine itself (groupBalances/suggestedTransfers, shared-expenses.ts)
+   is untouched: these tabs only render what it already computes. */
+export const GROUP_TABS_META = {
+  gastos: {label:'Gastos'},
+  balances: {label:'Balances'},
+  transferencias: {label:'Transferencias'}
+};
+export function renderGroupSubtabsInner(){
+  return Object.keys(GROUP_TABS_META).map(id=>
+    '<button class="subtab '+(state.groupDetailTab===id?'active':'')+'" data-group-tab="'+id+'">'+GROUP_TABS_META[id].label+'</button>'
+  ).join('');
+}
+
+// Best-effort category icon for a shared expense's feed row. categoria_origen is only ever a
+// NAME in whoever registered it own taxonomy (never an id -- see the note on SHARED_EXPENSES in
+// types.ts), so this can only succeed two ways: (a) I registered it myself, so the name is one
+// of MY OWN categories -- direct match by nombre; or (b) reusing the exact same learned mapping
+// (CATEGORY_MAPPINGS) that syncSharedExpenses() already builds for "my share" of someone else's
+// expense (menu.ts) -- same lookup, just read-only here. No new classification logic invented:
+// if neither resolves (nobody's mapped that origin category yet), the row falls back to the
+// same generic icon used everywhere else in the app for "no category".
+export function categoryForSharedExpense(g: SharedExpense, groupId: string){
+  if(!g.categoria_origen || !currentUser) return null;
+  if(g.registrado_por===currentUser.id){
+    const id = Object.keys(CATEGORIES).find(k=>CATEGORIES[k].nombre===g.categoria_origen);
+    return id ? catInfo(id) : null;
+  }
+  const registradorParticipanteId = participantIdForUser(groupId, g.registrado_por);
+  const mapeo = registradorParticipanteId ? CATEGORY_MAPPINGS.find(m=>
+    m.user_id===currentUser.id && m.de_participante===registradorParticipanteId && m.categoria_ajena===g.categoria_origen
+  ) : null;
+  return mapeo ? catInfo(mapeo.categoria_propia) : null;
+}
+// Same circular icon class Transactions uses for its category icon (.tx-avatar,
+// --fill/--ink from the category color) -- not the nested-only .cat-row-icon (that one only
+// gets its background/size from CSS scoped under `.cat-rows .split-row`, the editable category
+// rows inside a transaction's detail, so it would render as an unstyled bare icon anywhere else).
+function catAvatarHtml(ci){
+  return '<span class="tx-avatar" style="--fill:'+(ci?'var(--cat-'+ci.color+'-fill)':'var(--surface-sunken)')+';--ink:'+(ci?'var(--cat-'+ci.color+'-ink)':'var(--text-tertiary)')+'">'+(ci?catIconMarkup(ci.icon):ICONS.more)+'</span>';
+}
+
+// ---------- Tab 1: Gastos -- feed of EVERY expense in the group (all members, not just mine) ----------
+export function renderGroupExpenseDetailCard(gasto: SharedExpense, groupId: string){
   const participantes = participantsOfGroup(groupId);
+  const pagador = participantes.find(p=>p.id===gasto.pagado_por);
+  const ci = categoryForSharedExpense(gasto, groupId);
+  return '<div class="sheet-block card" style="padding:16px;margin-top:10px;">'+
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">'+
+      catAvatarHtml(ci)+
+      '<span style="flex:1;">'+
+        '<span class="sheet-block-title" style="margin:0;display:block;">'+gasto.descripcion+'</span>'+
+        '<span class="muted" style="font-size:12px;">'+dayLabel(gasto.fecha)+'</span>'+
+      '</span>'+
+      '<span class="tabular" style="font-weight:700;">'+money(gasto.monto)+'</span>'+
+    '</div>'+
+    '<div class="muted" style="font-size:12.5px;margin-bottom:8px;">Pagó '+(pagador?pagador.nombre:'?')+'</div>'+
+    (gasto.reparto||[]).map(r=>{
+      const p = participantes.find(pp=>pp.id===r.participante_id);
+      return '<div class="split-row" style="align-items:center;">'+avatarHtml(p?p.nombre:'?', p?p.color:'neutral', 24)+
+        '<span style="flex:1;margin-left:8px;">'+(p?p.nombre:'?')+'</span>'+
+        '<span class="tabular muted">'+money(r.monto)+'</span></div>';
+    }).join('')+
+    '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);width:100%;margin-top:12px;" data-group-expense-close>Cerrar</button>'+
+  '</div>';
+}
+export function renderGroupGastosTab(groupId){
+  const participantes = participantsOfGroup(groupId);
+  const gastos = expensesOfGroup(groupId).slice().sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  const total = gastos.reduce((s,g)=>s+g.monto,0);
+  const abierto = state.openGroupExpenseId ? gastos.find(g=>g.id===state.openGroupExpenseId) : null;
+
+  return '<div class="card stat-tile" style="padding:16px;text-align:center;margin-bottom:14px;">'+
+      '<div class="stat-label">Total gastado por el grupo</div>'+
+      '<div class="stat-value tabular" style="font-size:24px;">'+money(total)+'</div>'+
+    '</div>'+
+    '<div class="sheet-block card" style="padding:16px;">'+
+    (gastos.length ? '<div class="tx-list" style="box-shadow:none;border:none;">'+gastos.map(gc=>{
+      const pagador = participantes.find(p=>p.id===gc.pagado_por);
+      const ci = categoryForSharedExpense(gc, groupId);
+      const entre = (gc.reparto||[]).map(r=>{
+        const p = participantes.find(pp=>pp.id===r.participante_id);
+        return p ? p.nombre : '?';
+      }).join(', ');
+      return '<div class="tx-item" data-group-expense-open="'+gc.id+'">'+
+        catAvatarHtml(ci)+
+        '<span class="tx-info">'+
+          '<span class="tx-name">'+gc.descripcion+'</span>'+
+          '<span class="tx-sub">'+dayLabel(gc.fecha)+' · pagó '+(pagador?pagador.nombre:'?')+' · entre '+entre+'</span>'+
+        '</span>'+
+        '<span class="tx-right"><span class="tx-amount tabular">'+money(gc.monto)+'</span></span>'+
+      '</div>';
+    }).join('')+'</div>' : '<p class="muted" style="padding:8px 0;">Todavía no hay gastos en este grupo.</p>')+
+    '<button class="split-add" data-group-create-expense-open="'+groupId+'">'+ICONS.plus+' Agregar un gasto</button>'+
+  '</div>'+
+  (abierto ? renderGroupExpenseDetailCard(abierto, groupId) : '');
+}
+
+// ---------- Tab 2: Balances -- net balance per person + minimal suggested transfers ----------
+export function renderGroupBalancesTab(groupId){
   const balances = groupBalances(groupId);
   const transfers = suggestedTransfers(groupId);
-  const gastos = expensesOfGroup(groupId);
   const mi = myParticipantInGroup(groupId);
-  const myBalance = mi ? (balances.find(s=>s.participantId===mi.id)||{balance:0}).balance : 0;
 
-  const balanceCard =
-    '<div class="card stat-tile" style="padding:20px;text-align:center;margin-bottom:14px;'+
-      'background:'+(myBalance>0?'var(--income-fill)':myBalance<0?'var(--expense-fill)':'var(--surface)')+';">'+
-      '<div class="stat-label">'+(myBalance===0?'Estás al día':(myBalance>0?'Te deben en total':'Debes en total'))+'</div>'+
-      '<div class="stat-value tabular" style="font-size:26px;color:'+(myBalance>0?'var(--income-ink)':myBalance<0?'var(--expense-ink)':'var(--text)')+';">'+money(Math.abs(myBalance))+'</div>'+
-    '</div>';
-
-  const breakdown = '<div class="sheet-block card" style="padding:16px;margin-bottom:14px;">'+
-    '<div class="sheet-block-title">Por persona</div>'+
+  const personSection = '<div class="sheet-block card" style="padding:16px;margin-bottom:14px;">'+
+    '<div class="sheet-block-title">Saldo por persona</div>'+
     balances.map(s=>{
+      const isMe = !!(mi && s.participantId===mi.id);
       return '<div class="split-row" style="align-items:center;">'+
         avatarHtml(s.nombre, s.color)+
-        '<span style="flex:1;margin-left:10px;">'+s.nombre+'</span>'+
+        '<span style="flex:1;margin-left:10px;">'+s.nombre+(isMe?' (tú)':'')+'</span>'+
         '<span class="tabular" style="color:'+(s.balance>0?'var(--income-ink)':s.balance<0?'var(--expense-ink)':'var(--text-secondary)')+';font-weight:600;">'+
-          (s.balance===0?'Al día':(s.balance>0?'+':'−')+money(Math.abs(s.balance)))+
+          (s.balance===0?'Al día':(s.balance>0?'Le deben ':'Debe ')+money(Math.abs(s.balance)))+
         '</span>'+
-        (s.balance!==0 ? '<button class="chip" style="margin-left:8px;" data-group-settle="'+groupId+'|'+s.participantId+'">Saldar</button>' : '')+
       '</div>';
     }).join('')+
     '<button class="split-add" data-group-add-participant-open="'+groupId+'">'+ICONS.plus+' Agregar persona</button>'+
     (state.addingParticipant ? renderAddParticipantForm(groupId) : '')+
   '</div>';
 
-  const feed = '<div class="sheet-block card" style="padding:16px;">'+
-    '<div class="sheet-block-title">Gastos del grupo</div>'+
-    (gastos.length ? '<div class="tx-list" style="box-shadow:none;border:none;">'+gastos.map(gc=>{
-      const pagador = participantes.find(p=>p.id===gc.pagado_por);
-      return '<div class="tx-item" style="cursor:default;">'+
-        avatarHtml(pagador?pagador.nombre:'?', pagador?pagador.color:'neutral', 40)+
-        '<span class="tx-info">'+
-          '<span class="tx-name">'+gc.descripcion+'</span>'+
-          '<span class="tx-sub">'+dayLabel(gc.fecha)+' · pagó '+(pagador?pagador.nombre:'?')+'</span>'+
-        '</span>'+
-        '<span class="tx-right"><span class="tx-amount tabular">'+money(gc.monto)+'</span></span>'+
+  const transferSection = '<div class="sheet-block card" style="padding:16px;">'+
+    '<div class="sheet-block-title">Reembolsos sugeridos</div>'+
+    (transfers.length ? transfers.map(t=>{
+      const from = balances.find(b=>b.participantId===t.from);
+      const to = balances.find(b=>b.participantId===t.to);
+      const involvesMe = !!(mi && (t.from===mi.id || t.to===mi.id));
+      return '<div class="split-row" style="align-items:center;'+(involvesMe?'background:var(--accent-soft);border-radius:10px;padding:6px 8px;margin:2px -8px;':'')+'">'+
+        avatarHtml(from?from.nombre:'?', from?from.color:'neutral', 26)+
+        '<span style="flex:1;margin-left:8px;">'+(from?from.nombre:'?')+' → '+(to?to.nombre:'?')+'</span>'+
+        '<span class="tabular" style="font-weight:600;margin-right:8px;">'+money(t.monto)+'</span>'+
+        '<button class="chip" data-mark-transfer-paid="'+groupId+'|'+t.from+'|'+t.to+'|'+Math.round(t.monto)+'">Marcar como pagado</button>'+
       '</div>';
-    }).join('')+'</div>' : '<p class="muted" style="padding:8px 0;">Todavía no hay gastos en este grupo.</p>')+
-    '<button class="split-add" data-group-create-expense-open="'+groupId+'">'+ICONS.plus+' Agregar un gasto</button>'+
+    }).join('') : '<p class="muted" style="padding:8px 0;">Ya está todo al día -- no hay transferencias pendientes.</p>')+
   '</div>';
+
+  return personSection+transferSection;
+}
+
+// ---------- Tab 3: Transferencias -- history of settlements already made + manual entry ----------
+export function renderManualTransferForm(groupId){
+  const d = state.manualTransferDraft;
+  const participantes = participantsOfGroup(groupId);
+  const ok = d.deId && d.aId && d.deId!==d.aId && d.monto>0;
+  return '<div class="sheet-block card" style="padding:12px;background:var(--surface-sunken);">'+
+    '<label class="draft-label">De</label>'+
+    '<select data-manual-transfer-field="deId">'+participantes.map(p=>'<option value="'+p.id+'" '+(p.id===d.deId?'selected':'')+'>'+p.nombre+'</option>').join('')+'</select>'+
+    '<label class="draft-label" style="margin-top:10px;">A</label>'+
+    '<select data-manual-transfer-field="aId">'+participantes.map(p=>'<option value="'+p.id+'" '+(p.id===d.aId?'selected':'')+'>'+p.nombre+'</option>').join('')+'</select>'+
+    '<label class="draft-label" style="margin-top:10px;">Monto</label>'+
+    '<input type="text" inputmode="decimal" class="draft-input amount tabular" data-manual-transfer-field="monto" value="'+(d.monto||'')+'" placeholder="0">'+
+    '<label class="draft-label" style="margin-top:10px;">Fecha</label>'+
+    '<input type="date" class="draft-input" data-manual-transfer-field="fecha" value="'+d.fecha+'">'+
+    (d.deId===d.aId ? '<p class="muted" style="font-size:12px;margin:8px 0 0;">Elige dos personas distintas.</p>' : '')+
+    '<div style="display:flex;gap:10px;margin-top:12px;">'+
+      '<button class="save-tx-btn" style="background:var(--surface);color:var(--text);flex:1;" data-manual-transfer-cancel>Cancelar</button>'+
+      '<button class="save-tx-btn" style="flex:1;" data-manual-transfer-confirm="'+groupId+'" '+(ok?'':'disabled')+'>Registrar</button>'+
+    '</div>'+
+  '</div>';
+}
+export function renderGroupTransferenciasTab(groupId){
+  const participantes = participantsOfGroup(groupId);
+  const nombreDe = id => { const p = participantes.find(x=>x.id===id); return p ? p.nombre : '?'; };
+  const colorDe = id => { const p = participantes.find(x=>x.id===id); return p ? p.color : 'neutral'; };
+  const historial = PAID_BALANCES.filter(s=>s.grupo_id===groupId).slice().sort((a,b)=> b.fecha.localeCompare(a.fecha));
+
+  const historyCard = '<div class="sheet-block card" style="padding:16px;margin-bottom:14px;">'+
+    '<div class="sheet-block-title">Historial de transferencias</div>'+
+    (historial.length ? historial.map(s=>{
+      return '<div class="split-row" style="align-items:center;">'+
+        avatarHtml(nombreDe(s.de_participante), colorDe(s.de_participante), 26)+
+        '<span style="flex:1;margin-left:8px;">'+nombreDe(s.de_participante)+' → '+nombreDe(s.a_participante)+'</span>'+
+        '<span class="tabular" style="font-weight:600;margin-right:8px;">'+money(s.monto)+'</span>'+
+        '<span class="muted" style="font-size:11.5px;">'+dayLabel(s.fecha)+'</span>'+
+      '</div>';
+    }).join('') : '<p class="muted" style="padding:8px 0;">Todavía no hay transferencias registradas.</p>')+
+  '</div>';
+
+  const manualCard = state.showManualTransferForm ? renderManualTransferForm(groupId) :
+    '<button class="split-add" data-manual-transfer-open="'+groupId+'">'+ICONS.plus+' Registrar una transferencia</button>';
+
+  return historyCard+manualCard;
+}
+
+export function renderGroupDetail(groupId){
+  const g = GROUPS.find(x=>x.id===groupId);
+  const cont = document.getElementById('view-root');
+  if(!g){ state.openGroupId = null; renderGroupsList(); return; }
+
+  const tab = state.groupDetailTab || 'gastos';
+  const subtabsHtml = '<div class="subtabs">'+renderGroupSubtabsInner()+'</div>';
+  const contentHtml = tab==='balances' ? renderGroupBalancesTab(groupId)
+    : tab==='transferencias' ? renderGroupTransferenciasTab(groupId)
+    : renderGroupGastosTab(groupId);
 
   // Delete group: only whoever created it can do it (same rule as the delete policy in
   // Supabase) -- it deletes the group and, in cascade, all its expenses/balances/participants
-  // for everyone, so it's not offered to just any member by mistake.
+  // for everyone, so it's not offered to just any member by mistake. Rendered on every tab
+  // (not tab-specific), same as before the tabs existed.
   const canDelete = !!(currentUser && g.creado_por===currentUser.id);
   const deleteBlock = !canDelete ? '' :
     (state.confirmDeleteGroupId===groupId
-      ? '<div class="sheet-block card" style="padding:16px;">'+
+      ? '<div class="sheet-block card" style="padding:16px;margin-top:14px;">'+
           '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">¿Seguro que quieres eliminar "'+g.nombre+'"? Se borran todos sus gastos y saldos, para todos los participantes. No se puede deshacer.</p>'+
           '<div style="display:flex;gap:8px;">'+
             '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-group>Cancelar</button>'+
             '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-group="'+groupId+'">Sí, eliminar</button>'+
           '</div>'+
         '</div>'
-      : '<button class="split-add" style="color:var(--expense-ink);" data-ask-delete-group="'+groupId+'">'+ICONS.trash+' Eliminar grupo</button>');
+      : '<button class="split-add" style="color:var(--expense-ink);margin-top:14px;" data-ask-delete-group="'+groupId+'">'+ICONS.trash+' Eliminar grupo</button>');
 
-  cont.innerHTML = groupScreenHead(g.nombre)+balanceCard+breakdown+feed+deleteBlock;
+  cont.innerHTML = groupScreenHead(g.nombre)+subtabsHtml+contentHtml+deleteBlock;
 }
 
 export function renderAddParticipantForm(groupId){

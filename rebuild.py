@@ -112,6 +112,7 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  participantsOfGroup: participantsOfGroup, expensesOfGroup: expensesOfGroup,
 """ + indent + """  syncSharedExpenses: syncSharedExpenses, participantIdForUser: participantIdForUser,
 """ + indent + """  classifySharedExpenseFromOthers: classifySharedExpenseFromOthers, ensureSharedExpensePaymentMethod: ensureSharedExpensePaymentMethod,
+""" + indent + """  registerPaidBalance: registerPaidBalance, categoryForSharedExpense: categoryForSharedExpense,
 """ + indent + """  get currentUser(){ return currentUser; }, set currentUser(v){ currentUser = v; },
 """ + indent + """  buildReconcileDiff: buildReconcileDiff, matchConfidence: matchConfidence, movementLineId: movementLineId,
 """ + indent + """  normalizeComercio: normalizeComercio, isAutomaticOrigin: isAutomaticOrigin, isProtectedOrigin: isProtectedOrigin,

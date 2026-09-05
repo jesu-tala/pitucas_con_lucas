@@ -29,11 +29,14 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('   y efectivamente no quedó ningún grupo creado (consistente con el aviso)', tocreacion.grupos === 0, tocreacion);
 
   // (b) Adding a participant without an account, with no connection: same treatment -- error toast, not silence.
+  // "Agregar persona" now lives on the "Balances" sub-tab of the group detail (see the
+  // Gastos/Balances/Transferencias tabs, views/grupos.ts) -- switch to it before opening the form.
   await page.evaluate(() => {
     const D = window.__debug;
     D.GROUPS = [{ id: 'g1', nombre: 'Casa', icono: '🏠', creado_por: 'user-jesu', invite_code: 'x', created_at: '' }];
     D.GROUP_PARTICIPANTS = [{ id: 'p1', grupo_id: 'g1', user_id: 'user-jesu', nombre: 'Yo', color: 'lavender' }];
     D.state.openGroupId = 'g1';
+    D.state.groupDetailTab = 'balances';
     D.render();
   });
   await page.waitForTimeout(150);

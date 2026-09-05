@@ -2,7 +2,7 @@ import { catInfo, dayLabel, txsOfMonth } from '../helpers';
 import { ICONS, catIconMarkup } from '../icons';
 import { render } from '../render';
 import { buildReconcileDiff, movementLineId } from '../reconcile';
-import { ensureMonthExists } from '../shared-expenses';
+import { ensureMonthExists, participantIdForUser } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
 import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO } from '../state';
 import { PUSH_WORKER_URL, VAPID_PUBLIC_KEY, buildFullStateBlob, currentHouseholdId, currentUser, sb, translateAuthError } from '../supabase';
@@ -1201,14 +1201,6 @@ export function ensureSharedExpensePaymentMethod(){
   if(!PAYMENT_METHODS[id]){ PAYMENT_METHODS[id] = {nombre:'Gasto de grupo', corto:'Grupo', icon:'users'}; }
   return id;
 }
-// The participant (with an account) that corresponds to this user_id within this group, or
-// null if that user isn't a member (shouldn't happen if the tables are consistent, but an
-// expense from a group I'm no longer a member of shouldn't break the app).
-export function participantIdForUser(groupId, userId){
-  const p = GROUP_PARTICIPANTS.find(x=>x.grupo_id===groupId && x.user_id===userId);
-  return p ? p.id : null;
-}
-
 // Recalculates, from SHARED_EXPENSES/GROUP_PARTICIPANTS/CATEGORY_MAPPINGS already loaded
 // in memory, the "my share" (sharedByOthers) entries for expenses that someone else in the
 // group paid and recorded. Pure with respect to the network: it never calls Supabase, it
