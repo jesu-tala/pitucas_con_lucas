@@ -3,7 +3,7 @@ import { ICONS, catIconMarkup } from '../icons';
 import { segmentedHtml } from '../sheet';
 import { CATEGORIES, UPDATE_THRESHOLD_DAYS, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, PLANNER, PLATFORM_DATA, TRANSACTIONS, computeDefaultPlanBase, money, moneyPlain, moneyPlainMasked, moneyShort, monthAbbr, state, todayISO } from '../state';
 import { monthlyInvestmentGoalCLP, investmentGoalPct } from '../ui/donut';
-import { totalGoalProgress, goalsForPlatform, metaAportadoNeto, platformGoalsSummary, projectedContributions, renderEvolutionView, renderGoalEditForm, renderGoalCard, renderTotalChecksGrid } from './evolucion';
+import { annualInvestmentGoalProgress, goalsForPlatform, metaAportadoNeto, metaHistorialAt, platformGoalsSummary, projectedContributions, renderEvolutionView, renderGoalEditForm, renderGoalCard, renderTotalChecksGrid } from './evolucion';
 import { CATEGORY_COLOR_CHOICES, CATEGORY_ICON_CHOICES, isCategoryInUse } from './menu';
 import { renderBalanceView, renderComingSoon, renderBudgetView } from './presupuesto';
 /* ===================== INVESTMENTS (Phase 4) ===================== */
@@ -17,6 +17,12 @@ export function platformIds(){
 export function isPlatformArchived(id){ return !!(PLATFORM_DATA[id] && PLATFORM_DATA[id].archivada); }
 export function activePlatformIds(){ return platformIds().filter(id=>!isPlatformArchived(id)); }
 export function archivedPlatformIds(){ return platformIds().filter(id=>isPlatformArchived(id)); }
+// Active platforms that CAN host a goal -- a sinValuacion platform (e.g. the seeded "Otros"
+// catch-all) never can, by explicit design (it exists only for one-off contributions with no
+// platform/goal of their own). Used anywhere the app needs to pick a sensible default platform
+// for "create a new goal" (the empty state's button, the "no goals yet" fallback) so it never
+// lands the user inside "Otros" trying to do something that screen won't let them finish.
+export function goalCapablePlatformIds(){ return activePlatformIds().filter(id=>!PLATFORM_DATA[id].sinValuacion); }
 // A transaction never categorizes straight to a platform id anymore (see the note on
 // INVESTMENT_GOALS in state.ts) -- it points at one of the platform's Goals, or at this
 // catch-all bucket, for a contribution that isn't for any specific goal. It still counts
@@ -55,7 +61,12 @@ export function investmentCatOptions(selectedId?){
     const belongsHere = selectedId===generalId || goals.some(g=>g.id===selectedId);
     if(isPlatformArchived(platId) && !belongsHere) return;
     goals.forEach(g=> out.push({value:g.id, label:plat.nombre+' · '+g.nombre, plataformaId:platId, icon:plat.icon}));
-    out.push({value:generalId, label:plat.nombre+' · General', plataformaId:platId, icon:plat.icon});
+    // A sinValuacion platform (e.g. "Otros") can never have goals of its own (see
+    // goalCapablePlatformIds below) -- its General bucket is its ONLY option, so the
+    // "· General" suffix would just be noise; every other platform keeps the suffix since it
+    // exists specifically to tell it apart from that platform's own goals.
+    const generalLabel = (goals.length===0 && PLATFORM_DATA[platId].sinValuacion) ? plat.nombre : plat.nombre+' · General';
+    out.push({value:generalId, label:generalLabel, plataformaId:platId, icon:plat.icon});
   });
   return out;
 }
@@ -63,6 +74,12 @@ export function platformValorMonths(id){
   return MONTHS.filter(m=> PLATFORM_DATA[id].valorHistorial[m]!=null);
 }
 export function platformCurrentValue(id){
+  // A sinValuacion platform (e.g. the seeded "Otros" catch-all, see PLATFORM_DATA.otros in
+  // state.ts) has no valuation of its own to track -- its "current value" is defined to be
+  // exactly what's been contributed to it, so gain/loss (value − aportado) comes out to exactly
+  // $0 by construction, everywhere that already computes gain that way (renderPlatformGroup,
+  // metaGananciaEstimada, etc.) without any of them needing to know about sinValuacion at all.
+  if(PLATFORM_DATA[id].sinValuacion) return platformAportadoNeto(id);
   const months = platformValorMonths(id);
   return months.length ? PLATFORM_DATA[id].valorHistorial[months[months.length-1]] : 0;
 }
@@ -82,10 +99,14 @@ export function inversionesMonthsCalendarYear(){
 }
 // true if ALL active platforms already have a stored value for that month -- used to decide
 // whether the month has "real data" or whether the chart should leave a gap there (a future
-// month that hasn't arrived yet, or a month before the platform existed).
+// month that hasn't arrived yet, or a month before the platform existed). A sinValuacion
+// platform (e.g. "Otros") never has a valorHistorial entry at all (there's nothing to type in by
+// hand, see PLATFORM_DATA.otros in state.ts) -- it always counts as "has a value" for every
+// month, since its value is always defined (whatever's been contributed through that month, $0
+// if nothing yet), so its mere existence as an active platform can never gap out the whole chart.
 export function mesTieneValorParaTodas(monthKey){
   const ids = activePlatformIds();
-  return ids.length>0 && ids.every(id=>PLATFORM_DATA[id].valorHistorial[monthKey]!=null);
+  return ids.length>0 && ids.every(id=>PLATFORM_DATA[id].sinValuacion || PLATFORM_DATA[id].valorHistorial[monthKey]!=null);
 }
 // Cumulative contributions up to that month (inclusive), summing ALL of the investment
 // transaction history up to that date (not just a fixed range of months) -- or null if that
@@ -99,9 +120,32 @@ export function aportadoAcumuladoHastaMesONull(monthKey){
   });
   return total;
 }
+// Same idea as platformGeneralAmount (above) but cut off at a given month, so the "value" curve
+// of a sinValuacion platform (see below) can move month by month instead of only knowing its
+// value as of right now.
+export function platformGeneralAmountHastaMes(platformId, monthKey){
+  const generalId = generalCatIdFor(platformId);
+  let total = 0;
+  TRANSACTIONS.forEach(t=>{
+    if(t.tipo!=='inversion') return;
+    if(t.fecha.slice(0,7) > monthKey) return;
+    t.categorias.forEach(c=>{ if(c.cat===generalId) total += c.monto; });
+  });
+  return total;
+}
+// A sinValuacion platform's "value in month M" is defined to be its cumulative aportado THROUGH
+// that month (same idea as platformAportadoNeto, just cut off at a month instead of always as-of-
+// now) -- mirrors metaHistorialAt's pattern at the goal level, one level up at the platform.
+// Only ever needed for a sinValuacion platform (see valorTotalEnMesONull below); harmless to call
+// on any platform id, but a platform with real valuation has no use for it.
+export function platformAportadoNetoHastaMes(id, monthKey){
+  return goalsForPlatform(id).reduce((s,m)=>s+(metaHistorialAt(m, monthKey)||0), 0) + platformGeneralAmountHastaMes(id, monthKey);
+}
 export function valorTotalEnMesONull(monthKey){
   if(!mesTieneValorParaTodas(monthKey)) return null;
-  return activePlatformIds().reduce((s,id)=> s + (PLATFORM_DATA[id].valorHistorial[monthKey]||0), 0);
+  return activePlatformIds().reduce((s,id)=>
+    s + (PLATFORM_DATA[id].sinValuacion ? platformAportadoNetoHastaMes(id, monthKey) : (PLATFORM_DATA[id].valorHistorial[monthKey]||0))
+  , 0);
 }
 
 // "Contributed vs. value" line chart. X axis: 12 fixed positions (January-December), whether
@@ -282,17 +326,24 @@ export function renderPlatformGroup(id){
   if(state.editingPlatformId===id) return '<div class="platform-group">'+renderPlatformEditForm(id)+'</div>';
 
   const cat = catInfo(id);
+  const sinValuacion = !!PLATFORM_DATA[id].sinValuacion;
   const valorActual = platformCurrentValue(id);
   const aportado = platformAportadoNeto(id);
   const diff = valorActual - aportado;
-  const dias = platformDiasDesdeActualizacion(id);
-  const stale = dias > UPDATE_THRESHOLD_DAYS;
+  // A sinValuacion platform (e.g. "Otros") has no valuation to go stale -- there's nothing to
+  // "update", so it never shows the "Actualizado hace N días" tag (platformDiasDesdeActualizacion
+  // would otherwise choke trying to build a Date from a null fechaActualizacion).
+  const dias = sinValuacion ? 0 : platformDiasDesdeActualizacion(id);
+  const stale = !sinValuacion && dias > UPDATE_THRESHOLD_DAYS;
   const tieneMetas = goalsForPlatform(id).length>0;
   const comision = PLATFORM_DATA[id].comision;
   // comision is charged on the gain (total in the platform − net contributed), never on the
-  // account's total — if there's no gain yet, the estimated comision is $0.
+  // account's total — if there's no gain yet, the estimated comision is $0. A sinValuacion
+  // platform's gain is always exactly $0 by construction (platformCurrentValue(id)===aportado),
+  // and it's never given a comision anyway (state.ts seeds it null) -- !sinValuacion here is
+  // just defensive, in case that ever changes.
   const ganancia = Math.max(0, diff);
-  const comisionRow = (comision!=null && !tieneMetas) ? (
+  const comisionRow = (comision!=null && !tieneMetas && !sinValuacion) ? (
     '<div class="platform-comision-row">'+
       '<span>Comisión anual: <b class="tabular">'+comision+'%</b></span>'+
       '<span class="muted tabular">≈ '+money(ganancia*comision/100)+'/año sobre tu ganancia</span>'+
@@ -305,8 +356,12 @@ export function renderPlatformGroup(id){
       '<span class="platform-icon" style="--fill:var(--cat-'+cat.color+'-fill);--ink:var(--cat-'+cat.color+'-ink)">'+catIconMarkup(cat.icon)+'</span>'+
       '<span class="platform-head-body">'+
         '<span class="platform-name">'+cat.nombre+'</span>'+
-        '<span class="platform-update-tag'+(stale?' stale':'')+'">Actualizado hace '+dias+' '+(dias===1?'día':'días')+'</span>'+
+        (sinValuacion ? '' : '<span class="platform-update-tag'+(stale?' stale':'')+'">Actualizado hace '+dias+' '+(dias===1?'día':'días')+'</span>')+
       '</span>'+
+      // For a sinValuacion platform, "valorActual" IS the aportado (see platformCurrentValue) --
+      // same number either way, so no extra branch is needed here, just a label choice further
+      // down in the expanded body (platform-figs) where "Total en esta plataforma" would
+      // otherwise misleadingly imply an independent valuation.
       '<span class="platform-head-value tabular">'+money(valorActual)+'</span>'+
       '<span class="platform-chev'+(open?' open':'')+'">'+ICONS.chevR+'</span>'+
     '</button>';
@@ -316,7 +371,10 @@ export function renderPlatformGroup(id){
   const {metas, totalObjetivo, totalAcumulado, rachaCombinada} = platformGoalsSummary(id);
   const addingHere = state.editingGoalId==='nueva' && state.addGoalPlatformId===id;
   const combinedPct = totalObjetivo>0 ? (totalAcumulado/totalObjetivo)*100 : 0;
-  const combinedSummary = metas.length>0 ? (
+  // The combined stock summary only means something when at least one of this platform's goals
+  // actually has a montoObjetivo -- otherwise it would show a meaningless "$X de $0 · 0%" for a
+  // platform whose goals are all flow-only.
+  const combinedSummary = (metas.length>0 && totalObjetivo>0) ? (
     '<div class="platform-meta-summary">'+
       '<div class="platform-meta-summary-head">'+
         '<span>Tus metas en '+cat.nombre+'</span>'+
@@ -326,24 +384,31 @@ export function renderPlatformGroup(id){
       '<div class="budget-track"><div class="budget-fill" style="width:'+Math.max(0,Math.min(100,combinedPct))+'%;background:var(--accent);"></div></div>'+
     '</div>'
   ) : '';
-  const metasBody = combinedSummary + metas.map(renderGoalCard).join('') +
+  // A sinValuacion platform (e.g. "Otros") can never have goals of its own (see
+  // goalCapablePlatformIds) -- no goals to list, no combined summary, and no "+ Agregar meta"
+  // link (there's nowhere to add one to).
+  const metasBody = sinValuacion ? '' : (
+    combinedSummary + metas.map(renderGoalCard).join('') +
     (addingHere
       ? renderGoalEditForm(null, id)
-      : '<button class="budget-add-link platform-add-meta-link" data-add-goal="'+id+'">+ Agregar meta a '+cat.nombre+'</button>');
+      : '<button class="budget-add-link platform-add-meta-link" data-add-goal="'+id+'">+ Agregar meta a '+cat.nombre+'</button>')
+  );
 
   const body =
     '<div class="platform-body">'+
       '<div class="platform-figs">'+
-        '<div class="platform-fig"><span class="platform-fig-label">Total en esta plataforma</span><span class="platform-fig-value tabular">'+money(valorActual)+'</span></div>'+
+        '<div class="platform-fig"><span class="platform-fig-label">'+(sinValuacion?'Aportado':'Total en esta plataforma')+'</span><span class="platform-fig-value tabular">'+money(valorActual)+'</span></div>'+
         '<div class="platform-fig"><span class="platform-fig-label">Aportado neto</span><span class="platform-fig-value tabular muted">'+money(aportado)+'</span></div>'+
       '</div>'+
       // The plazo chip is only shown if it doesn't have its own goals yet — as soon as
       // you add a goal, its plazo takes over and this one becomes redundant.
-      (!tieneMetas ? '<div class="platform-diff-row">'+termChip(PLATFORM_DATA[id].plazo)+'</div>' : '')+
+      (!tieneMetas && !sinValuacion ? '<div class="platform-diff-row">'+termChip(PLATFORM_DATA[id].plazo)+'</div>' : '')+
       comisionRow+
       '<div class="platform-actions-row">'+
         '<button class="budget-ver-mas" data-platform-see-more="'+id+'">Ver transacciones →</button>'+
-        '<button class="budget-edit-btn" data-edit-platform="'+id+'" aria-label="Actualizar valor de '+cat.nombre+'">'+ICONS.edit+'</button>'+
+        // Nothing to update on a sinValuacion platform (no valuation, no comision of its own) --
+        // no pencil button.
+        (sinValuacion ? '' : '<button class="budget-edit-btn" data-edit-platform="'+id+'" aria-label="Actualizar valor de '+cat.nombre+'">'+ICONS.edit+'</button>')+
       '</div>'+
       '<div class="platform-goal-nest">'+metasBody+'</div>'+
     '</div>';
@@ -500,25 +565,50 @@ export function renderInvestmentsView(){
   const aportadoSerie = invMonths.map(aportadoAcumuladoHastaMesONull);
   const valorSerie = invMonths.map(valorTotalEnMesONull);
 
-  const {totalObjetivo, totalAcumulado} = totalGoalProgress();
-  const metaPct = totalObjetivo>0 ? (totalAcumulado/totalObjetivo)*100 : 0;
+  // The "Objetivo de inversión [año]" card is a FLOW metric, not a stock one -- it used to
+  // compare the STOCK total of every goal's montoObjetivo against the STOCK lifetime accumulated
+  // total, mislabeled as if it were annual (see annualInvestmentGoalProgress in evolucion.ts for
+  // the full reasoning). Now: objetivoAnual is what you actually committed to invest this year
+  // (fixed aporteMensualMeta × 12, summed over goals that have one); aporteAnio is what you
+  // actually put into those SAME fixed-aporte goals so far this year -- the only thing that can
+  // move this bar. otrosAporteAnio (flow-only goals, General buckets, "Otros") is real investment
+  // too, just never allowed to push this specific bar past 100%, so it's shown as a separate
+  // informational line instead.
+  const anio = todayISO().slice(0,4);
+  const {objetivoAnual, aporteAnio, otrosAporteAnio} = annualInvestmentGoalProgress(anio);
+  const anualPct = objetivoAnual>0 ? (aporteAnio/objetivoAnual)*100 : 0;
+  const otrosAporteLine = otrosAporteAnio>0
+    ? '<div class="platform-total-sub" style="margin-top:2px;">+ '+money(otrosAporteAnio)+' en aportes sin objetivo fijo este año</div>'
+    : '';
   // A single card: the total invested (always applies, whether or not you have goals) and, if
   // you have at least one goal with a montoObjetivo, the progress toward those goals as a
   // secondary block inside the same card — previously these were two separate cards and it
   // wasn't clear that "objetivo" only adds up the platforms with a goal, while "total invertido"
   // adds up everything.
-  const goalBlock = INVESTMENT_GOALS.length ? (
+  const goalBlock = !INVESTMENT_GOALS.length ? '' : (objetivoAnual>0 ? (
     '<div class="platform-total-goal-block">'+
-      '<div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversión '+todayISO().slice(0,4)+' (todas tus metas)</div>'+
-      '<div class="platform-total-value tabular" style="font-size:20px;">'+money(totalAcumulado)+'<span class="of-text"> de '+money(totalObjetivo)+'</span></div>'+
-      '<div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:'+Math.max(0,Math.min(100,metaPct))+'%;background:var(--accent);"></div></div>'+
-      '<div class="platform-total-sub"><span>'+Math.round(metaPct)+'% completado entre '+INVESTMENT_GOALS.length+' '+(INVESTMENT_GOALS.length===1?'meta':'metas')+'</span></div>'+
-      // Small detail: how much "all your goals" adds up to per month, in money — and along the
-      // way makes clear that this same number is what defines your Investment goal % in Balance.
+      '<div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversión '+anio+' (aporte fijo mensual × 12)</div>'+
+      '<div class="platform-total-value tabular" style="font-size:20px;">'+money(aporteAnio)+'<span class="of-text"> de '+money(objetivoAnual)+'</span></div>'+
+      '<div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:'+Math.max(0,Math.min(100,anualPct))+'%;background:var(--accent);"></div></div>'+
+      '<div class="platform-total-sub"><span>'+Math.round(anualPct)+'% completado este año</span></div>'+
+      otrosAporteLine+
+      // Small detail: how much "all your fixed-aporte goals" add up to per month, in money — and
+      // along the way makes clear that this same number is what defines your Investment goal %
+      // in Balance.
       '<div class="platform-total-sub" style="margin-top:2px;color:var(--text-tertiary);font-size:11.5px;">Aporte mensual objetivo: <b class="tabular">'+money(monthlyInvestmentGoalCLP())+'</b> · '+Math.round(investmentGoalPct())+'% de tus ingresos</div>'+
       renderTotalChecksGrid()+
     '</div>'
-  ) : '';
+  ) : (
+    // Every goal is flow-only (no fixed aporteMensualMeta at all) -- a 0/$0 bar would just look
+    // broken, so this shows an honest message instead of a meaningless progress bar. The racha/
+    // checks grid stays untouched either way (it's driven by TOTAL_GOAL_CHECKS, unrelated to
+    // this calculation).
+    '<div class="platform-total-goal-block">'+
+      '<div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversión '+anio+'</div>'+
+      '<p class="muted" style="font-size:12.5px;margin:4px 0 0;">Ninguna de tus metas tiene un aporte mensual fijo todavía, así que no hay un objetivo anual que medir.'+(otrosAporteAnio>0?' Aun así, llevas '+money(otrosAporteAnio)+' invertidos este año.':'')+'</p>'+
+      renderTotalChecksGrid()+
+    '</div>'
+  ));
 
   const proy = projectedContributions(3, 20);
   const proyeccionCard = proy.meses.length>=2 ? (

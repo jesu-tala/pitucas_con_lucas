@@ -228,6 +228,44 @@ export interface PaymentMethod {
   icon: string;     // an ICONS name ('card' | 'bank' | 'cash' | ...)
 }
 
+/* ---- Investments: goals + platforms (see the notes on INVESTMENT_GOALS/PLATFORM_DATA in
+   state.ts for the full data-model story) ---- */
+export type GoalTerm = 'corto' | 'medio' | 'largo';
+
+// montoObjetivo and aporteMensualMeta are BOTH optional, independently -- a goal can be a pure
+// "stock" goal (save up to a total, e.g. a house down payment: montoObjetivo set, no fixed
+// monthly target), a pure "flow" goal (contribute whatever you can each month: no montoObjetivo,
+// no aporteMensualMeta either), a fixed-flow goal (a committed monthly amount that feeds the
+// annual objective and Balance's Investment %, with or without a stock target on top), or any
+// other combination -- see annualInvestmentGoalProgress() in views/evolucion.ts and
+// renderGoalCard() in views/evolucion.ts for how each shows up (or doesn't) in the UI.
+export interface InvestmentGoal {
+  id: string;
+  nombre: string;
+  montoObjetivo?: number;
+  aporteMensualMeta?: number;
+  plataformaId: string;
+  plazo: GoalTerm | null;
+  comision: number | null;
+  startMonth: string;
+  startingAmount: number;
+  checks: Record<string, boolean>;
+}
+
+export interface PlatformData {
+  valorHistorial: Record<string, number>;
+  fechaActualizacion: string | null;
+  tasaAnual: number | null;
+  comision: number | null;
+  plazo: GoalTerm | null;
+  archivada?: boolean;
+  // true on a platform with no valuation of its own to track (e.g. the seeded "Otros" catch-all
+  // for one-off investments that don't belong to any real platform) -- its "value" is always
+  // exactly what's been contributed to it, so gain/loss is $0 by construction. See
+  // platformCurrentValue()/platformAportadoNetoHastaMes() in views/inversiones.ts.
+  sinValuacion?: boolean;
+}
+
 
 /* ===================== STATE (types) =====================
    The state has ~80 fields -- typing all of them at once wasn't the goal of this first step.

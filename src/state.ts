@@ -1,5 +1,5 @@
 import { monthLabelFor } from './shared-expenses';
-import { AppState, Category, SharedExpense, Group, GroupParticipant, CategoryMapping, PaymentMethod, PaidBalance, Transaction } from './types';
+import { AppState, Category, SharedExpense, Group, GroupParticipant, CategoryMapping, PaymentMethod, PaidBalance, Transaction, InvestmentGoal, PlatformData } from './types';
 import { monthTotals } from './views/evolucion';
 import { round1 } from './views/inversiones';
 /* ===================== DATA MODEL ===================== */
@@ -30,7 +30,15 @@ export const CATEGORIES: Record<string, Category> = {
   fintual:{nombre:'Fintual', tipo:'inversion', color:'mint', icon:'trending'},
   racional:{nombre:'Racional', tipo:'inversion', color:'peach', icon:'trending'},
   banco_chile:{nombre:'Banco de Chile', tipo:'inversion', color:'butter', icon:'bank'},
-  buda:{nombre:'Buda (cripto)', tipo:'inversion', color:'pink', icon:'coin'}
+  buda:{nombre:'Buda (cripto)', tipo:'inversion', color:'pink', icon:'coin'},
+  // "Otros": a catch-all system-seeded platform (same family as the 4 above -- not something
+  // the user creates by hand via "+ Agregar nueva plataforma") for one-off investments that
+  // don't belong anywhere else and don't warrant their own platform/goal (see PLATFORM_DATA.otros
+  // below and platformCurrentValue()/investmentCatOptions() in views/inversiones.ts). Placed
+  // last on purpose: several fallbacks (activePlatformIds()[0], etc.) pick "the first active
+  // platform" as a default when creating a goal, and 'otros' can never host a goal -- see
+  // goalCapablePlatformIds() in views/inversiones.ts for the explicit guard against that anyway.
+  otros:{nombre:'Otros', tipo:'inversion', color:'sage', icon:'layers'}
 };
 // Snapshot of the "factory" categories (only gasto/ingreso, no investment platforms — each
 // person creates those from scratch) — taken ONCE here, before anything touches it, so the
@@ -92,7 +100,7 @@ export let importIdCounter = 0; // id counter for transactions created via "Impo
 // object seeded once at creation; checks (the manual "did I make my planned contribution this
 // month?" mark) is untouched, still hand-ticked -- it's a habit tracker, not something that could
 // ever be inferred from a transaction.
-export let INVESTMENT_GOALS: any[] = [
+export let INVESTMENT_GOALS: InvestmentGoal[] = [
   {
     id:'m1', nombre:'Fondo de emergencia', montoObjetivo:3000000, aporteMensualMeta:150000, plataformaId:'banco_chile', plazo:'corto', comision:null,
     // This goal predates the app by a few months (per the user's own account) -- startingAmount
@@ -146,7 +154,7 @@ export let BUDGET_ALERTS_SENT = {};
 // contributed" isn't stored here — it's always calculated from the already-classified
 // investment-type transactions.
 export const UPDATE_THRESHOLD_DAYS = 30;
-export let PLATFORM_DATA = {
+export let PLATFORM_DATA: Record<string, PlatformData> = {
   fintual:{
     valorHistorial:{'2026-04':81600,'2026-05':185400,'2026-06':291200,'2026-07':395600,'2026-08':504000},
     fechaActualizacion:'2026-08-20', tasaAnual:null, comision:null, plazo:'largo'
@@ -166,6 +174,12 @@ export let PLATFORM_DATA = {
   buda:{
     valorHistorial:{'2026-04':0,'2026-05':0,'2026-06':0,'2026-07':46000,'2026-08':17500},
     fechaActualizacion:'2026-08-25', tasaAnual:null, comision:null, plazo:null
+  },
+  // "Otros": no valuation of its own to track (sinValuacion) -- its "value" is always exactly
+  // what's been contributed to it (see platformCurrentValue() in views/inversiones.ts), so
+  // there's never anything to type into valorHistorial/fechaActualizacion by hand.
+  otros:{
+    valorHistorial:{}, fechaActualizacion:null, tasaAnual:null, comision:null, plazo:null, sinValuacion:true
   }
 };
 
@@ -182,7 +196,9 @@ export function computeDefaultPlanBase(){
 export function computeDefaultGoalPcts(base){
   const out = {};
   INVESTMENT_GOALS.forEach(m=>{
-    out[m.id] = base>0 ? round1(m.aporteMensualMeta/base*100) : 0;
+    // A flow-only goal with no fixed aporteMensualMeta ("contribute whatever I can") has no
+    // amount to suggest a %-split from -- it defaults to 0%, same as it would if base were 0.
+    out[m.id] = base>0 ? round1((m.aporteMensualMeta||0)/base*100) : 0;
   });
   return out;
 }

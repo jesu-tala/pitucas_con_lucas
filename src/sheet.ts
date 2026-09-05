@@ -6,7 +6,7 @@ import { CATEGORIES, CONTACTS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, 
 import { ReceivableItem, Transaction } from './types';
 import { toast } from './ui/toasts';
 import { renderShareGroupSection, renderSplitDraftForm } from './views/grupos';
-import { activePlatformIds, investmentCatOptions, isPlatformArchived, platformIds } from './views/inversiones';
+import { goalCapablePlatformIds, investmentCatOptions, isPlatformArchived, platformIds } from './views/inversiones';
 import { advFilterCount } from './views/transacciones';
 /* ===================== DETAIL SHEET ===================== */
 export function getTx(id){ return TRANSACTIONS.find(t=>t.id===id); }
@@ -225,7 +225,9 @@ export function investCatPickerGrid(selectedId?){
 // platform's "+ Agregar meta") pre-select it; otherwise it falls back to the first active
 // platform (or the first platform at all, if every one is closed).
 export function renderInvestGoalEmptyState(contextPlatformId?){
-  const platId = contextPlatformId || activePlatformIds()[0] || platformIds()[0] || '';
+  // Never fall back to a sinValuacion platform (e.g. "Otros") -- it can never host a goal, so
+  // it would be a dead end for the button this builds.
+  const platId = contextPlatformId || goalCapablePlatformIds()[0] || platformIds()[0] || '';
   return '<div class="card placeholder-card" style="padding:18px 14px;">'+ICONS.inbox+
     '<h3>No tienes metas creadas</h3>'+
     '<p>Crea tu primera meta de inversión para poder clasificar tus aportes.</p>'+
