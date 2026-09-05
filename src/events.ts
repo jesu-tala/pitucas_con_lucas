@@ -7,7 +7,7 @@ import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
 import { defaultShareDraft, renderGroupsView } from './views/grupos';
-import { activePlatformIds, generalCatIdFor, platformCurrentValue, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
+import { activePlatformIds, generalCatIdFor, goalCapablePlatformIds, platformCurrentValue, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
 import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
 import { renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
@@ -504,15 +504,20 @@ phone.addEventListener('click', function(e: any){
     const meta = INVESTMENT_GOALS.find(m=>m.id===id);
     state.editingGoalId = id;
     state.goalDraft = meta
-      ? {nombre:meta.nombre, montoObjetivo:String(meta.montoObjetivo), aporteMensualMeta:String(meta.aporteMensualMeta), aportadoInicial:String(meta.startingAmount||0), mesInicio:meta.startMonth||todayISO().slice(0,7), plazo:meta.plazo||'', comision:meta.comision!=null?String(meta.comision):''}
+      ? {nombre:meta.nombre, montoObjetivo:meta.montoObjetivo!=null?String(meta.montoObjetivo):'', aporteMensualMeta:meta.aporteMensualMeta!=null?String(meta.aporteMensualMeta):'', aportadoInicial:String(meta.startingAmount||0), mesInicio:meta.startMonth||todayISO().slice(0,7), plazo:meta.plazo||'', comision:meta.comision!=null?String(meta.comision):''}
       : {nombre:'', montoObjetivo:'', aporteMensualMeta:'', aportadoInicial:'', mesInicio:todayISO().slice(0,7), plazo:'', comision:''};
     renderInvestmentsView();
     return;
   }
   const addGoalBtn = e.target.closest('[data-add-goal]');
   if(addGoalBtn){
+    const addGoalPlatformId = addGoalBtn.getAttribute('data-add-goal');
+    // "Otros" (and any other sinValuacion platform) never offers this button in the UI (see
+    // renderPlatformGroup), but guard it here too in case of stale DOM -- it can never host a
+    // goal, by explicit design.
+    if(PLATFORM_DATA[addGoalPlatformId] && PLATFORM_DATA[addGoalPlatformId].sinValuacion) return;
     state.editingGoalId = 'nueva';
-    state.addGoalPlatformId = addGoalBtn.getAttribute('data-add-goal');
+    state.addGoalPlatformId = addGoalPlatformId;
     state.goalDraft = {nombre:'', montoObjetivo:'', aporteMensualMeta:'', aportadoInicial:'', mesInicio:todayISO().slice(0,7), plazo:'', comision:''};
     renderInvestmentsView();
     return;
@@ -528,8 +533,20 @@ phone.addEventListener('click', function(e: any){
   if(saveGoalBtn){
     const id = saveGoalBtn.getAttribute('data-save-goal');
     const nombre = state.goalDraft.nombre.trim();
-    const objetivo = safeEvalExpr(state.goalDraft.montoObjetivo);
-    const aporte = safeEvalExpr(state.goalDraft.aporteMensualMeta);
+    // montoObjetivo (stock target) and aporteMensualMeta (fixed monthly target) are BOTH
+    // optional now, independently -- a goal only needs a name. Leaving either input blank saves
+    // undefined for that field instead of blocking the save: no montoObjetivo means a pure "flow"
+    // goal (no progress bar toward a total, see renderGoalCard), no aporteMensualMeta means
+    // "contribute whatever I can" (doesn't add to the monthly objective / Balance's Investment %,
+    // see monthlyInvestmentGoalCLP, but real contributions still count toward aportado). A
+    // non-empty value still has to parse to a valid, non-negative number, same forgiving-but-not-
+    // silent behavior as the rest of the numeric drafts in this app.
+    const objetivoRaw = state.goalDraft.montoObjetivo.trim();
+    const objetivoVal = objetivoRaw==='' ? null : safeEvalExpr(objetivoRaw);
+    const objetivoValido = objetivoRaw==='' || (objetivoVal!==null && objetivoVal>0);
+    const aporteRaw = state.goalDraft.aporteMensualMeta.trim();
+    const aporteVal = aporteRaw==='' ? null : safeEvalExpr(aporteRaw);
+    const aporteValido = aporteRaw==='' || (aporteVal!==null && aporteVal>=0);
     const comisionRaw = state.goalDraft.comision.trim();
     const comisionVal = comisionRaw==='' ? null : safeEvalExpr(comisionRaw);
     const comisionFinal = (comisionRaw!=='' && comisionVal!==null) ? comisionVal : null;
@@ -542,22 +559,24 @@ phone.addEventListener('click', function(e: any){
     const startingAmount = (aportadoInicialVal!==null && aportadoInicialVal>=0) ? Math.round(aportadoInicialVal) : 0;
     const mesInicioRaw = (state.goalDraft.mesInicio||'').trim();
     const startMonth = /^\d{4}-\d{2}$/.test(mesInicioRaw) ? mesInicioRaw : todayISO().slice(0,7);
-    if(nombre && objetivo!==null && objetivo>0 && aporte!==null && aporte>=0){
+    if(nombre && objetivoValido && aporteValido){
+      const montoObjetivo = (objetivoRaw!=='' && objetivoVal!==null) ? Math.round(objetivoVal) : undefined;
+      const aporteMensualMeta = (aporteRaw!=='' && aporteVal!==null) ? Math.round(aporteVal) : undefined;
       if(id==='nueva'){
         setGoalIdCounter(goalIdCounter+1);
         const newId = 'm'+goalIdCounter;
-        INVESTMENT_GOALS.push({id:newId, nombre, montoObjetivo:Math.round(objetivo), aporteMensualMeta:Math.round(aporte), plataformaId:state.addGoalPlatformId, plazo:state.goalDraft.plazo||null, comision:comisionFinal, startMonth, startingAmount, checks:{}});
+        INVESTMENT_GOALS.push({id:newId, nombre, montoObjetivo, aporteMensualMeta, plataformaId:state.addGoalPlatformId, plazo:state.goalDraft.plazo||null, comision:comisionFinal, startMonth, startingAmount, checks:{}});
         toast('Meta creada: '+nombre);
       } else {
         const meta = INVESTMENT_GOALS.find(m=>m.id===id);
-        if(meta){ meta.nombre = nombre; meta.montoObjetivo = Math.round(objetivo); meta.aporteMensualMeta = Math.round(aporte); meta.plazo = state.goalDraft.plazo||null; meta.comision = comisionFinal; meta.startMonth = startMonth; meta.startingAmount = startingAmount; }
+        if(meta){ meta.nombre = nombre; meta.montoObjetivo = montoObjetivo; meta.aporteMensualMeta = aporteMensualMeta; meta.plazo = state.goalDraft.plazo||null; meta.comision = comisionFinal; meta.startMonth = startMonth; meta.startingAmount = startingAmount; }
         toast('Meta actualizada');
       }
       state.editingGoalId = null;
       state.addGoalPlatformId = null;
       renderInvestmentsView();
     } else {
-      toast('Completa nombre, objetivo y aporte meta válidos');
+      toast('Completa el nombre y, si escribiste objetivo o aporte, que sean montos válidos');
     }
     return;
   }
@@ -580,7 +599,10 @@ phone.addEventListener('click', function(e: any){
   // either, so this doesn't lose anything that wasn't already recoverable by reopening it.
   const gotoCreateGoalBtn = e.target.closest('[data-goto-create-goal]');
   if(gotoCreateGoalBtn){
-    const platId = gotoCreateGoalBtn.getAttribute('data-goto-create-goal') || activePlatformIds()[0] || platformIds()[0];
+    // Fall back to a goal-capable platform only -- a sinValuacion platform (e.g. "Otros") can
+    // never host a goal, so it's never a valid fallback here even if it happened to be the first
+    // active/known platform.
+    const platId = gotoCreateGoalBtn.getAttribute('data-goto-create-goal') || goalCapablePlatformIds()[0] || platformIds().find(id=>!PLATFORM_DATA[id].sinValuacion);
     closeSheet();
     state.tab = 'resumen';
     state.summarySub = 'inversiones';

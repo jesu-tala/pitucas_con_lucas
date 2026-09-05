@@ -1,7 +1,7 @@
 import { ensureMonthExists } from './shared-expenses';
 import { getTx } from './sheet';
 import { CATEGORIES, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, todayISO } from './state';
-import { Transaction } from './types';
+import { GoalTerm, Transaction } from './types';
 /* ===================== HELPERS ===================== */
 export function txsOfMonth(m){ return TRANSACTIONS.filter(t=>t.fecha.slice(0,7)===m); }
 // An investment-type transaction never categorizes to a Platform id directly anymore (see the
@@ -54,12 +54,12 @@ export function currentMonthHasSalary(){
 // Lightweight term chip for goals and platforms — doesn't restructure anything, it just lets
 // you see at a glance what's short/medium/long term within the same per-platform organization
 // we already have.
-export const GOAL_TERM = {
+export const GOAL_TERM: Record<GoalTerm, {label:string, color:string}> = {
   corto:{label:'Corto', color:'sky'},
   medio:{label:'Medio', color:'sage'},
   largo:{label:'Largo', color:'lavender'}
 };
-export function termChip(plazo){
+export function termChip(plazo: GoalTerm | null | undefined){
   if(!plazo || !GOAL_TERM[plazo]) return '';
   const p = GOAL_TERM[plazo];
   return '<span class="plazo-chip" style="background:var(--cat-'+p.color+'-fill);color:var(--cat-'+p.color+'-ink);">'+p.label+'</span>';

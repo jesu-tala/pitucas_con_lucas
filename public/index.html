@@ -3493,6 +3493,10 @@
     return platformIds().filter((id) => isPlatformArchived(id));
   }
   __name(archivedPlatformIds, "archivedPlatformIds");
+  function goalCapablePlatformIds() {
+    return activePlatformIds().filter((id) => !PLATFORM_DATA[id].sinValuacion);
+  }
+  __name(goalCapablePlatformIds, "goalCapablePlatformIds");
   function generalCatIdFor(platformId) {
     return platformId + "__general";
   }
@@ -3522,7 +3526,8 @@
       const belongsHere = selectedId === generalId || goals.some((g) => g.id === selectedId);
       if (isPlatformArchived(platId) && !belongsHere) return;
       goals.forEach((g) => out.push({ value: g.id, label: plat.nombre + " \xB7 " + g.nombre, plataformaId: platId, icon: plat.icon }));
-      out.push({ value: generalId, label: plat.nombre + " \xB7 General", plataformaId: platId, icon: plat.icon });
+      const generalLabel = goals.length === 0 && PLATFORM_DATA[platId].sinValuacion ? plat.nombre : plat.nombre + " \xB7 General";
+      out.push({ value: generalId, label: generalLabel, plataformaId: platId, icon: plat.icon });
     });
     return out;
   }
@@ -3532,6 +3537,7 @@
   }
   __name(platformValorMonths, "platformValorMonths");
   function platformCurrentValue(id) {
+    if (PLATFORM_DATA[id].sinValuacion) return platformAportadoNeto(id);
     const months = platformValorMonths(id);
     return months.length ? PLATFORM_DATA[id].valorHistorial[months[months.length - 1]] : 0;
   }
@@ -3551,7 +3557,7 @@
   __name(inversionesMonthsCalendarYear, "inversionesMonthsCalendarYear");
   function mesTieneValorParaTodas(monthKey) {
     const ids = activePlatformIds();
-    return ids.length > 0 && ids.every((id) => PLATFORM_DATA[id].valorHistorial[monthKey] != null);
+    return ids.length > 0 && ids.every((id) => PLATFORM_DATA[id].sinValuacion || PLATFORM_DATA[id].valorHistorial[monthKey] != null);
   }
   __name(mesTieneValorParaTodas, "mesTieneValorParaTodas");
   function aportadoAcumuladoHastaMesONull(monthKey) {
@@ -3564,9 +3570,29 @@
     return total;
   }
   __name(aportadoAcumuladoHastaMesONull, "aportadoAcumuladoHastaMesONull");
+  function platformGeneralAmountHastaMes(platformId, monthKey) {
+    const generalId = generalCatIdFor(platformId);
+    let total = 0;
+    TRANSACTIONS.forEach((t) => {
+      if (t.tipo !== "inversion") return;
+      if (t.fecha.slice(0, 7) > monthKey) return;
+      t.categorias.forEach((c) => {
+        if (c.cat === generalId) total += c.monto;
+      });
+    });
+    return total;
+  }
+  __name(platformGeneralAmountHastaMes, "platformGeneralAmountHastaMes");
+  function platformAportadoNetoHastaMes(id, monthKey) {
+    return goalsForPlatform(id).reduce((s, m) => s + (metaHistorialAt(m, monthKey) || 0), 0) + platformGeneralAmountHastaMes(id, monthKey);
+  }
+  __name(platformAportadoNetoHastaMes, "platformAportadoNetoHastaMes");
   function valorTotalEnMesONull(monthKey) {
     if (!mesTieneValorParaTodas(monthKey)) return null;
-    return activePlatformIds().reduce((s, id) => s + (PLATFORM_DATA[id].valorHistorial[monthKey] || 0), 0);
+    return activePlatformIds().reduce(
+      (s, id) => s + (PLATFORM_DATA[id].sinValuacion ? platformAportadoNetoHastaMes(id, monthKey) : PLATFORM_DATA[id].valorHistorial[monthKey] || 0),
+      0
+    );
   }
   __name(valorTotalEnMesONull, "valorTotalEnMesONull");
   function buildDualLineChart(months, seriesA, seriesB, colorA, colorB) {
@@ -3684,26 +3710,29 @@
   function renderPlatformGroup(id) {
     if (state.editingPlatformId === id) return '<div class="platform-group">' + renderPlatformEditForm(id) + "</div>";
     const cat = catInfo(id);
+    const sinValuacion = !!PLATFORM_DATA[id].sinValuacion;
     const valorActual = platformCurrentValue(id);
     const aportado = platformAportadoNeto(id);
     const diff = valorActual - aportado;
-    const dias = platformDiasDesdeActualizacion(id);
-    const stale = dias > UPDATE_THRESHOLD_DAYS;
+    const dias = sinValuacion ? 0 : platformDiasDesdeActualizacion(id);
+    const stale = !sinValuacion && dias > UPDATE_THRESHOLD_DAYS;
     const tieneMetas = goalsForPlatform(id).length > 0;
     const comision = PLATFORM_DATA[id].comision;
     const ganancia = Math.max(0, diff);
-    const comisionRow = comision != null && !tieneMetas ? '<div class="platform-comision-row"><span>Comisi\xF3n anual: <b class="tabular">' + comision + '%</b></span><span class="muted tabular">\u2248 ' + money(ganancia * comision / 100) + "/a\xF1o sobre tu ganancia</span></div>" : "";
+    const comisionRow = comision != null && !tieneMetas && !sinValuacion ? '<div class="platform-comision-row"><span>Comisi\xF3n anual: <b class="tabular">' + comision + '%</b></span><span class="muted tabular">\u2248 ' + money(ganancia * comision / 100) + "/a\xF1o sobre tu ganancia</span></div>" : "";
     const open = state.openPlatformId === id;
-    const header = '<button class="platform-head-toggle" data-toggle-platform="' + id + '" aria-expanded="' + (open ? "true" : "false") + '"><span class="platform-icon" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + '</span><span class="platform-head-body"><span class="platform-name">' + cat.nombre + '</span><span class="platform-update-tag' + (stale ? " stale" : "") + '">Actualizado hace ' + dias + " " + (dias === 1 ? "d\xEDa" : "d\xEDas") + '</span></span><span class="platform-head-value tabular">' + money(valorActual) + '</span><span class="platform-chev' + (open ? " open" : "") + '">' + ICONS.chevR + "</span></button>";
+    const header = '<button class="platform-head-toggle" data-toggle-platform="' + id + '" aria-expanded="' + (open ? "true" : "false") + '"><span class="platform-icon" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + '</span><span class="platform-head-body"><span class="platform-name">' + cat.nombre + "</span>" + (sinValuacion ? "" : '<span class="platform-update-tag' + (stale ? " stale" : "") + '">Actualizado hace ' + dias + " " + (dias === 1 ? "d\xEDa" : "d\xEDas") + "</span>") + '</span><span class="platform-head-value tabular">' + money(valorActual) + '</span><span class="platform-chev' + (open ? " open" : "") + '">' + ICONS.chevR + "</span></button>";
     if (!open) return '<div class="card platform-group">' + header + "</div>";
     const { metas, totalObjetivo, totalAcumulado, rachaCombinada } = platformGoalsSummary(id);
     const addingHere = state.editingGoalId === "nueva" && state.addGoalPlatformId === id;
     const combinedPct = totalObjetivo > 0 ? totalAcumulado / totalObjetivo * 100 : 0;
-    const combinedSummary = metas.length > 0 ? '<div class="platform-meta-summary"><div class="platform-meta-summary-head"><span>Tus metas en ' + cat.nombre + "</span>" + (rachaCombinada > 0 ? '<span class="meta-racha-badge">' + rachaCombinada + " \u{1F525}</span>" : "") + '</div><div class="platform-meta-summary-figs tabular">' + money(totalAcumulado) + '<span class="of-text"> de ' + money(totalObjetivo) + '</span><span class="budget-pct tabular">' + Math.round(combinedPct) + '%</span></div><div class="budget-track"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, combinedPct)) + '%;background:var(--accent);"></div></div></div>' : "";
-    const metasBody = combinedSummary + metas.map(renderGoalCard).join("") + (addingHere ? renderGoalEditForm(null, id) : '<button class="budget-add-link platform-add-meta-link" data-add-goal="' + id + '">+ Agregar meta a ' + cat.nombre + "</button>");
-    const body = '<div class="platform-body"><div class="platform-figs"><div class="platform-fig"><span class="platform-fig-label">Total en esta plataforma</span><span class="platform-fig-value tabular">' + money(valorActual) + '</span></div><div class="platform-fig"><span class="platform-fig-label">Aportado neto</span><span class="platform-fig-value tabular muted">' + money(aportado) + "</span></div></div>" + // The plazo chip is only shown if it doesn't have its own goals yet — as soon as
+    const combinedSummary = metas.length > 0 && totalObjetivo > 0 ? '<div class="platform-meta-summary"><div class="platform-meta-summary-head"><span>Tus metas en ' + cat.nombre + "</span>" + (rachaCombinada > 0 ? '<span class="meta-racha-badge">' + rachaCombinada + " \u{1F525}</span>" : "") + '</div><div class="platform-meta-summary-figs tabular">' + money(totalAcumulado) + '<span class="of-text"> de ' + money(totalObjetivo) + '</span><span class="budget-pct tabular">' + Math.round(combinedPct) + '%</span></div><div class="budget-track"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, combinedPct)) + '%;background:var(--accent);"></div></div></div>' : "";
+    const metasBody = sinValuacion ? "" : combinedSummary + metas.map(renderGoalCard).join("") + (addingHere ? renderGoalEditForm(null, id) : '<button class="budget-add-link platform-add-meta-link" data-add-goal="' + id + '">+ Agregar meta a ' + cat.nombre + "</button>");
+    const body = '<div class="platform-body"><div class="platform-figs"><div class="platform-fig"><span class="platform-fig-label">' + (sinValuacion ? "Aportado" : "Total en esta plataforma") + '</span><span class="platform-fig-value tabular">' + money(valorActual) + '</span></div><div class="platform-fig"><span class="platform-fig-label">Aportado neto</span><span class="platform-fig-value tabular muted">' + money(aportado) + "</span></div></div>" + // The plazo chip is only shown if it doesn't have its own goals yet — as soon as
     // you add a goal, its plazo takes over and this one becomes redundant.
-    (!tieneMetas ? '<div class="platform-diff-row">' + termChip(PLATFORM_DATA[id].plazo) + "</div>" : "") + comisionRow + '<div class="platform-actions-row"><button class="budget-ver-mas" data-platform-see-more="' + id + '">Ver transacciones \u2192</button><button class="budget-edit-btn" data-edit-platform="' + id + '" aria-label="Actualizar valor de ' + cat.nombre + '">' + ICONS.edit + '</button></div><div class="platform-goal-nest">' + metasBody + "</div></div>";
+    (!tieneMetas && !sinValuacion ? '<div class="platform-diff-row">' + termChip(PLATFORM_DATA[id].plazo) + "</div>" : "") + comisionRow + '<div class="platform-actions-row"><button class="budget-ver-mas" data-platform-see-more="' + id + '">Ver transacciones \u2192</button>' + // Nothing to update on a sinValuacion platform (no valuation, no comision of its own) --
+    // no pencil button.
+    (sinValuacion ? "" : '<button class="budget-edit-btn" data-edit-platform="' + id + '" aria-label="Actualizar valor de ' + cat.nombre + '">' + ICONS.edit + "</button>") + '</div><div class="platform-goal-nest">' + metasBody + "</div></div>";
     return '<div class="card platform-group open">' + header + body + "</div>";
   }
   __name(renderPlatformGroup, "renderPlatformGroup");
@@ -3818,9 +3847,20 @@
     const invMonths = inversionesMonthsCalendarYear();
     const aportadoSerie = invMonths.map(aportadoAcumuladoHastaMesONull);
     const valorSerie = invMonths.map(valorTotalEnMesONull);
-    const { totalObjetivo, totalAcumulado } = totalGoalProgress();
-    const metaPct = totalObjetivo > 0 ? totalAcumulado / totalObjetivo * 100 : 0;
-    const goalBlock = INVESTMENT_GOALS.length ? '<div class="platform-total-goal-block"><div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversi\xF3n ' + todayISO().slice(0, 4) + ' (todas tus metas)</div><div class="platform-total-value tabular" style="font-size:20px;">' + money(totalAcumulado) + '<span class="of-text"> de ' + money(totalObjetivo) + '</span></div><div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, metaPct)) + '%;background:var(--accent);"></div></div><div class="platform-total-sub"><span>' + Math.round(metaPct) + "% completado entre " + INVESTMENT_GOALS.length + " " + (INVESTMENT_GOALS.length === 1 ? "meta" : "metas") + '</span></div><div class="platform-total-sub" style="margin-top:2px;color:var(--text-tertiary);font-size:11.5px;">Aporte mensual objetivo: <b class="tabular">' + money(monthlyInvestmentGoalCLP()) + "</b> \xB7 " + Math.round(investmentGoalPct()) + "% de tus ingresos</div>" + renderTotalChecksGrid() + "</div>" : "";
+    const anio = todayISO().slice(0, 4);
+    const { objetivoAnual, aporteAnio, otrosAporteAnio } = annualInvestmentGoalProgress(anio);
+    const anualPct = objetivoAnual > 0 ? aporteAnio / objetivoAnual * 100 : 0;
+    const otrosAporteLine = otrosAporteAnio > 0 ? '<div class="platform-total-sub" style="margin-top:2px;">+ ' + money(otrosAporteAnio) + " en aportes sin objetivo fijo este a\xF1o</div>" : "";
+    const goalBlock = !INVESTMENT_GOALS.length ? "" : objetivoAnual > 0 ? '<div class="platform-total-goal-block"><div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversi\xF3n ' + anio + ' (aporte fijo mensual \xD7 12)</div><div class="platform-total-value tabular" style="font-size:20px;">' + money(aporteAnio) + '<span class="of-text"> de ' + money(objetivoAnual) + '</span></div><div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, anualPct)) + '%;background:var(--accent);"></div></div><div class="platform-total-sub"><span>' + Math.round(anualPct) + "% completado este a\xF1o</span></div>" + otrosAporteLine + // Small detail: how much "all your fixed-aporte goals" add up to per month, in money — and
+    // along the way makes clear that this same number is what defines your Investment goal %
+    // in Balance.
+    '<div class="platform-total-sub" style="margin-top:2px;color:var(--text-tertiary);font-size:11.5px;">Aporte mensual objetivo: <b class="tabular">' + money(monthlyInvestmentGoalCLP()) + "</b> \xB7 " + Math.round(investmentGoalPct()) + "% de tus ingresos</div>" + renderTotalChecksGrid() + "</div>" : (
+      // Every goal is flow-only (no fixed aporteMensualMeta at all) -- a 0/$0 bar would just look
+      // broken, so this shows an honest message instead of a meaningless progress bar. The racha/
+      // checks grid stays untouched either way (it's driven by TOTAL_GOAL_CHECKS, unrelated to
+      // this calculation).
+      '<div class="platform-total-goal-block"><div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversi\xF3n ' + anio + '</div><p class="muted" style="font-size:12.5px;margin:4px 0 0;">Ninguna de tus metas tiene un aporte mensual fijo todav\xEDa, as\xED que no hay un objetivo anual que medir.' + (otrosAporteAnio > 0 ? " Aun as\xED, llevas " + money(otrosAporteAnio) + " invertidos este a\xF1o." : "") + "</p>" + renderTotalChecksGrid() + "</div>"
+    );
     const proy = projectedContributions(3, 20);
     const proyeccionCard = proy.meses.length >= 2 ? '<div class="card proyeccion-card"><div class="proyeccion-head"><span class="proyeccion-icon">' + ICONS.sparkle + '</span><span class="proyeccion-title">Simulador</span></div><div class="proyeccion-value tabular" data-proj-total>' + money(proy.proyectadoConRetorno) + '</div><div class="proyeccion-sub">en ' + proy.anios + ' a\xF1os \xB7 pesos de hoy</div><div class="proyeccion-text">Aportando <input type="text" inputmode="numeric" class="proy-inline-input proy-aporte-input" data-proj-contribution-input placeholder="' + moneyPlain(Math.round(proy.promedioMensual)) + '" value="' + (state.simulatedContribution != null ? moneyPlain(state.simulatedContribution) : "") + '">/mes al <input type="text" inputmode="decimal" class="proy-inline-input" data-proj-return-input value="' + proy.retornoAnual + '">% anual, \u2212<input type="text" inputmode="decimal" class="proy-inline-input" data-proj-inflation-input value="' + proy.inflacionAnual + '">% inflaci\xF3n.</div><div class="proyeccion-caption">Promedio de tus \xFAltimas 3 inversiones mensuales: <b class="tabular">' + money(proy.promedioMensual) + "</b></div></div>" : "";
     const html = '<div class="card platform-total-card"><div class="platform-total-label">Total invertido</div><div class="platform-total-value tabular">' + money(totalValor) + '</div><div class="stat-grid stat-grid-compact" style="margin-top:14px;margin-bottom:0;"><div class="stat-tile stat-inversiones"><div class="stat-label">Aportado neto</div><div class="stat-value tabular">' + money(totalAportado) + "</div></div></div>" + goalBlock + '</div><div class="section-title" style="margin-top:4px;">Mis plataformas</div>' + ids.map(renderPlatformGroup).join("") + (state.creatingPlatform ? renderNewPlatformForm() : '<button class="budget-add-link" data-add-platform style="margin:4px 0 2px;margin-bottom:16px;">+ Agregar nueva plataforma</button>') + renderArchivedPlatformsBlock() + '<div class="section-title">Aportado vs. valor mes a mes</div><div class="card evo-card"><div class="evo-legend-row"><span class="evo-legend-item"><span class="evo-line-sample" style="background:var(--invest-ink);"></span>Aportado</span><span class="evo-legend-item"><span class="evo-line-sample dashed" style="border-color:var(--accent);"></span>Valor estimado</span></div>' + buildDualLineChart(invMonths, aportadoSerie, valorSerie, "var(--invest-ink)", "var(--accent)") + '<div class="evo-caption muted">El valor es una aproximaci\xF3n manual: sube y baja solo cuando t\xFA lo actualizas, o con tus aportes y retiros.</div></div>' + renderPlanificadorSection() + proyeccionCard + '<div class="plan-disclaimer">Herramienta de orden personal, no asesor\xEDa financiera formal. Para decisiones grandes, val\xEDdalo con una persona profesional licenciada.</div><div style="height:12px;"></div>';
@@ -4028,19 +4068,31 @@
   __name(goalsForPlatform, "goalsForPlatform");
   function platformGoalsSummary(id) {
     const metas = goalsForPlatform(id);
-    const totalObjetivo = metas.reduce((s, m) => s + m.montoObjetivo, 0);
+    const totalObjetivo = metas.reduce((s, m) => s + (m.montoObjetivo || 0), 0);
     const totalAcumulado = metas.reduce((s, m) => s + metaAcumuladoActual(m), 0);
     const rachas = metas.map(metaRacha);
     const rachaCombinada = metas.length > 0 && rachas.every((r) => r > 0) ? Math.min(...rachas) : 0;
     return { metas, totalObjetivo, totalAcumulado, rachaCombinada };
   }
   __name(platformGoalsSummary, "platformGoalsSummary");
-  function totalGoalProgress() {
-    const totalObjetivo = INVESTMENT_GOALS.reduce((s, m) => s + m.montoObjetivo, 0);
-    const totalAcumulado = INVESTMENT_GOALS.reduce((s, m) => s + metaAcumuladoActual(m), 0);
-    return { totalObjetivo, totalAcumulado };
+  function annualInvestmentGoalProgress(year) {
+    const fixedGoals = INVESTMENT_GOALS.filter((m) => m.aporteMensualMeta != null);
+    const fixedGoalIds = new Set(fixedGoals.map((m) => m.id));
+    const objetivoAnual = fixedGoals.reduce((s, m) => s + (m.aporteMensualMeta || 0), 0) * 12;
+    const aporteAnio = fixedGoals.reduce(
+      (s, m) => s + metaContribTxs(m).filter((t) => t.fecha.slice(0, 4) === year && t.estado !== "no_es_gasto").reduce((s2, t) => s2 + metaContribAmount(t, m.id), 0),
+      0
+    );
+    let otrosAporteAnio = 0;
+    TRANSACTIONS.forEach((t) => {
+      if (t.tipo !== "inversion" || t.estado === "no_es_gasto" || t.fecha.slice(0, 4) !== year) return;
+      t.categorias.forEach((c) => {
+        if (!fixedGoalIds.has(c.cat)) otrosAporteAnio += c.monto;
+      });
+    });
+    return { objetivoAnual, aporteAnio, otrosAporteAnio };
   }
-  __name(totalGoalProgress, "totalGoalProgress");
+  __name(annualInvestmentGoalProgress, "annualInvestmentGoalProgress");
   function metaTotalRacha() {
     const year = todayISO().slice(0, 4);
     const mesActual = todayISO().slice(0, 7);
@@ -4071,7 +4123,7 @@
     const d = state.goalDraft;
     const ctxId = meta ? meta.plataformaId : plataformaId || state.addGoalPlatformId;
     const ctxNombre = ctxId ? catInfo(ctxId).nombre : "";
-    return '<div class="card meta-goal-card editing">' + (ctxNombre ? '<div class="meta-goal-ctx muted">' + (meta ? "Meta en " : "Nueva meta en ") + ctxNombre + "</div>" : "") + '<label class="draft-label">Nombre de la meta</label><input type="text" class="draft-input" data-goal-field="nombre" value="' + d.nombre.replace(/"/g, "&quot;") + '" placeholder="Ej: Fondo de emergencia"><label class="draft-label" style="margin-top:12px;">Monto objetivo</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="' + d.montoObjetivo + '" placeholder="0"><label class="draft-label" style="margin-top:12px;">Aporte mensual meta</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aporteMensualMeta" value="' + d.aporteMensualMeta + '" placeholder="0"><label class="draft-label" style="margin-top:12px;">\xBFCu\xE1nto tienes ahorrado hasta ahora?</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aportadoInicial" value="' + d.aportadoInicial + '" placeholder="0"><div class="platform-hint muted">Lo que ya ten\xEDas guardado para esta meta antes de empezar a registrarla ac\xE1. Se suma a lo que categorices desde el mes de inicio de abajo.</div><label class="draft-label" style="margin-top:12px;">\xBFDesde qu\xE9 mes partiste con esta meta?</label><input type="month" class="draft-input" data-goal-field="mesInicio" value="' + d.mesInicio + '"><div class="platform-hint muted">Si empezaste antes de usar la app, hazla partir en ese mes \u2014 as\xED tus transacciones antiguas de ese per\xEDodo tambi\xE9n cuentan para el progreso.</div><label class="draft-label" style="margin-top:12px;">Plazo</label>' + segmentedHtml("meta-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<label class="draft-label" style="margin-top:12px;">Comisi\xF3n anual / TAC (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="comision" value="' + d.comision + '" placeholder="Ej: 1.1"><div class="platform-hint muted">El % que te cobra el fondo espec\xEDfico de esta meta \u2014 ponlo t\xFA, la app no te sugiere ning\xFAn n\xFAmero. Se calcula sobre tu ganancia, no sobre el total ahorrado.</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-goal-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-goal="' + (meta ? meta.id : "nueva") + '">Guardar</button></div>' + (meta ? '<button class="budget-delete-link" data-delete-goal="' + meta.id + '">Eliminar meta</button>' : "") + "</div>";
+    return '<div class="card meta-goal-card editing">' + (ctxNombre ? '<div class="meta-goal-ctx muted">' + (meta ? "Meta en " : "Nueva meta en ") + ctxNombre + "</div>" : "") + '<label class="draft-label">Nombre de la meta</label><input type="text" class="draft-input" data-goal-field="nombre" value="' + d.nombre.replace(/"/g, "&quot;") + '" placeholder="Ej: Fondo de emergencia"><label class="draft-label" style="margin-top:12px;">Monto objetivo (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="' + d.montoObjetivo + '" placeholder="D\xE9jalo vac\xEDo si no juntas un total"><div class="platform-hint muted">Ponlo solo si esta meta es juntar un total (ej. el pie de un depto) \u2014 muestra una barra de progreso hacia ese monto. Si es una meta de aporte mensual sin un total fijo, d\xE9jalo vac\xEDo.</div><label class="draft-label" style="margin-top:12px;">Aporte mensual meta (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aporteMensualMeta" value="' + d.aporteMensualMeta + '" placeholder="D\xE9jalo vac\xEDo si aportas lo que puedas"><div class="platform-hint muted">Si tienes un monto fijo que aportas cada mes, ponlo ac\xE1 \u2014 suma al objetivo de inversi\xF3n del a\xF1o y a tu meta de Inversi\xF3n en Balance. Si prefieres aportar "lo que m\xE1s puedas" sin comprometerte a un monto, d\xE9jalo vac\xEDo: igual cuenta como inversi\xF3n real cuando aportes.</div><label class="draft-label" style="margin-top:12px;">\xBFCu\xE1nto tienes ahorrado hasta ahora?</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aportadoInicial" value="' + d.aportadoInicial + '" placeholder="0"><div class="platform-hint muted">Lo que ya ten\xEDas guardado para esta meta antes de empezar a registrarla ac\xE1. Se suma a lo que categorices desde el mes de inicio de abajo.</div><label class="draft-label" style="margin-top:12px;">\xBFDesde qu\xE9 mes partiste con esta meta?</label><input type="month" class="draft-input" data-goal-field="mesInicio" value="' + d.mesInicio + '"><div class="platform-hint muted">Si empezaste antes de usar la app, hazla partir en ese mes \u2014 as\xED tus transacciones antiguas de ese per\xEDodo tambi\xE9n cuentan para el progreso.</div><label class="draft-label" style="margin-top:12px;">Plazo</label>' + segmentedHtml("meta-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<label class="draft-label" style="margin-top:12px;">Comisi\xF3n anual / TAC (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="comision" value="' + d.comision + '" placeholder="Ej: 1.1"><div class="platform-hint muted">El % que te cobra el fondo espec\xEDfico de esta meta \u2014 ponlo t\xFA, la app no te sugiere ning\xFAn n\xFAmero. Se calcula sobre tu ganancia, no sobre el total ahorrado.</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-goal-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-goal="' + (meta ? meta.id : "nueva") + '">Guardar</button></div>' + (meta ? '<button class="budget-delete-link" data-delete-goal="' + meta.id + '">Eliminar meta</button>' : "") + "</div>";
   }
   __name(renderGoalEditForm, "renderGoalEditForm");
   function metaChecksMonths(meta) {
@@ -4085,7 +4137,8 @@
     if (state.editingGoalId === meta.id) return renderGoalEditForm(meta);
     const trackedMonths = metaMonths(meta);
     const acumulado = metaAcumuladoActual(meta);
-    const pct = meta.montoObjetivo > 0 ? acumulado / meta.montoObjetivo * 100 : 0;
+    const tieneObjetivo = meta.montoObjetivo != null;
+    const pct = tieneObjetivo && meta.montoObjetivo > 0 ? acumulado / meta.montoObjetivo * 100 : 0;
     const racha = metaRacha(meta);
     const comision = meta.comision;
     const gananciaMeta = metaGananciaEstimada(meta);
@@ -4096,7 +4149,9 @@
       const done = !!meta.checks[m];
       return '<button class="meta-check-chip' + (done ? " done" : "") + '" data-toggle-goal-check="' + meta.id + '" data-toggle-goal-month="' + m + '"><span class="mcc-icon">' + (done ? ICONS.check : ICONS.close) + '</span><span class="mcc-label">' + short + "</span></button>";
     }).join("");
-    return '<div class="card meta-goal-card"><div class="meta-goal-head"><span class="meta-goal-name">' + meta.nombre + "</span>" + termChip(meta.plazo) + (racha > 0 ? '<span class="meta-racha-badge">' + racha + " \u{1F525}</span>" : "") + '<button class="budget-edit-btn" data-edit-goal="' + meta.id + '" aria-label="Editar ' + meta.nombre + '">' + ICONS.edit + '</button></div><div class="meta-goal-figs"><span class="tabular gastado">' + money(acumulado) + '</span><span class="of-text"> de ' + money(meta.montoObjetivo) + '</span><span class="budget-pct tabular">' + Math.round(pct) + '%</span></div><div class="budget-track"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, pct)) + '%;background:var(--accent);"></div></div>' + comisionRow + '<div class="meta-goal-spark-row"><div class="meta-goal-spark">' + buildSparkline(historialVals, 120, 32, "var(--accent)") + '</div><div class="meta-goal-aporte muted">Meta de aporte<br><span class="tabular" style="color:var(--text);font-weight:600;">' + money(meta.aporteMensualMeta) + '</span>/mes</div></div><div class="meta-check-row">' + checksRow + '</div><div class="meta-racha">' + (racha > 0 ? "Racha activa \u2014 cumpliste tu aporte " + racha + " " + (racha === 1 ? "mes" : "meses") + " seguidos hasta hoy" : "Sin racha activa \u2014 marca los meses en que cumpliste tu aporte") + "</div></div>";
+    const stockBlock = tieneObjetivo ? '<div class="meta-goal-figs"><span class="tabular gastado">' + money(acumulado) + '</span><span class="of-text"> de ' + money(meta.montoObjetivo) + '</span><span class="budget-pct tabular">' + Math.round(pct) + '%</span></div><div class="budget-track"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, pct)) + '%;background:var(--accent);"></div></div>' : "";
+    const aporteBlock = meta.aporteMensualMeta != null ? '<div class="meta-goal-aporte muted">Meta de aporte<br><span class="tabular" style="color:var(--text);font-weight:600;">' + money(meta.aporteMensualMeta) + "</span>/mes</div>" : "";
+    return '<div class="card meta-goal-card"><div class="meta-goal-head"><span class="meta-goal-name">' + meta.nombre + "</span>" + termChip(meta.plazo) + (racha > 0 ? '<span class="meta-racha-badge">' + racha + " \u{1F525}</span>" : "") + '<button class="budget-edit-btn" data-edit-goal="' + meta.id + '" aria-label="Editar ' + meta.nombre + '">' + ICONS.edit + "</button></div>" + stockBlock + comisionRow + '<div class="meta-goal-spark-row"><div class="meta-goal-spark">' + buildSparkline(historialVals, 120, 32, "var(--accent)") + "</div>" + aporteBlock + '</div><div class="meta-check-row">' + checksRow + '</div><div class="meta-racha">' + (racha > 0 ? "Racha activa \u2014 cumpliste tu aporte " + racha + " " + (racha === 1 ? "mes" : "meses") + " seguidos hasta hoy" : "Sin racha activa \u2014 marca los meses en que cumpliste tu aporte") + "</div></div>";
   }
   __name(renderGoalCard, "renderGoalCard");
   function fullYearMonths(year) {
@@ -4804,14 +4859,16 @@
       const id = editGoalBtn.getAttribute("data-edit-goal");
       const meta = INVESTMENT_GOALS.find((m) => m.id === id);
       state.editingGoalId = id;
-      state.goalDraft = meta ? { nombre: meta.nombre, montoObjetivo: String(meta.montoObjetivo), aporteMensualMeta: String(meta.aporteMensualMeta), aportadoInicial: String(meta.startingAmount || 0), mesInicio: meta.startMonth || todayISO().slice(0, 7), plazo: meta.plazo || "", comision: meta.comision != null ? String(meta.comision) : "" } : { nombre: "", montoObjetivo: "", aporteMensualMeta: "", aportadoInicial: "", mesInicio: todayISO().slice(0, 7), plazo: "", comision: "" };
+      state.goalDraft = meta ? { nombre: meta.nombre, montoObjetivo: meta.montoObjetivo != null ? String(meta.montoObjetivo) : "", aporteMensualMeta: meta.aporteMensualMeta != null ? String(meta.aporteMensualMeta) : "", aportadoInicial: String(meta.startingAmount || 0), mesInicio: meta.startMonth || todayISO().slice(0, 7), plazo: meta.plazo || "", comision: meta.comision != null ? String(meta.comision) : "" } : { nombre: "", montoObjetivo: "", aporteMensualMeta: "", aportadoInicial: "", mesInicio: todayISO().slice(0, 7), plazo: "", comision: "" };
       renderInvestmentsView();
       return;
     }
     const addGoalBtn = e.target.closest("[data-add-goal]");
     if (addGoalBtn) {
+      const addGoalPlatformId = addGoalBtn.getAttribute("data-add-goal");
+      if (PLATFORM_DATA[addGoalPlatformId] && PLATFORM_DATA[addGoalPlatformId].sinValuacion) return;
       state.editingGoalId = "nueva";
-      state.addGoalPlatformId = addGoalBtn.getAttribute("data-add-goal");
+      state.addGoalPlatformId = addGoalPlatformId;
       state.goalDraft = { nombre: "", montoObjetivo: "", aporteMensualMeta: "", aportadoInicial: "", mesInicio: todayISO().slice(0, 7), plazo: "", comision: "" };
       renderInvestmentsView();
       return;
@@ -4827,8 +4884,12 @@
     if (saveGoalBtn) {
       const id = saveGoalBtn.getAttribute("data-save-goal");
       const nombre = state.goalDraft.nombre.trim();
-      const objetivo = safeEvalExpr(state.goalDraft.montoObjetivo);
-      const aporte = safeEvalExpr(state.goalDraft.aporteMensualMeta);
+      const objetivoRaw = state.goalDraft.montoObjetivo.trim();
+      const objetivoVal = objetivoRaw === "" ? null : safeEvalExpr(objetivoRaw);
+      const objetivoValido = objetivoRaw === "" || objetivoVal !== null && objetivoVal > 0;
+      const aporteRaw = state.goalDraft.aporteMensualMeta.trim();
+      const aporteVal = aporteRaw === "" ? null : safeEvalExpr(aporteRaw);
+      const aporteValido = aporteRaw === "" || aporteVal !== null && aporteVal >= 0;
       const comisionRaw = state.goalDraft.comision.trim();
       const comisionVal = comisionRaw === "" ? null : safeEvalExpr(comisionRaw);
       const comisionFinal = comisionRaw !== "" && comisionVal !== null ? comisionVal : null;
@@ -4837,18 +4898,20 @@
       const startingAmount = aportadoInicialVal !== null && aportadoInicialVal >= 0 ? Math.round(aportadoInicialVal) : 0;
       const mesInicioRaw = (state.goalDraft.mesInicio || "").trim();
       const startMonth = /^\d{4}-\d{2}$/.test(mesInicioRaw) ? mesInicioRaw : todayISO().slice(0, 7);
-      if (nombre && objetivo !== null && objetivo > 0 && aporte !== null && aporte >= 0) {
+      if (nombre && objetivoValido && aporteValido) {
+        const montoObjetivo = objetivoRaw !== "" && objetivoVal !== null ? Math.round(objetivoVal) : void 0;
+        const aporteMensualMeta = aporteRaw !== "" && aporteVal !== null ? Math.round(aporteVal) : void 0;
         if (id === "nueva") {
           setGoalIdCounter(goalIdCounter + 1);
           const newId = "m" + goalIdCounter;
-          INVESTMENT_GOALS.push({ id: newId, nombre, montoObjetivo: Math.round(objetivo), aporteMensualMeta: Math.round(aporte), plataformaId: state.addGoalPlatformId, plazo: state.goalDraft.plazo || null, comision: comisionFinal, startMonth, startingAmount, checks: {} });
+          INVESTMENT_GOALS.push({ id: newId, nombre, montoObjetivo, aporteMensualMeta, plataformaId: state.addGoalPlatformId, plazo: state.goalDraft.plazo || null, comision: comisionFinal, startMonth, startingAmount, checks: {} });
           toast("Meta creada: " + nombre);
         } else {
           const meta = INVESTMENT_GOALS.find((m) => m.id === id);
           if (meta) {
             meta.nombre = nombre;
-            meta.montoObjetivo = Math.round(objetivo);
-            meta.aporteMensualMeta = Math.round(aporte);
+            meta.montoObjetivo = montoObjetivo;
+            meta.aporteMensualMeta = aporteMensualMeta;
             meta.plazo = state.goalDraft.plazo || null;
             meta.comision = comisionFinal;
             meta.startMonth = startMonth;
@@ -4860,7 +4923,7 @@
         state.addGoalPlatformId = null;
         renderInvestmentsView();
       } else {
-        toast("Completa nombre, objetivo y aporte meta v\xE1lidos");
+        toast("Completa el nombre y, si escribiste objetivo o aporte, que sean montos v\xE1lidos");
       }
       return;
     }
@@ -4875,7 +4938,7 @@
     }
     const gotoCreateGoalBtn = e.target.closest("[data-goto-create-goal]");
     if (gotoCreateGoalBtn) {
-      const platId = gotoCreateGoalBtn.getAttribute("data-goto-create-goal") || activePlatformIds()[0] || platformIds()[0];
+      const platId = gotoCreateGoalBtn.getAttribute("data-goto-create-goal") || goalCapablePlatformIds()[0] || platformIds().find((id) => !PLATFORM_DATA[id].sinValuacion);
       closeSheet();
       state.tab = "resumen";
       state.summarySub = "inversiones";
@@ -7402,7 +7465,7 @@
   }
   __name(investCatPickerGrid, "investCatPickerGrid");
   function renderInvestGoalEmptyState(contextPlatformId) {
-    const platId = contextPlatformId || activePlatformIds()[0] || platformIds()[0] || "";
+    const platId = contextPlatformId || goalCapablePlatformIds()[0] || platformIds()[0] || "";
     return '<div class="card placeholder-card" style="padding:18px 14px;">' + ICONS.inbox + "<h3>No tienes metas creadas</h3><p>Crea tu primera meta de inversi\xF3n para poder clasificar tus aportes.</p>" + (platId ? '<button class="save-tx-btn" style="width:100%;margin-top:10px;" data-goto-create-goal="' + platId + '">+ Crear meta de inversi\xF3n</button>' : "") + "</div>";
   }
   __name(renderInvestGoalEmptyState, "renderInvestGoalEmptyState");
@@ -8208,7 +8271,15 @@
     fintual: { nombre: "Fintual", tipo: "inversion", color: "mint", icon: "trending" },
     racional: { nombre: "Racional", tipo: "inversion", color: "peach", icon: "trending" },
     banco_chile: { nombre: "Banco de Chile", tipo: "inversion", color: "butter", icon: "bank" },
-    buda: { nombre: "Buda (cripto)", tipo: "inversion", color: "pink", icon: "coin" }
+    buda: { nombre: "Buda (cripto)", tipo: "inversion", color: "pink", icon: "coin" },
+    // "Otros": a catch-all system-seeded platform (same family as the 4 above -- not something
+    // the user creates by hand via "+ Agregar nueva plataforma") for one-off investments that
+    // don't belong anywhere else and don't warrant their own platform/goal (see PLATFORM_DATA.otros
+    // below and platformCurrentValue()/investmentCatOptions() in views/inversiones.ts). Placed
+    // last on purpose: several fallbacks (activePlatformIds()[0], etc.) pick "the first active
+    // platform" as a default when creating a goal, and 'otros' can never host a goal -- see
+    // goalCapablePlatformIds() in views/inversiones.ts for the explicit guard against that anyway.
+    otros: { nombre: "Otros", tipo: "inversion", color: "sage", icon: "layers" }
   };
   var CATEGORY_SEED_DEFAULTS = (function() {
     const out = {};
@@ -8344,6 +8415,17 @@
       tasaAnual: null,
       comision: null,
       plazo: null
+    },
+    // "Otros": no valuation of its own to track (sinValuacion) -- its "value" is always exactly
+    // what's been contributed to it (see platformCurrentValue() in views/inversiones.ts), so
+    // there's never anything to type into valorHistorial/fechaActualizacion by hand.
+    otros: {
+      valorHistorial: {},
+      fechaActualizacion: null,
+      tasaAnual: null,
+      comision: null,
+      plazo: null,
+      sinValuacion: true
     }
   };
   function computeDefaultPlanBase() {
@@ -8355,7 +8437,7 @@
   function computeDefaultGoalPcts(base) {
     const out = {};
     INVESTMENT_GOALS.forEach((m) => {
-      out[m.id] = base > 0 ? round1(m.aporteMensualMeta / base * 100) : 0;
+      out[m.id] = base > 0 ? round1((m.aporteMensualMeta || 0) / base * 100) : 0;
     });
     return out;
   }

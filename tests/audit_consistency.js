@@ -33,7 +33,23 @@ function checkClose(label, a, b, tol){
     const metas = D.INVESTMENT_GOALS.map(m => ({ id: m.id, nombre: m.nombre, plataformaId: m.plataformaId, acumulado: D.metaAcumuladoActual(m), objetivo: m.montoObjetivo }));
     const totalValorPlataformas = platforms.reduce((s,id)=>s+platformData[id].valorActual,0);
     const totalAportadoPlataformas = platforms.reduce((s,id)=>s+platformData[id].aportadoNeto,0);
-    const metaProgreso = D.totalGoalProgress();
+    // "Objetivo de inversión [año]" is a FLOW metric (see annualInvestmentGoalProgress in
+    // views/evolucion.ts) -- computed here from scratch, independently, straight from raw
+    // TRANSACTIONS/INVESTMENT_GOALS (never by calling the app's own function and comparing it to
+    // itself) so this audit can actually catch a stock-vs-flow mislabeling bug, the exact kind
+    // the old totalGoalProgress()-based check would never have noticed.
+    const anio = D.todayISO().slice(0,4);
+    const fixedGoalIdsTruth = new Set(D.INVESTMENT_GOALS.filter(m => m.aporteMensualMeta != null).map(m => m.id));
+    const objetivoAnualTruth = D.INVESTMENT_GOALS.reduce((s,m) => s + (m.aporteMensualMeta || 0), 0) * 12;
+    let aporteAnioTruth = 0, otrosAporteAnioTruth = 0;
+    D.TRANSACTIONS.forEach(t => {
+      if (t.tipo !== 'inversion' || t.estado === 'no_es_gasto' || t.fecha.slice(0,4) !== anio) return;
+      t.categorias.forEach(c => {
+        if (fixedGoalIdsTruth.has(c.cat)) aporteAnioTruth += c.monto;
+        else otrosAporteAnioTruth += c.monto;
+      });
+    });
+    const annualGoalProgress = { objetivoAnualTruth, aporteAnioTruth, otrosAporteAnioTruth };
     const year2026 = D.yearTotals('2026');
     // Average of the last 3 months for the Projection card — we replicate EXACTLY
     // the criterion from projectedContributions() in plata-clara.html (MONTHS filtered to <= the real
@@ -55,7 +71,7 @@ function checkClose(label, a, b, tol){
     const bchMetas = D.INVESTMENT_GOALS.filter(m=>m.plataformaId==='banco_chile');
     const bchMetasSum = bchMetas.reduce((s,m)=>s+D.metaAcumuladoActual(m),0);
     const defaultPlanBase = D.computeDefaultPlanBase();
-    return { perMonth, platformData, metas, totalValorPlataformas, totalAportadoPlataformas, metaProgreso, year2026, avgLast3, bchMetasSum, defaultPlanBase };
+    return { perMonth, platformData, metas, totalValorPlataformas, totalAportadoPlataformas, annualGoalProgress, year2026, avgLast3, bchMetasSum, defaultPlanBase };
   });
   const realMonths = ['2026-04','2026-05','2026-06','2026-07','2026-08'];
 
@@ -230,8 +246,13 @@ function checkClose(label, a, b, tol){
 
   checkClose('Total invertido card', pm(totalCardInfo.totalValorText), truth.totalValorPlataformas);
   checkClose('Total invertido card aportado neto', pm(totalCardInfo.aportadoNetoText), truth.totalAportadoPlataformas);
-  checkClose('Objetivo card acumulado', pm(objetivoCardText.match(/\$[\d.]+/)?.[0]), truth.metaProgreso.totalAcumulado);
-  checkClose('Objetivo card objetivo', pm(objetivoCardText.match(/de (\$[\d.]+)/)?.[1]), truth.metaProgreso.totalObjetivo);
+  // "Objetivo de inversión [año]" is now a FLOW metric -- the card's first $ figure is this
+  // year's contributions to fixed-aporte goals only (aporteAnio), and "de $X" is what those same
+  // goals committed to for the year (objetivoAnual = ΣaporteMensualMeta × 12). See the note above
+  // annualGoalProgress's computation for why this is checked against an independently-computed
+  // truth instead of the app's own annualInvestmentGoalProgress().
+  checkClose('Objetivo anual card: aporte del año a metas de aporte fijo', pm(objetivoCardText.match(/\$[\d.]+/)?.[0]), truth.annualGoalProgress.aporteAnioTruth);
+  checkClose('Objetivo anual card: objetivo anual (aporteMensualMeta × 12)', pm(objetivoCardText.match(/de (\$[\d.]+)/)?.[1]), truth.annualGoalProgress.objetivoAnualTruth);
   checkClose('Banco de Chile combined metas total', pm(bchCombinedText.match(/\$[\d.]+/)?.[0]), truth.bchMetasSum);
   checkClose('Banco de Chile platform card Aportado neto == sum of its metas (rollup)', platformCardData.banco_chile.aportadoNeto, truth.bchMetasSum);
 

@@ -210,16 +210,49 @@ export function goalsForPlatform(id){
 // once), not the longest.
 export function platformGoalsSummary(id){
   const metas = goalsForPlatform(id);
-  const totalObjetivo = metas.reduce((s,m)=>s+m.montoObjetivo,0);
+  // A flow-only goal (no montoObjetivo -- see the note on InvestmentGoal in types.ts) has no
+  // stock total to add here; ||0 keeps this a real STOCK sum instead of NaN as soon as one goal
+  // in the platform lacks montoObjetivo (undefined+number===NaN in JS). This combined figure is
+  // itself only meaningful (and only rendered, see renderPlatformGroup in views/inversiones.ts)
+  // when at least one of the platform's goals actually has a montoObjetivo -- a platform whose
+  // goals are all flow-only would otherwise show a meaningless "$X de $0 · 0%".
+  const totalObjetivo = metas.reduce((s,m)=>s+(m.montoObjetivo||0),0);
   const totalAcumulado = metas.reduce((s,m)=>s+metaAcumuladoActual(m),0);
   const rachas = metas.map(metaRacha);
   const rachaCombinada = (metas.length>0 && rachas.every(r=>r>0)) ? Math.min(...rachas) : 0;
   return {metas, totalObjetivo, totalAcumulado, rachaCombinada};
 }
-export function totalGoalProgress(){
-  const totalObjetivo = INVESTMENT_GOALS.reduce((s,m)=>s+m.montoObjetivo,0);
-  const totalAcumulado = INVESTMENT_GOALS.reduce((s,m)=>s+metaAcumuladoActual(m),0);
-  return {totalObjetivo, totalAcumulado};
+// The investment objective is a FLOW metric (what you committed to invest THIS YEAR), never a
+// STOCK one -- this replaces the old totalGoalProgress(), which mixed both natures: it compared
+// the STOCK total of every goal's montoObjetivo against the STOCK lifetime accumulated-since-
+// start total, mislabeled in the UI as if it were something annual. See the note on
+// InvestmentGoal (types.ts) for the montoObjetivo/aporteMensualMeta stock/flow distinction.
+//   - objetivoAnual: sum of aporteMensualMeta × 12, for every goal that HAS a fixed
+//     aporteMensualMeta -- a flow-only "whatever I can" goal contributes $0 here, there's no
+//     committed amount to multiply.
+//   - aporteAnio: how much was ACTUALLY contributed this year to those SAME fixed-aporte goals
+//     (never lifetime, never a flow-only goal's contributions) -- this is the progress bar's
+//     numerator, so a flexible contribution elsewhere can never push it past 100%.
+//   - otrosAporteAnio: everything else invested this year -- a flow-only goal's contributions
+//     (no aporteMensualMeta), a platform's General bucket, or the "Otros" platform. Informational
+//     only, NEVER added to the bar's numerator. Every tipo:'inversion' transaction (excluding a
+//     'no_es_gasto' write-off, same exclusion aggregatedTxAmount/aportadoAcumuladoHastaMesONull
+//     already apply) lands in exactly one of aporteAnio/otrosAporteAnio.
+export function annualInvestmentGoalProgress(year){
+  const fixedGoals = INVESTMENT_GOALS.filter(m=>m.aporteMensualMeta!=null);
+  const fixedGoalIds = new Set(fixedGoals.map(m=>m.id));
+  const objetivoAnual = fixedGoals.reduce((s,m)=>s+(m.aporteMensualMeta||0), 0) * 12;
+  const aporteAnio = fixedGoals.reduce((s,m)=>
+    s + metaContribTxs(m)
+      .filter(t=>t.fecha.slice(0,4)===year && t.estado!=='no_es_gasto')
+      .reduce((s2,t)=>s2+metaContribAmount(t, m.id), 0)
+  , 0);
+  let otrosAporteAnio = 0;
+  TRANSACTIONS.forEach(t=>{
+    if(t.tipo!=='inversion' || t.estado==='no_es_gasto' || t.fecha.slice(0,4)!==year) return;
+    t.categorias.forEach(c=>{ if(!fixedGoalIds.has(c.cat)) otrosAporteAnio += c.monto; });
+  });
+  return {objetivoAnual, aporteAnio, otrosAporteAnio};
 }
 // 12 little squares (January-December of the current year) to mark by hand whether you hit
 // your TOTAL investment goal that month — independent of each individual goal's own checks.
@@ -269,10 +302,12 @@ export function renderGoalEditForm(meta, plataformaId?){
     (ctxNombre ? '<div class="meta-goal-ctx muted">'+(meta?'Meta en ':'Nueva meta en ')+ctxNombre+'</div>' : '')+
     '<label class="draft-label">Nombre de la meta</label>'+
     '<input type="text" class="draft-input" data-goal-field="nombre" value="'+d.nombre.replace(/"/g,'&quot;')+'" placeholder="Ej: Fondo de emergencia">'+
-    '<label class="draft-label" style="margin-top:12px;">Monto objetivo</label>'+
-    '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="'+d.montoObjetivo+'" placeholder="0">'+
-    '<label class="draft-label" style="margin-top:12px;">Aporte mensual meta</label>'+
-    '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aporteMensualMeta" value="'+d.aporteMensualMeta+'" placeholder="0">'+
+    '<label class="draft-label" style="margin-top:12px;">Monto objetivo (opcional)</label>'+
+    '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="'+d.montoObjetivo+'" placeholder="Déjalo vacío si no juntas un total">'+
+    '<div class="platform-hint muted">Ponlo solo si esta meta es juntar un total (ej. el pie de un depto) — muestra una barra de progreso hacia ese monto. Si es una meta de aporte mensual sin un total fijo, déjalo vacío.</div>'+
+    '<label class="draft-label" style="margin-top:12px;">Aporte mensual meta (opcional)</label>'+
+    '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aporteMensualMeta" value="'+d.aporteMensualMeta+'" placeholder="Déjalo vacío si aportas lo que puedas">'+
+    '<div class="platform-hint muted">Si tienes un monto fijo que aportas cada mes, ponlo acá — suma al objetivo de inversión del año y a tu meta de Inversión en Balance. Si prefieres aportar "lo que más puedas" sin comprometerte a un monto, déjalo vacío: igual cuenta como inversión real cuando aportes.</div>'+
     '<label class="draft-label" style="margin-top:12px;">¿Cuánto tienes ahorrado hasta ahora?</label>'+
     '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aportadoInicial" value="'+d.aportadoInicial+'" placeholder="0">'+
     '<div class="platform-hint muted">Lo que ya tenías guardado para esta meta antes de empezar a registrarla acá. Se suma a lo que categorices desde el mes de inicio de abajo.</div>'+
@@ -309,7 +344,8 @@ export function renderGoalCard(meta){
 
   const trackedMonths = metaMonths(meta);
   const acumulado = metaAcumuladoActual(meta);
-  const pct = meta.montoObjetivo>0 ? (acumulado/meta.montoObjetivo)*100 : 0;
+  const tieneObjetivo = meta.montoObjetivo!=null;
+  const pct = (tieneObjetivo && meta.montoObjetivo>0) ? (acumulado/meta.montoObjetivo)*100 : 0;
   const racha = metaRacha(meta);
   const comision = meta.comision;
   const gananciaMeta = metaGananciaEstimada(meta);
@@ -328,6 +364,20 @@ export function renderGoalCard(meta){
     '</button>';
   }).join('');
 
+  // Stock progress (figs + bar) only applies to a goal with a total to save up to
+  // (montoObjetivo) -- a flow goal (no total, whether or not it has a fixed monthly amount) has
+  // nothing to show 0%/100% against, so this block is skipped entirely instead of rendering a
+  // misleading "$X de $0 · 0%" (see the note on InvestmentGoal in types.ts).
+  const stockBlock = tieneObjetivo ? (
+    '<div class="meta-goal-figs"><span class="tabular gastado">'+money(acumulado)+'</span><span class="of-text"> de '+money(meta.montoObjetivo)+'</span><span class="budget-pct tabular">'+Math.round(pct)+'%</span></div>'+
+    '<div class="budget-track"><div class="budget-fill" style="width:'+Math.max(0,Math.min(100,pct))+'%;background:var(--accent);"></div></div>'
+  ) : '';
+  // "Meta de aporte" only applies to a goal with a fixed monthly target -- a "contribute whatever
+  // I can" goal (no aporteMensualMeta) has no such figure to show.
+  const aporteBlock = meta.aporteMensualMeta!=null
+    ? '<div class="meta-goal-aporte muted">Meta de aporte<br><span class="tabular" style="color:var(--text);font-weight:600;">'+money(meta.aporteMensualMeta)+'</span>/mes</div>'
+    : '';
+
   return '<div class="card meta-goal-card">'+
     '<div class="meta-goal-head">'+
       '<span class="meta-goal-name">'+meta.nombre+'</span>'+
@@ -335,12 +385,11 @@ export function renderGoalCard(meta){
       (racha>0 ? '<span class="meta-racha-badge">'+racha+' 🔥</span>' : '')+
       '<button class="budget-edit-btn" data-edit-goal="'+meta.id+'" aria-label="Editar '+meta.nombre+'">'+ICONS.edit+'</button>'+
     '</div>'+
-    '<div class="meta-goal-figs"><span class="tabular gastado">'+money(acumulado)+'</span><span class="of-text"> de '+money(meta.montoObjetivo)+'</span><span class="budget-pct tabular">'+Math.round(pct)+'%</span></div>'+
-    '<div class="budget-track"><div class="budget-fill" style="width:'+Math.max(0,Math.min(100,pct))+'%;background:var(--accent);"></div></div>'+
+    stockBlock+
     comisionRow+
     '<div class="meta-goal-spark-row">'+
       '<div class="meta-goal-spark">'+buildSparkline(historialVals, 120, 32, 'var(--accent)')+'</div>'+
-      '<div class="meta-goal-aporte muted">Meta de aporte<br><span class="tabular" style="color:var(--text);font-weight:600;">'+money(meta.aporteMensualMeta)+'</span>/mes</div>'+
+      aporteBlock+
     '</div>'+
     '<div class="meta-check-row">'+checksRow+'</div>'+
     '<div class="meta-racha">'+(racha>0 ? 'Racha activa — cumpliste tu aporte '+racha+' '+(racha===1?'mes':'meses')+' seguidos hasta hoy' : 'Sin racha activa — marca los meses en que cumpliste tu aporte') +'</div>'+

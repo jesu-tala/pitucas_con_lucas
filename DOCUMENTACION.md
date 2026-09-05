@@ -187,22 +187,42 @@ Supabase (ver sección 5) o a un respaldo JSON descargable (Menú → Respaldo e
 - **`PAYMENT_METHODS`** (objeto, `id → {nombre, corto, icon}`): medios de pago (tarjetas, cuenta vista,
   efectivo). `icon` sí es siempre un nombre del set `ICONS` (`'card' | 'bank' | 'cash'`).
 - **`BUDGETS`** (objeto, `catId → {meta, alertas:{80,90,100}}`) + `monthlyBudgetTotal`.
-- **`INVESTMENT_GOALS`** (array): metas estilo "Fintual" — `{id, nombre, montoObjetivo,
-  aporteMensualMeta, plataformaId, plazo, comision, startMonth, startingAmount, checks:{mes:bool}}`.
-  Cada meta vive DENTRO de una plataforma (`plataformaId`); una plataforma puede tener 0, 1 o varias
-  metas. `aportadoNeto`/`historial` **ya no se guardan a mano** — se calculan siempre desde las
-  transacciones `tipo:'inversion'` categorizadas al id de la meta (`metaAportadoNeto(meta)` /
-  `metaHistorialAt(meta, mes)` en `views/evolucion.ts`), más el seed manual de `startingAmount` (lo
-  que ya tenía ahorrado antes de trackear la meta en la app) contado desde `startMonth` en adelante
-  — así una meta que en la vida real partió antes de que se creara en la app puede hacerse retroceder
-  sin inventar transacciones. `checks` sigue siendo 100% manual (el hábito de "cumplí mi aporte este
-  mes"), no se puede inferir de una transacción.
-- **`PLATFORM_DATA`** (objeto, `id → {valorHistorial:{mes:monto}, fechaActualizacion,
-  tasaAnual, comision, plazo}`): valor aproximado que la usuaria actualiza a mano de vez en
-  cuando. El "aportado neto" de una plataforma (`platformAportadoNeto(id)` en `views/inversiones.ts`)
-  **no** se guarda acá: es un rollup de sus propias metas (`metaAportadoNeto` de cada una) más lo
-  categorizado a su bucket `"<id>__general"` — nunca una suma directa de transacciones por `cat===id`,
-  porque ninguna transacción usa ese id directamente (ver la nota sobre `categorias` más arriba).
+- **`INVESTMENT_GOALS`** (array, tipado `InvestmentGoal[]` en `types.ts`): metas estilo
+  "Fintual" — `{id, nombre, montoObjetivo?, aporteMensualMeta?, plataformaId, plazo, comision,
+  startMonth, startingAmount, checks:{mes:bool}}`. Cada meta vive DENTRO de una plataforma
+  (`plataformaId`); una plataforma puede tener 0, 1 o varias metas. `montoObjetivo` y
+  `aporteMensualMeta` son **ambos opcionales, de forma independiente** — distinguen dos
+  naturalezas de meta: una de **stock** (juntar un total, ej. el pie de un depto: `montoObjetivo`
+  puesto, con o sin un aporte mensual fijo encima) y una de **flujo** (aportar cada mes, sin un
+  total que alcanzar: sin `montoObjetivo`). Con `aporteMensualMeta` puesto, ese monto suma al
+  "aporte mensual objetivo" total y por lo tanto al % de Inversión de Balance
+  (`monthlyInvestmentGoalCLP`/`investmentGoalPct` en `ui/donut.ts`) y al objetivo anual de
+  Inversiones (`annualInvestmentGoalProgress`, ver más abajo); sin él ("aporta lo que puedas"), no
+  suma a ninguno de los dos, pero lo que sí se aporte cuenta igual como inversión real (aportado
+  neto / Total invertido) — solo que como aporte "sin objetivo fijo", nunca empujando la barra del
+  objetivo anual más allá del 100%. `aportadoNeto`/`historial` **ya no se guardan a mano** — se
+  calculan siempre desde las transacciones `tipo:'inversion'` categorizadas al id de la meta
+  (`metaAportadoNeto(meta)` / `metaHistorialAt(meta, mes)` en `views/evolucion.ts`), más el seed
+  manual de `startingAmount` (lo que ya tenía ahorrado antes de trackear la meta en la app) contado
+  desde `startMonth` en adelante — así una meta que en la vida real partió antes de que se creara
+  en la app puede hacerse retroceder sin inventar transacciones. `checks` sigue siendo 100% manual
+  (el hábito de "cumplí mi aporte este mes"), no se puede inferir de una transacción.
+- **`PLATFORM_DATA`** (objeto tipado `Record<string, PlatformData>`, `id → {valorHistorial:{mes:monto},
+  fechaActualizacion, tasaAnual, comision, plazo, archivada?, sinValuacion?}`): valor aproximado
+  que la usuaria actualiza a mano de vez en cuando. El "aportado neto" de una plataforma
+  (`platformAportadoNeto(id)` en `views/inversiones.ts`) **no** se guarda acá: es un rollup de sus
+  propias metas (`metaAportadoNeto` de cada una) más lo categorizado a su bucket
+  `"<id>__general"` — nunca una suma directa de transacciones por `cat===id`, porque ninguna
+  transacción usa ese id directamente (ver la nota sobre `categorias` más arriba). Una plataforma
+  con `sinValuacion:true` no tiene valuación propia que trackear — su "valor" se define como
+  exactamente lo aportado (`platformCurrentValue(id)` retorna `platformAportadoNeto(id)`), así que
+  su ganancia/pérdida da siempre $0 por construcción, en cualquier lugar que ya calcule ganancia
+  como `valor − aportado` sin tener que saber nada de `sinValuacion`. Es el caso de **"Otros"**, una
+  quinta plataforma sembrada junto a fintual/racional/banco_chile/buda para aportes puntuales sin
+  plataforma ni meta propia — a diferencia de esas 4, nunca admite metas dentro
+  (`goalCapablePlatformIds()` en `views/inversiones.ts` la excluye siempre como destino por
+  defecto al crear una meta) y su acordeón no ofrece ni editar/actualizar valor, ni comisión, ni
+  "+ Agregar meta" (nada de eso aplica cuando no hay valuación ni metas que administrar).
 - **`PLANNER`** (`{base, metaPcts:{metaId:pct}}`): "cuánto de mi excedente mensual mando a
   cada meta", agrupado por plazo (Corto/Medio/Largo).
 - **`TOTAL_GOAL_CHECKS`** (`{mes:bool}`): check manual mes a mes de "¿cumplí mi objetivo de
@@ -404,22 +424,47 @@ año.
 - **Card de totales** ("Total invertido"): un cuadrado compacto con Aportado neto (más chico que
   los de Balance, `.stat-grid-compact`) — ya no muestra "Ganancia/pérdida aprox." (se sacó a
   pedido de la usuaria, no reintroducir).
-- **Objetivo de inversión (año actual)**: progreso acumulado vs. objetivo de todas las metas +
-  una línea chica "Aporte mensual objetivo" (mismo monto que define el % de Inversión de
-  Balance) + grilla de 12 meses para marcar "¿cumpliste tu objetivo total?" con racha (🔥) si
-  hay meses seguidos cumplidos.
+- **Objetivo de inversión (año actual)**: es una métrica de **FLUJO**, no de stock — hasta
+  septiembre 2026 esta card comparaba mal el acumulado histórico total contra el stock total de
+  `montoObjetivo` de todas las metas, mostrándolo como si fuera algo anual cuando en realidad
+  mezclaba dos cosas de naturaleza distinta (ver la nota sobre `montoObjetivo`/`aporteMensualMeta`
+  en la sección 3). Ahora (`annualInvestmentGoalProgress(año)` en `views/evolucion.ts`): el
+  denominador es `Σ(aporteMensualMeta) × 12` de las metas que tienen un aporte mensual fijo; el
+  numerador de la barra es lo efectivamente aportado ESTE AÑO a esas mismas metas de aporte fijo
+  (nunca acumulado histórico, nunca lo aportado a una meta de flujo libre o a "Otros"). Lo demás
+  invertido este año sin un objetivo fijo detrás (metas de "aporta lo que puedas", buckets
+  General, "Otros") se muestra aparte como una línea informativa ("+ $X en aportes sin objetivo
+  fijo este año") — nunca empuja la barra más allá del 100%. Si ninguna meta tiene aporte
+  mensual fijo, no se muestra una barra 0/$0: se explica que no hay objetivo anual que medir. Debajo:
+  la línea chica "Aporte mensual objetivo" (mismo monto que define el % de Inversión de Balance)
+  + grilla de 12 meses para marcar "¿cumpliste tu objetivo total?" con racha (🔥) si hay meses
+  seguidos cumplidos — esa grilla y su racha (`TOTAL_GOAL_CHECKS`) son 100% independientes de este
+  cálculo, nunca se tocan por esto.
 - **Mis plataformas**: acordeón de una sola apertura por plataforma. Colapsada solo muestra
-  nombre + hace cuánto se actualizó + valor total. Abierta muestra valor/aportado, comisión
-  (si no tiene metas propias), y sus metas (cada una con progreso, comisión — separada y en
-  letra chica de la barra de progreso —, sparkline, y checks mensuales que se extienden desde
+  nombre + hace cuánto se actualizó + valor total (o, si `sinValuacion`, directamente lo
+  aportado — ver "Otros" más abajo, sin la etiqueta de actualización). Abierta muestra
+  valor/aportado, comisión (si no tiene metas propias), y sus metas (cada una con progreso —
+  omitido si la meta no tiene `montoObjetivo`, ver sección 3 —, comisión, sparkline, "Meta de
+  aporte" —omitida si no tiene `aporteMensualMeta`— y checks mensuales que se extienden desde
   `startMonth` hasta diciembre del año en curso, no solo hasta el último mes con transacciones).
-  Crear/editar una meta (`renderGoalEditForm`) pide nombre, monto objetivo, aporte mensual meta,
-  **cuánto tienes ahorrado hasta ahora** (`startingAmount`) y **desde qué mes partiste** con la
-  meta (`startMonth`, `<input type="month">`) — así una meta que en la vida real es más vieja que
-  el momento en que se creó en la app puede arrancar su historial antes, sin inventar
-  transacciones. `platformAportadoNeto(id)` es la suma de `metaAportadoNeto()` de sus metas más
-  lo categorizado a su bucket `"<id>__general"` (ver más abajo), nunca una suma directa de
-  transacciones por `cat===id`.
+  El resumen combinado de metas de una plataforma (`platformGoalsSummary`) solo se muestra si al
+  menos una de sus metas tiene `montoObjetivo` — si todas son de flujo puro, no tiene sentido un
+  "$X de $0". Crear/editar una meta (`renderGoalEditForm`) pide nombre, **monto objetivo
+  (opcional)**, **aporte mensual meta (opcional)** — dejar cualquiera de los dos en blanco es
+  válido, ya no bloquea el guardado —, **cuánto tienes ahorrado hasta ahora** (`startingAmount`) y
+  **desde qué mes partiste** con la meta (`startMonth`, `<input type="month">`) — así una meta que
+  en la vida real es más vieja que el momento en que se creó en la app puede arrancar su historial
+  antes, sin inventar transacciones. `platformAportadoNeto(id)` es la suma de `metaAportadoNeto()`
+  de sus metas más lo categorizado a su bucket `"<id>__general"` (ver más abajo), nunca una suma
+  directa de transacciones por `cat===id`.
+  - **"Otros"**: quinta plataforma sembrada junto a fintual/racional/banco_chile/buda, para
+    inversiones puntuales sin plataforma ni meta propia (ej. una compra suelta que no amerita
+    crear una plataforma nueva). `PLATFORM_DATA.otros.sinValuacion===true`: no tiene valuación
+    propia, así que su "valor" es siempre exactamente lo aportado y su ganancia/pérdida da $0 sin
+    importar cuánto se le aporte. Nunca admite metas propias (su acordeón no ofrece "+ Agregar
+    meta", ni editar/actualizar valor, ni comisión — no hay nada que actualizar) y su única opción
+    de categorización es su bucket General, mostrado simplemente como "Otros" (sin el sufijo
+    "· General" que sí llevan las demás plataformas, ya que nunca compite con una meta propia).
 - **Categorización de una transacción `tipo:'inversion'`** (`renderCategoryRows`/
   `renderDraftCategoryRow`/`investCatPickerGrid` en `sheet.ts`, opciones armadas por
   `investmentCatOptions()` en `views/inversiones.ts`): ya no ofrece las plataformas — ofrece, por
