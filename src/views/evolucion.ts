@@ -459,6 +459,10 @@ export function renderEvolutionView(){
     '<div class="card evo-card">'+
       '<div class="evo-detail-month">Enero – Diciembre '+yr.year+'</div>'+
       yearRow+
+      // Composition (donut by category, Fijo/Variable/Inversión) lives in Balance, not here --
+      // this is just a text link out, never a duplicated chart (Evolución stays "how things
+      // change over time", Balance stays "composition").
+      '<button class="budget-ver-mas" data-goto-balance-anual>Ver desglose del año →</button>'+
     '</div>'+
 
     '<div class="evo-caption muted" style="padding:0 4px;">¿Buscas tus metas de inversión y tus plataformas? Ahora viven juntas en <b>Inversiones</b>.</div>'+

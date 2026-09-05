@@ -1,7 +1,9 @@
-import { catInfo, catNetAmount, netExpenseTx, monthlyReimbursementTotal, aggregatedTxAmount, txsOfMonth } from '../helpers';
+import { catInfo, catNetAmount, netExpenseTx, monthlyReimbursementTotal, reimbursementTotalForMonths, aggregatedTxAmount, txsOfMonth } from '../helpers';
 import { ICONS, catIconMarkup } from '../icons';
-import { CATEGORIES, SPENDING_GOAL_PCT, MONTHS, BUDGETS, money, monthlyBudgetTotal, state } from '../state';
-import { referenceMonthlyIncome, monthlyInvestmentGoalCLP, investmentGoalPct, monthSwitcherHtml, renderDonutBlock, renderGoalSummaryCard } from '../ui/donut';
+import { segmentedHtml } from '../sheet';
+import { CATEGORIES, SPENDING_GOAL_PCT, MONTHS, BUDGETS, money, monthlyBudgetTotal, state, todayISO } from '../state';
+import { referenceMonthlyIncome, monthlyInvestmentGoalCLP, investmentGoalPct, monthSwitcherHtml, yearSwitcherHtml, renderDonutBlock, renderGoalSummaryCard } from '../ui/donut';
+import { yearTotals, fullYearMonths } from './evolucion';
 /* ===================== BUDGET (Phase 2) ===================== */
 export function catMonthExpense(catId, monthKey){
   return txsOfMonth(monthKey)
@@ -210,7 +212,17 @@ export function renderBudgetView(){
     '<div style="height:12px;"></div>';
 }
 
+// The period selector above Balance (Mes/Año) — SAME view either way, just a different range of
+// transactions feeding it (renderDonutBlock/renderGoalSummaryCard don't care which period they're
+// handed, see ui/donut.ts). Year mode always shows the CURRENT calendar year, no navigation —
+// same scope decision Evolución already made for its own year total.
+function balancePeriodoSelectorHtml(){
+  return segmentedHtml('balance-periodo', [{id:'mes',label:'Mes'},{id:'año',label:'Año'}], state.balancePeriodo);
+}
+
 export function renderBalanceView(){
+  if(state.balancePeriodo==='año'){ renderBalanceViewAnio(); return; }
+
   const month = MONTHS[state.monthIndex];
   const monthTx = txsOfMonth(month);
   let ingresos=0, gastos=0, inversiones=0;
@@ -224,6 +236,7 @@ export function renderBalanceView(){
   const balance = ingresos - gastos - inversiones;
 
   const html =
+    balancePeriodoSelectorHtml()+
     monthSwitcherHtml()+
     '<div class="stat-grid">'+
       '<div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">'+money(ingresos)+'</div></div>'+
@@ -231,8 +244,8 @@ export function renderBalanceView(){
       '<div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">'+money(inversiones)+'</div></div>'+
       '<div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:'+(balance>=0?'var(--income-ink)':'var(--expense-ink)')+'">'+money(balance)+'</div></div>'+
     '</div>'+
-    renderReembolsoCard(month)+
-    renderGoalSummaryCard(monthTx, ingresos)+
+    renderReembolsoCard(monthlyReimbursementTotal(month), 'Reembolsado este mes')+
+    renderGoalSummaryCard(monthTx, ingresos, investmentGoalPct())+
     renderDonutBlock('Ingresos por categoría','De dónde llegó la plata este mes','ingreso',monthTx)+
     renderDonutBlock('Gastos por categoría','A dónde se te fue la plata este mes','gasto',monthTx)+
     renderDonutBlock('Inversiones por categoría','Tus aportes por plataforma este mes','inversion',monthTx);
@@ -240,15 +253,65 @@ export function renderBalanceView(){
   document.getElementById('resumen-content').innerHTML = html;
 }
 
-// How much they got reimbursed this month (isapre, supplemental insurance, etc.) — informational,
-// it doesn't subtract from "Expenses" above: the full expense did come out of their pocket at the time,
-// this just shows how much of that money has already come back.
-export function renderReembolsoCard(month){
-  const r = monthlyReimbursementTotal(month);
+// Year mode: SAME donut/goal-card components as month mode, just fed a full calendar year's
+// transactions instead of one month's — reusing yearTotals()/fullYearMonths() from
+// views/evolucion.ts (the exact same functions that build Evolución's own "Total del año" card)
+// so Balance's annual totals are GUARANTEED to match Evolución's number-for-number, not just
+// "recomputed the same way by coincidence".
+function renderBalanceViewAnio(){
+  const year = todayISO().slice(0,4);
+  const yr = yearTotals(year);
+  const yearTx = fullYearMonths(year).flatMap(m=>txsOfMonth(m));
+  const balance = yr.ingresos - yr.gastos - yr.inversiones;
+
+  // ---- Year-mode target % for the Investment goal ----
+  // SPENDING_GOAL_PCT.fijo/.variable are already plain percentages of income (a ratio), so they
+  // mean exactly the same thing whether "income" is one month's or a full year's worth — no
+  // rescaling needed there, AS LONG AS both the achieved-% numerator (fijo/variable pesos) and
+  // denominator (ingresos) are switched to year-sums together, which renderGoalSummaryCard
+  // already does by construction (it derives both from whatever periodTx/ingresos it's handed).
+  //
+  // The Investment goal is different: its target originates as monthlyInvestmentGoalCLP(), a
+  // FIXED MONTHLY PESO amount (the sum of every goal's aporteMensualMeta) — not already a
+  // period-invariant ratio. Comparing a whole year of actual investment pesos against a single
+  // month's peso target (or against investmentGoalPct(), which is defined relative to ONE
+  // month's reference income) would silently mix a multi-month numerator against a one-month
+  // denominator and produce a meaningless, too-easy-to-clear percentage.
+  // The fix: scale the peso target by how many months of the year have actually elapsed so far
+  // (never all 12 — that would project months that haven't happened yet), then express that
+  // scaled peso target as a % of the year's actual accumulated income:
+  const mesesTranscurridos = fullYearMonths(year).filter(m=>m<=todayISO().slice(0,7));
+  const objetivoInversionAcumulado = monthlyInvestmentGoalCLP()*mesesTranscurridos.length;
+  const metaInvPctAnio = yr.ingresos>0 ? (objetivoInversionAcumulado/yr.ingresos)*100 : 0;
+
+  const html =
+    balancePeriodoSelectorHtml()+
+    yearSwitcherHtml(year)+
+    '<div class="stat-grid">'+
+      '<div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">'+money(yr.ingresos)+'</div></div>'+
+      '<div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">'+money(yr.gastos)+'</div></div>'+
+      '<div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">'+money(yr.inversiones)+'</div></div>'+
+      '<div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:'+(balance>=0?'var(--income-ink)':'var(--expense-ink)')+'">'+money(balance)+'</div></div>'+
+    '</div>'+
+    renderReembolsoCard(reimbursementTotalForMonths(fullYearMonths(year)), 'Reembolsado este año')+
+    renderGoalSummaryCard(yearTx, yr.ingresos, metaInvPctAnio)+
+    renderDonutBlock('Ingresos por categoría','De dónde llegó la plata este año','ingreso',yearTx)+
+    renderDonutBlock('Gastos por categoría','A dónde se te fue la plata este año','gasto',yearTx)+
+    renderDonutBlock('Inversiones por categoría','Tus aportes por plataforma este año','inversion',yearTx);
+
+  document.getElementById('resumen-content').innerHTML = html;
+}
+
+// How much they got reimbursed over the period (isapre, supplemental insurance, etc.) —
+// informational, it doesn't subtract from "Expenses" above: the full expense did come out of
+// their pocket at the time, this just shows how much of that money has already come back.
+// `r` is a {total,count} already computed for whatever period (one month or a full year) the
+// caller is showing — see reimbursementTotalForMonths in helpers.ts.
+export function renderReembolsoCard(r, label){
   if(r.count===0) return '';
   return '<div class="card reembolso-card">'+
     '<span class="reembolso-icon">'+ICONS.checkCircle+'</span>'+
-    '<div><div class="reembolso-label">Reembolsado este mes</div>'+
+    '<div><div class="reembolso-label">'+label+'</div>'+
     '<div class="reembolso-value tabular">'+money(r.total)+'</div></div>'+
   '</div>';
 }

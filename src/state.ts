@@ -369,6 +369,7 @@ export const state: AppState = {
   categoryFilter:null,        // cat id or null
   categoryFilterMonth:null,   // 'YYYY-MM' or null, set together with categoryFilter from a Balance drill-down
   monthIndex: currentMonthIndex(),
+  balancePeriodo:'mes',       // mes | año — Resumen > Balance shows the current month or the full current year (never a past/future year)
   openTxId:null,
   creatingNew:false,
   draftTx:null,
