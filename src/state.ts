@@ -197,9 +197,13 @@ export function getPlannerDefaults(){
 // value depends on monthTotals(), which needs both already defined.
 
 // Each transaction: id, fecha, hora, comercio, monto, medio, tipo, recurrencia, estado, categorias:[{cat,monto}],
-// porCobrar:[{persona,monto,pagado,tipo:'persona'|'reembolso',montoRecibido,linkedTxId}] (persona = name or entity
-// that owes you/is reimbursing you; monto can be null when it's a reimbursement of unknown amount; montoRecibido/
-// linkedTxId are only filled in when linking a real deposit — see resolvePending), reglaAuto, nota
+// porCobrar:[{persona,monto,pagado,tipo:'persona'|'reembolso',montoRecibido,linkedTxId,direccion?}] (persona = name
+// or entity that owes you/is reimbursing you, or -- for a 'persona' row with direccion:'debo' -- whoever you
+// actually owe; monto can be null when it's a reimbursement of unknown amount; montoRecibido/linkedTxId are only
+// filled in when linking a real deposit — see resolvePending; direccion is 'me_deben' (or absent, same meaning
+// on old data) unless someone else paid, see ReceivableItem in types.ts and commitPersonaSplit in
+// shared-expenses.ts), reglaAuto, nota. A transaction may also carry pagador/divisionTipo (see types.ts) once it
+// has a 'persona' split.
 export let TRANSACTIONS: Transaction[] = [
   {id:'t1',fecha:'2026-08-28',hora:'09:12',comercio:'Jumbo Ñuñoa',monto:45000,medio:'debito_bci',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'supermercado',monto:31500},{cat:'hogar',monto:13500}],porCobrar:[],reglaAuto:false,nota:''},
   {id:'t2',fecha:'2026-08-28',hora:'08:05',comercio:'Copec Providencia',monto:18000,medio:'visa_bch',tipo:'gasto',recurrencia:'variable',estado:'confirmado',categorias:[{cat:'transporte',monto:18000}],porCobrar:[],reglaAuto:true,nota:''},

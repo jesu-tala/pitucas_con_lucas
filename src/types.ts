@@ -46,6 +46,15 @@ export interface ReceivableItem {
   groupId?: string;
   sharedExpenseId?: string;
   participantId?: string;
+  // Which way the money moves, for a 'persona' row on a transaction with NO group (see
+  // Transaction.pagador below): absent or 'me_deben' is the original/only case there ever was
+  // (you paid, this person owes you their share) -- old data with no direccion at all keeps
+  // meaning exactly that, zero migration needed. 'debo' is the new, symmetric case: someone
+  // ELSE paid and you owe THEM your own share. A 'debo' row is always the only 'persona' row on
+  // its transaction (this app only ever tracks YOUR relationship to whoever actually paid, never
+  // a full N-way ledger between ad-hoc people -- see commitPersonaSplit in shared-expenses.ts).
+  // Never set on a 'reembolso' row (that flow is untouched and has no notion of direction).
+  direccion?: 'me_deben' | 'debo';
 }
 
 export interface InstallmentsInfo { total: number; }
@@ -85,6 +94,21 @@ export interface Transaction {
   // if fuzzy matching (matchConfidence) would fail to recognize it a second time -- this is the
   // hard guarantee idempotency needs; fuzzy matching alone is only ever a probabilistic signal.
   fuenteLineaId?: string;
+  // ---- Splitting an expense with people (no group) ----
+  // pagador: who actually paid, for the NO-group porCobrar path only -- a transaction WITH a
+  // group (groupId set, below) already has its own equivalent concept (SharedExpense.pagado_por
+  // in Supabase), this field doesn't apply there. Absent/undefined means "Tú" (the account
+  // owner), which is the only case that ever existed before this field: old data with no
+  // pagador at all keeps meaning exactly that, zero migration needed. Only ever set to something
+  // else when porCobrar holds the single synthetic 'debo' row (see ReceivableItem.direccion) --
+  // i.e. someone else paid and you owe them your own share.
+  pagador?: string;
+  // divisionTipo: which of the 3 modalities (see SplitType, further below) produced the CURRENT
+  // porCobrar split -- purely descriptive (lets "Editar reparto" reopen the same modality you
+  // used last), never re-derives or re-validates old amounts by itself. Absent means either
+  // legacy data (from before this field existed) or a transaction with no split at all -- either
+  // way, whatever is already in porCobrar keeps rendering/behaving exactly as it does today.
+  divisionTipo?: SplitType;
   // ---- Shared expenses ----
   // groupId: present if THIS transaction (yours, real, editable) was shared with a group --
   // everyone else's split lives in porCobrar (above), same as an old-style friends split.

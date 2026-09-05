@@ -1,6 +1,6 @@
 import { getTx } from './sheet';
 import { SHARED_EXPENSES, GROUP_PARTICIPANTS, MONTHS_LONG, MONTHS, MONTH_LABEL, PAID_BALANCES, TRANSACTIONS, setTransactions, state } from './state';
-import { SharedExpense, ExpenseSplit, GroupParticipant, ParticipantBalance, SuggestedTransfer } from './types';
+import { SharedExpense, ExpenseSplit, GroupParticipant, ParticipantBalance, SuggestedTransfer, SplitType, Transaction, ReceivableItem } from './types';
 /* ===================== SHARED EXPENSES: balance engine =====================
    Pure functions — they don't touch Supabase or the DOM, only GROUP_PARTICIPANTS/
    SHARED_EXPENSES/PAID_BALANCES already loaded in memory. That's why they're easy to cover
@@ -63,18 +63,129 @@ export function suggestedTransfers(groupId: string): SuggestedTransfer[] {
 }
 
 // Splits a total amount among N participants exactly (never a $1 difference from rounding):
-// everyone gets the same floor, and the remainder (always < N) is handed out $1 at a time to
-// the first participants in the list — same rule the app already uses for installments.
+// everyone gets the same floor, and the remainder (always < N) is absorbed by the LAST
+// participant in the list, in one lump sum -- unlike installments (which hand it out $1 at a
+// time to the first ones), a bill split reads oddly if "whoever happens to be first" silently
+// gets charged a few pesos more than everyone else; putting the whole remainder on one person
+// (last in the list, arbitrary but stable) keeps it dead simple to explain: "everyone pays the
+// same, except <last person>, who covers the last few pesos of rounding".
 export function splitEqually(monto: number, participantIds: string[]): Record<string, number> {
   const n = participantIds.length;
   const out: Record<string, number> = {};
   if(n===0) return out;
   const floor = Math.floor(monto/n);
-  let remainder = Math.round(monto) - floor*n;
+  const remainder = Math.round(monto) - floor*n;
   participantIds.forEach((id, idx)=>{
-    out[id] = floor + (idx<remainder ? 1 : 0);
+    out[id] = floor + (idx===n-1 ? remainder : 0);
   });
   return out;
+}
+
+// ---- The 3 split modalities, shared by BOTH call sites (a group's "share with a group" and a
+// no-group transaction's "divide this expense with someone") -- see renderSplitDraftForm in
+// views/grupos.ts for the one UI component both build on top of this. ----
+//
+// 'iguales' keeps using splitEqually (above). 'pct'/'montos' read each INCLUDED participant's
+// own typed value from draft.customValues (a percentage, or a plain amount) and round it --
+// nothing here tries to auto-balance what the user types: the "sum must match the total exactly"
+// rule is enforced by disabling the confirm button (see renderSplitDraftForm), never by silently
+// nudging a number the person typed themselves.
+export function computeShareAmounts(total: number, draft): Record<string, number> {
+  const ids: string[] = draft.participantesIncluidos;
+  if(draft.divisionTipo==='iguales') return splitEqually(total, ids);
+  const out: Record<string, number> = {};
+  ids.forEach(id=>{
+    const raw = draft.customValues[id];
+    const v = (raw==null || raw==='') ? null : safeEvalExpr(raw);
+    if(v==null){ out[id] = 0; return; }
+    out[id] = draft.divisionTipo==='pct' ? Math.round(total*v/100) : Math.round(v);
+  });
+  return out;
+}
+export function shareAmountsSum(amounts: Record<string, number>, includedIds: string[]): number {
+  return includedIds.reduce((s,id)=>s+(amounts[id]||0),0);
+}
+
+// A fresh "divide this expense with someone" draft for a transaction with NO group -- the
+// no-group twin of defaultShareDraft (views/grupos.ts), which is for the "share with a group"
+// case. Defaults to just "Tú" (the account owner), pre-selected both as the only participant
+// and as the payer -- the sensible minimal starting point; the user checks in whoever else was
+// there (and can change the payer to any of them, which is what produces the 'debo' case --
+// see commitPersonaSplit below).
+export function defaultPersonaSplitDraft(txId: string){
+  return {
+    txId, groupId: null, divisionTipo: 'iguales' as SplitType, pagadoPorId: 'tu',
+    participantesIncluidos: ['tu'], customValues: {} as Record<string,string>, extraParticipants: [] as string[]
+  };
+}
+
+// Rebuilds a no-group split draft FROM a transaction's already-committed porCobrar/pagador/
+// divisionTipo -- used by "Editar reparto" so reopening it doesn't throw away whatever modality/
+// amounts were chosen before. For a 'debo' split (someone else paid), only your own share and
+// the payer were ever kept (see commitPersonaSplit) -- reopening reconstructs the minimal
+// 2-person draft (you + whoever paid); anyone else who was really there has to be added back by
+// hand, same deliberate scope limit as the rest of this feature (no full N-way ledger here).
+export function draftFromExistingSplit(t: Transaction){
+  const divisionTipo: SplitType = t.divisionTipo || 'iguales';
+  const personaRows = (t.porCobrar||[]).filter(p=>p.tipo==='persona');
+  const deboRow = personaRows.find(p=>p.direccion==='debo');
+  if(t.pagador || deboRow){
+    const pagadoPorId = t.pagador || (deboRow ? deboRow.persona : 'tu');
+    const monto = deboRow ? (deboRow.monto||0) : 0;
+    const customValues: Record<string,string> = {};
+    if(divisionTipo==='montos') customValues['tu'] = String(monto);
+    else if(divisionTipo==='pct') customValues['tu'] = String(t.monto ? Math.round((monto/t.monto)*1000)/10 : 0);
+    return {
+      txId: t.id, groupId: null, divisionTipo, pagadoPorId,
+      participantesIncluidos: ['tu', pagadoPorId], customValues, extraParticipants: [pagadoPorId]
+    };
+  }
+  const participantesIncluidos = ['tu', ...personaRows.map(p=>p.persona)];
+  const customValues: Record<string,string> = {};
+  personaRows.forEach(p=>{
+    if(divisionTipo==='montos') customValues[p.persona] = String(p.monto||0);
+    else if(divisionTipo==='pct') customValues[p.persona] = String(t.monto ? Math.round(((p.monto||0)/t.monto)*1000)/10 : 0);
+  });
+  return {
+    txId: t.id, groupId: null, divisionTipo, pagadoPorId: 'tu',
+    participantesIncluidos, customValues, extraParticipants: personaRows.map(p=>p.persona)
+  };
+}
+
+// Commits a "divide this expense with someone" draft (no group) into the transaction's own
+// porCobrar -- the no-group twin of shareExistingTransaction (views/menu.ts), which writes to
+// Supabase for the group case. Two shapes, matching ReceivableItem.direccion (see types.ts):
+//  · payer is "Tú" (today's only case, unchanged): one row per OTHER included participant,
+//    direccion 'me_deben' -- they owe you their computed share.
+//  · payer is someone else: a SINGLE synthetic row for your own share, direccion 'debo' --
+//    "you owe them" -- never a full row per other participant: this app only ever tracks YOUR
+//    relationship to whoever actually paid, not a full N-way ledger between ad-hoc people (a
+//    real Group is for that). The row's `persona` is the payer's name so it reads naturally
+//    ("Le debes a Fran") and so buildChargeWhatsAppText/copy flows have something sensible to
+//    show if this ever needs it.
+// Any 'reembolso' rows already on the transaction are untouched -- this only ever replaces the
+// 'persona' rows.
+export function commitPersonaSplit(t: Transaction, draft, amounts: Record<string, number>){
+  const reembolsoRows = (t.porCobrar||[]).filter(p=>p.tipo==='reembolso');
+  let personaRows: ReceivableItem[];
+  if(draft.pagadoPorId==='tu'){
+    personaRows = draft.participantesIncluidos.filter(id=>id!=='tu').map(id=>({
+      persona: id, monto: amounts[id]||0, pagado:false, tipo:'persona' as const,
+      montoRecibido:null, linkedTxId:null, direccion:'me_deben' as const
+    }));
+    delete t.pagador;
+  } else {
+    personaRows = [{
+      persona: draft.pagadoPorId, monto: amounts['tu']||0, pagado:false, tipo:'persona' as const,
+      montoRecibido:null, linkedTxId:null, direccion:'debo' as const
+    }];
+    t.pagador = draft.pagadoPorId;
+  }
+  t.divisionTipo = draft.divisionTipo;
+  t.porCobrar = personaRows.concat(reembolsoRows);
+  t.estado = (personaRows.length>0 || reembolsoRows.length>0)
+    ? 'por_cobrar'
+    : (t.categorias.length>0 ? 'confirmado' : 'pendiente');
 }
 
 /* ----- Tricount-style expressions: "22000-5000", "64000/2", etc. ----- */

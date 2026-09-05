@@ -1038,7 +1038,9 @@ export function renderMenuCuenta(){
 // (health insurance, insurer, etc.) don't go in here — that's money an institution owes
 // YOU, not something you send to a WhatsApp group so they transfer it to you.
 export function buildChargeWhatsAppText(t){
-  const pendientes = (t.porCobrar||[]).filter(p=>p.tipo==='persona' && !p.pagado);
+  // A 'debo' row (see ReceivableItem.direccion) is money YOU owe someone else, not money to
+  // collect — this message is for chasing what people owe YOU, so it's excluded here.
+  const pendientes = (t.porCobrar||[]).filter(p=>p.tipo==='persona' && !p.pagado && p.direccion!=='debo');
   if(pendientes.length===0) return null;
   const lines = ['Pendiente de pago'];
   pendientes.forEach(p=>{ lines.push((p.persona||'Sin nombre')+' '+fmt.format(Math.round(p.monto||0))); });

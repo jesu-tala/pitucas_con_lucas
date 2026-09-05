@@ -34,12 +34,14 @@ const { openApp, check, finish } = require('./lib/test_kit');
   }, txId);
   check('Al apretar "Reembolso pendiente" queda estado por_cobrar y se agrega UNA fila tipo reembolso', trasReembolso.estado === 'por_cobrar' && trasReembolso.tipos.includes('reembolso'), trasReembolso);
 
-  // the split block, in "only reimbursement" mode, offers ONLY "Agregar reembolso"
+  // the split block, in "only reimbursement" mode, still offers "Dividir con alguien" (this is
+  // now a universal action, not gated behind "no reembolso yet" -- see the feature's scope) plus
+  // "Agregar reembolso" itself.
   const botonesSoloReembolso = await page.evaluate(() => ({
-    persona: !!document.querySelector('[data-add-charge-row]'),
+    persona: !!document.querySelector('[data-charge-split-open]'),
     reembolso: !!document.querySelector('[data-add-reimbursement-row]')
   }));
-  check('En modo solo-reembolso, el bloque de abajo NO ofrece "Agregar persona", solo "Agregar reembolso"', !botonesSoloReembolso.persona && botonesSoloReembolso.reembolso, botonesSoloReembolso);
+  check('En modo solo-reembolso, el bloque de abajo ofrece "Dividir con alguien" (ya no depende del reembolso) y "Agregar reembolso"', botonesSoloReembolso.persona && botonesSoloReembolso.reembolso, botonesSoloReembolso);
 
   // pressing "Reembolso pendiente" again DESELECTS it (back to confirmado, no rows)
   await page.click('[data-action="porcobrar_reembolso"]');
@@ -50,19 +52,41 @@ const { openApp, check, finish } = require('./lib/test_kit');
   }, txId);
   check('Apretar "Reembolso pendiente" de nuevo lo deselecciona (vuelve a confirmado, sin filas)', trasDeseleccionar.estado === 'confirmado' && trasDeseleccionar.n === 0, trasDeseleccionar);
 
+  // "Por cobrar a alguien" no longer pushes a guessed 50/50 row directly -- it opens the shared
+  // split draft (same component "share with a group" uses) so who's in it and how it's divided
+  // always goes through the hard-validated picker (see shot_compartir_grupo.js for that
+  // component's own coverage). Nothing is committed to porCobrar until the draft is confirmed.
   await page.click('[data-action="porcobrar_persona"]');
+  await page.waitForTimeout(150);
+  const trasAbrirDraft = await page.evaluate((id) => {
+    const t = window.__debug.TRANSACTIONS.find(t => t.id === id);
+    const d = window.__debug.state.shareDraft;
+    return { estado: t.estado, tipos: t.porCobrar.map(p => p.tipo), draftAbierto: !!(d && d.txId === id && !d.groupId) };
+  }, txId);
+  check('Al apretar "Por cobrar a alguien" queda estado por_cobrar y se abre el editor de reparto (sin filas todavía)',
+    trasAbrirDraft.estado === 'por_cobrar' && trasAbrirDraft.tipos.length === 0 && trasAbrirDraft.draftAbierto === true, trasAbrirDraft);
+
+  // Finish the split (Tú + Fran, partes iguales) so there's an actual committed persona row.
+  await page.evaluate(() => {
+    const D = window.__debug;
+    D.state.shareDraft.participantesIncluidos = ['tu', 'Fran'];
+    D.render();
+  });
+  await page.waitForTimeout(150);
+  await page.click('[data-share-confirm="' + txId + '"]');
   await page.waitForTimeout(150);
   const trasPersona = await page.evaluate((id) => {
     const t = window.__debug.TRANSACTIONS.find(t => t.id === id);
-    return { estado: t.estado, tipos: t.porCobrar.map(p => p.tipo) };
+    return { estado: t.estado, tipos: t.porCobrar.map(p => p.tipo), persona: t.porCobrar[0] ? t.porCobrar[0].persona : null };
   }, txId);
-  check('Al apretar "Por cobrar a alguien" queda estado por_cobrar y se agrega UNA fila tipo persona', trasPersona.estado === 'por_cobrar' && trasPersona.tipos.length===1 && trasPersona.tipos[0]==='persona', trasPersona);
+  check('Al confirmar el reparto queda estado por_cobrar y se agrega UNA fila tipo persona (Fran)',
+    trasPersona.estado === 'por_cobrar' && trasPersona.tipos.length === 1 && trasPersona.tipos[0] === 'persona' && trasPersona.persona === 'Fran', trasPersona);
 
   const botonesSoloPersona = await page.evaluate(() => ({
-    persona: !!document.querySelector('[data-add-charge-row]'),
+    persona: !!document.querySelector('[data-charge-split-open]'),
     reembolso: !!document.querySelector('[data-add-reimbursement-row]')
   }));
-  check('En modo solo-persona, el bloque de abajo NO ofrece "Agregar reembolso", solo "Agregar persona"', botonesSoloPersona.persona && !botonesSoloPersona.reembolso, botonesSoloPersona);
+  check('En modo solo-persona, el bloque de abajo NO ofrece "Agregar reembolso" (ya hay un reparto de persona), pero sí "Editar reparto"', botonesSoloPersona.persona && !botonesSoloPersona.reembolso, botonesSoloPersona);
 
   await page.click('[data-action="porcobrar_persona"]');
   await page.waitForTimeout(150);
