@@ -1,7 +1,7 @@
 import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup } from './shared-expenses';
-import { RECEIPT_EXAMPLES, receiptItemIdCounter, receiptTotal, closeSheet, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
+import { RECEIPT_EXAMPLES, receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
 import { CATEGORIES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
@@ -195,7 +195,7 @@ phone.addEventListener('click', function(e: any){
       // to fine-tune rather than type from scratch (only fills in blanks, never overwrites
       // something the user already typed if they flip back and forth between modalities).
       if(val!=='iguales'){
-        const t = getTx(d.txId);
+        const t = currentEditableTx();
         if(t){
           const base = computeShareAmounts(t.monto, {...d, divisionTipo: tipoAnterior});
           d.participantesIncluidos.forEach(id=>{
@@ -292,7 +292,7 @@ phone.addEventListener('click', function(e: any){
 
   const paidBtn = e.target.closest('[data-toggle-paid]');
   if(paidBtn){
-    const t = getTx(state.openTxId);
+    const t = currentEditableTx();
     const idx = parseInt(paidBtn.getAttribute('data-toggle-paid'),10);
     if(t && t.porCobrar[idx]){
       t.porCobrar[idx].pagado = !t.porCobrar[idx].pagado;
@@ -479,7 +479,7 @@ phone.addEventListener('click', function(e: any){
 
   const copyChargeBtn = e.target.closest('[data-copy-charge]');
   if(copyChargeBtn){
-    const t = getTx(copyChargeBtn.getAttribute('data-copy-charge'));
+    const t = currentEditableTx();
     const txt = t ? buildChargeWhatsAppText(t) : null;
     if(!txt){ toast('No hay cobros pendientes para copiar'); return; }
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -790,7 +790,7 @@ phone.addEventListener('click', function(e: any){
 
   const actionBtn = e.target.closest('[data-action]');
   if(actionBtn){
-    const t = getTx(actionBtn.getAttribute('data-tx'));
+    const t = currentEditableTx();
     const act = actionBtn.getAttribute('data-action');
     if(t){
       if(act==='confirmar'){
@@ -896,7 +896,8 @@ phone.addEventListener('click', function(e: any){
   }
   const chargeUnitBtn = e.target.closest('[data-chargeunit]');
   if(chargeUnitBtn){
-    state.splitCollectUnit[state.openTxId] = chargeUnitBtn.getAttribute('data-chargeunit');
+    const chargeUnitTx = currentEditableTx();
+    if(chargeUnitTx) state.splitCollectUnit[chargeUnitTx.id] = chargeUnitBtn.getAttribute('data-chargeunit');
     renderSheet();
     return;
   }
@@ -909,7 +910,7 @@ phone.addEventListener('click', function(e: any){
   // uncoordinated per-row fields could never guarantee that.
   const chargeSplitOpenBtn = e.target.closest('[data-charge-split-open]');
   if(chargeSplitOpenBtn){
-    const t = getTx(chargeSplitOpenBtn.getAttribute('data-charge-split-open'));
+    const t = currentEditableTx();
     if(t){
       state.shareDraft = hasReceivableType(t,'persona') ? draftFromExistingSplit(t) : defaultPersonaSplitDraft(t.id);
       state.splitCollectMode[t.id] = true;
@@ -919,7 +920,7 @@ phone.addEventListener('click', function(e: any){
   }
   const addReimbursementRow = e.target.closest('[data-add-reimbursement-row]');
   if(addReimbursementRow){
-    const t = getTx(addReimbursementRow.getAttribute('data-add-reimbursement-row'));
+    const t = currentEditableTx();
     if(t){
       t.porCobrar.push({persona:'', monto:null, pagado:false, tipo:'reembolso', montoRecibido:null, linkedTxId:null});
       if(t.estado!=='por_cobrar'){ t.estado='por_cobrar'; }
@@ -988,7 +989,7 @@ phone.addEventListener('click', function(e: any){
   }
   const rmChargeRow = e.target.closest('[data-charge-remove]');
   if(rmChargeRow){
-    const t = getTx(state.openTxId);
+    const t = currentEditableTx();
     const idx = parseInt(rmChargeRow.getAttribute('data-charge-remove'),10);
     if(t && t.porCobrar[idx]){
       t.porCobrar.splice(idx,1);
@@ -1298,7 +1299,11 @@ phone.addEventListener('click', function(e: any){
   if(shareConfirmBtn){
     const txId = shareConfirmBtn.getAttribute('data-share-confirm');
     const d = state.shareDraft;
-    const t = getTx(txId);
+    // currentEditableTx() covers both cases this button serves: a real, already-saved
+    // transaction (renderShareGroupSection's "Compartir con un grupo", untouched by this fix) and
+    // state.draftTx while state.creatingNew is true (the no-group "Dividir este gasto"/"Por cobrar
+    // a alguien" split, now reachable pre-save too — see renderQuickActionsBlock in sheet.ts).
+    const t = currentEditableTx();
     if(d && t && d.txId===txId && d.pagadoPorId && d.participantesIncluidos.length>0){
       const reparto = computeShareAmounts(t.monto, d);
       const suma = shareAmountsSum(reparto, d.participantesIncluidos);
@@ -1764,9 +1769,15 @@ phone.addEventListener('input', function(e: any){
   }
   const cobroAmt = e.target.closest('[data-charge-amount]');
   if(cobroAmt){
-    const t = getTx(state.openTxId);
+    const t = currentEditableTx();
     const idx = parseInt(cobroAmt.getAttribute('data-charge-amount'),10);
-    if(t){
+    // t.porCobrar[idx] (not just t) -- opening a brand new draft replaces #sheet-content's
+    // innerHTML, which synchronously fires 'focusout'/blur on whatever input still had focus
+    // from the sheet that just got swapped out (e.g. a reembolso amount field). By the time that
+    // stale event's handler runs, currentEditableTx() already resolves to the FRESH draft (with
+    // an empty porCobrar), not whatever tx idx was captured for -- t is truthy but t.porCobrar[idx]
+    // isn't there anymore.
+    if(t && t.porCobrar[idx]){
       const unit = state.splitCollectUnit[t.id] || '$';
       const v = safeEvalExpr(cobroAmt.value);
       if(v!==null){
@@ -1791,7 +1802,7 @@ phone.addEventListener('input', function(e: any){
     const id = shareValueInput.getAttribute('data-share-value');
     const d = state.shareDraft;
     d.customValues[id] = shareValueInput.value;
-    const t = getTx(d.txId);
+    const t = currentEditableTx();
     if(t){
       const reparto = computeShareAmounts(t.monto, d);
       const suma = shareAmountsSum(reparto, d.participantesIncluidos);
@@ -1822,9 +1833,10 @@ phone.addEventListener('input', function(e: any){
   }
   const cobroName = e.target.closest('[data-charge-name]');
   if(cobroName){
-    const t = getTx(state.openTxId);
+    const t = currentEditableTx();
     const idx = parseInt(cobroName.getAttribute('data-charge-name'),10);
-    if(t){ t.porCobrar[idx].persona = cobroName.value; }
+    // Same stale-focusout-during-a-fresh-draft's-render reasoning as data-charge-amount above.
+    if(t && t.porCobrar[idx]){ t.porCobrar[idx].persona = cobroName.value; }
     return;
   }
   const boletaItemNombre = e.target.closest('[data-receipt-item-name]');
@@ -2120,9 +2132,10 @@ phone.addEventListener('focusout', function(e: any){
   }
   const cobroAmt = e.target.closest('[data-charge-amount]');
   if(cobroAmt){
-    const t = getTx(state.openTxId);
+    const t = currentEditableTx();
     const idx = parseInt(cobroAmt.getAttribute('data-charge-amount'),10);
-    if(t && t.porCobrar[idx].monto!=null){
+    // Same stale-focusout-during-a-fresh-draft's-render reasoning as the 'input' listener above.
+    if(t && t.porCobrar[idx] && t.porCobrar[idx].monto!=null){
       const unit = state.splitCollectUnit[t.id] || '$';
       const shown = unit==='%' ? (t.porCobrar[idx].monto/t.monto)*100 : t.porCobrar[idx].monto;
       cobroAmt.value = formatEditableNumber(shown);
