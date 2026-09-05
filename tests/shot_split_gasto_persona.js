@@ -79,6 +79,76 @@ const { openApp, check, finish } = require('./lib/test_kit');
     trasIguales);
   check('   divisionTipo quedó guardado como "iguales"', trasIguales.divisionTipo === 'iguales', trasIguales.divisionTipo);
 
+  // ---------- (a2) "Por partes" with CUSTOM weights -- the actual point of the modality: not
+  // forced-equal, arbitrary "número de partes" per person, the pesos are derived automatically
+  // and always sum exact (nothing to balance by hand) ----------
+  const txPartes = await page.evaluate(() => {
+    const D = window.__debug;
+    const t = { id: 'test-split-partes-custom', fecha: D.todayISO(), hora: '12:00', comercio: 'Test Partes Custom',
+      monto: 12000, medio: 'efectivo', tipo: 'gasto', recurrencia: 'variable', estado: 'confirmado',
+      categorias: [{ cat: 'otros', monto: 12000 }], porCobrar: [], reglaAuto: false, nota: '' };
+    D.TRANSACTIONS.push(t);
+    return t.id;
+  });
+  await page.evaluate((id) => {
+    window.__debug.state.openTxId = id;
+    document.getElementById('sheet-overlay').classList.add('open');
+    window.__debug.render();
+  }, txPartes);
+  await page.waitForTimeout(150);
+  await page.click('[data-action="porcobrar_persona"]');
+  await page.waitForTimeout(150);
+  await page.click('[data-share-include="Fran"]');
+  await page.waitForTimeout(100);
+  await page.click('[data-share-include="Pancho"]');
+  await page.waitForTimeout(150);
+  // tu=3 partes, Fran=2, Pancho=1 -> 6 partes de $12.000 -> 6.000/4.000/2.000 (división exacta)
+  await page.fill('[data-share-value="tu"]', '3');
+  await page.waitForTimeout(80);
+  await page.fill('[data-share-value="Fran"]', '2');
+  await page.waitForTimeout(80);
+  await page.fill('[data-share-value="Pancho"]', '1');
+  await page.waitForTimeout(150);
+  const partesPreview = await page.evaluate(() => ({
+    tu: document.querySelector('[data-share-computed="tu"]')?.textContent,
+    fran: document.querySelector('[data-share-computed="Fran"]')?.textContent,
+    pancho: document.querySelector('[data-share-computed="Pancho"]')?.textContent,
+    totalTexto: document.getElementById('sheet-content').textContent,
+    confirmHabilitado: !document.querySelector('[data-share-confirm]').disabled,
+  }));
+  check('(a2) "Por partes" con pesos 3/2/1 sobre $12.000 reparte 6.000/4.000/2.000 (no partes iguales)',
+    partesPreview.tu === '$6.000' && partesPreview.fran === '$4.000' && partesPreview.pancho === '$2.000', partesPreview);
+  check('   la suma siempre cuadra exacto (nada que balancear a mano) y el botón queda habilitado',
+    partesPreview.totalTexto.includes('$12.000 de $12.000') && partesPreview.confirmHabilitado === true, partesPreview);
+
+  // Cambiar UN SOLO peso mueve el denominador compartido -- se repinta el readout de TODAS las
+  // filas, no solo la que se está editando. Con tu=3, Fran=5, Pancho vacío (cuenta como 1 parte
+  // por defecto): 9 partes de $12.000 -> 4.000/6.667/1.333 (Pancho, último de la lista, absorbe
+  // el resto del redondeo).
+  await page.fill('[data-share-value="Fran"]', '5');
+  await page.waitForTimeout(80);
+  await page.fill('[data-share-value="Pancho"]', '');
+  await page.waitForTimeout(150);
+  const partesConBlanco = await page.evaluate(() => ({
+    tu: document.querySelector('[data-share-computed="tu"]')?.textContent,
+    fran: document.querySelector('[data-share-computed="Fran"]')?.textContent,
+    pancho: document.querySelector('[data-share-computed="Pancho"]')?.textContent,
+  }));
+  check('   dejar una fila vacía cuenta como 1 parte por defecto, y mover un peso recalcula TODAS las filas (tu=3,Fran=5,Pancho vacío: $4.000/$6.667/$1.333)',
+    partesConBlanco.tu === '$4.000' && partesConBlanco.fran === '$6.667' && partesConBlanco.pancho === '$1.333', partesConBlanco);
+
+  await page.click('[data-share-confirm="' + txPartes + '"]');
+  await page.waitForTimeout(150);
+  const trasPartes = await page.evaluate((id) => {
+    const t = window.__debug.TRANSACTIONS.find(t => t.id === id);
+    return { porCobrar: t.porCobrar, divisionTipo: t.divisionTipo };
+  }, txPartes);
+  check('   al confirmar, queda guardado el reparto ya calculado en pesos (no los números de partes crudos)',
+    trasPartes.divisionTipo === 'iguales' &&
+    (trasPartes.porCobrar.find(p => p.persona === 'Fran') || {}).monto === 6667 &&
+    (trasPartes.porCobrar.find(p => p.persona === 'Pancho') || {}).monto === 1333,
+    trasPartes.porCobrar);
+
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
 

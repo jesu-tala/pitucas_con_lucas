@@ -1,6 +1,6 @@
 import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
-import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, splitEqually, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, groupBalances, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit } from './shared-expenses';
+import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, groupBalances, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit } from './shared-expenses';
 import { RECEIPT_EXAMPLES, receiptItemIdCounter, receiptTotal, closeSheet, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
 import { CATEGORIES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
@@ -186,18 +186,21 @@ phone.addEventListener('click', function(e: any){
       return;
     }
     if(group==='division-tipo' && state.shareDraft){
-      state.shareDraft.divisionTipo = val;
-      // Seed each included participant's custom value from the equal split so switching to
-      // "%"/"monto fijo" doesn't start everyone at a blank/zero — nice starting point to fine-tune
-      // rather than type from scratch (only fills in blanks, never overwrites something the user
-      // already typed if they flip back and forth between modalities).
+      const d = state.shareDraft;
+      const tipoAnterior = d.divisionTipo;
+      d.divisionTipo = val;
+      // Seed each included participant's custom value from whatever the PREVIOUS modality was
+      // actually showing (its real computed split, "por partes" included -- not forced equal) so
+      // switching to "%"/"monto fijo" doesn't start everyone at a blank/zero — nice starting point
+      // to fine-tune rather than type from scratch (only fills in blanks, never overwrites
+      // something the user already typed if they flip back and forth between modalities).
       if(val!=='iguales'){
-        const t = getTx(state.shareDraft.txId);
+        const t = getTx(d.txId);
         if(t){
-          const base = splitEqually(t.monto, state.shareDraft.participantesIncluidos);
-          state.shareDraft.participantesIncluidos.forEach(id=>{
-            if(state.shareDraft.customValues[id]==null || state.shareDraft.customValues[id]===''){
-              state.shareDraft.customValues[id] = val==='pct'
+          const base = computeShareAmounts(t.monto, {...d, divisionTipo: tipoAnterior});
+          d.participantesIncluidos.forEach(id=>{
+            if(d.customValues[id]==null || d.customValues[id]===''){
+              d.customValues[id] = val==='pct'
                 ? String(t.monto ? Math.round((base[id]||0)/t.monto*1000)/10 : 0)
                 : String(base[id]||0);
             }
@@ -1747,6 +1750,14 @@ phone.addEventListener('input', function(e: any){
         }
         const confirmBtn = wrap.querySelector('[data-share-confirm]') as HTMLButtonElement;
         if(confirmBtn) confirmBtn.disabled = !ok;
+        // "Por partes": editing ANY one row's "número de partes" moves the shared denominator, so
+        // every row's peso readout has to be repainted, not just the one being typed into.
+        if(d.divisionTipo==='iguales'){
+          wrap.querySelectorAll('[data-share-computed]').forEach(el=>{
+            const pid = el.getAttribute('data-share-computed');
+            el.textContent = money(reparto[pid]||0);
+          });
+        }
       }
     }
     return;

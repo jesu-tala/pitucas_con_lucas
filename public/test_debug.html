@@ -4506,14 +4506,16 @@
         return;
       }
       if (group === "division-tipo" && state.shareDraft) {
-        state.shareDraft.divisionTipo = val;
+        const d = state.shareDraft;
+        const tipoAnterior = d.divisionTipo;
+        d.divisionTipo = val;
         if (val !== "iguales") {
-          const t2 = getTx(state.shareDraft.txId);
+          const t2 = getTx(d.txId);
           if (t2) {
-            const base = splitEqually(t2.monto, state.shareDraft.participantesIncluidos);
-            state.shareDraft.participantesIncluidos.forEach((id) => {
-              if (state.shareDraft.customValues[id] == null || state.shareDraft.customValues[id] === "") {
-                state.shareDraft.customValues[id] = val === "pct" ? String(t2.monto ? Math.round((base[id] || 0) / t2.monto * 1e3) / 10 : 0) : String(base[id] || 0);
+            const base = computeShareAmounts(t2.monto, { ...d, divisionTipo: tipoAnterior });
+            d.participantesIncluidos.forEach((id) => {
+              if (d.customValues[id] == null || d.customValues[id] === "") {
+                d.customValues[id] = val === "pct" ? String(t2.monto ? Math.round((base[id] || 0) / t2.monto * 1e3) / 10 : 0) : String(base[id] || 0);
               }
             });
           }
@@ -6152,6 +6154,12 @@
           }
           const confirmBtn = wrap.querySelector("[data-share-confirm]");
           if (confirmBtn) confirmBtn.disabled = !ok;
+          if (d.divisionTipo === "iguales") {
+            wrap.querySelectorAll("[data-share-computed]").forEach((el) => {
+              const pid = el.getAttribute("data-share-computed");
+              el.textContent = money(reparto[pid] || 0);
+            });
+          }
         }
       }
       return;
@@ -7022,7 +7030,7 @@
     const ok = suma === tx.monto && d.participantesIncluidos.length > 0;
     const remaining = tx.monto - suma;
     const modalidadSeg = segmentedHtml("division-tipo", [
-      { id: "iguales", label: "Partes iguales" },
+      { id: "iguales", label: "Por partes" },
       { id: "pct", label: "Por %" },
       { id: "montos", label: "Monto fijo" }
     ], d.divisionTipo);
@@ -7030,7 +7038,7 @@
     const rows = participantes.map((p) => {
       const incluido = d.participantesIncluidos.includes(p.id);
       const raw = d.customValues[p.id] || "";
-      const valueField = !incluido ? '<span class="tabular muted">\u2014</span>' : d.divisionTipo === "iguales" ? '<span class="tabular muted">' + money(reparto[p.id] || 0) + "</span>" : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '"><span>' + (d.divisionTipo === "pct" ? "%" : "$") + "</span></span>";
+      const valueField = !incluido ? '<span class="tabular muted">\u2014</span>' : d.divisionTipo === "iguales" ? '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '" placeholder="1" style="width:44px;"><span>partes</span></span><span class="tabular muted" data-share-computed="' + p.id + '" style="margin-left:8px;font-size:12px;flex-shrink:0;">' + money(reparto[p.id] || 0) + "</span>" : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '"><span>' + (d.divisionTipo === "pct" ? "%" : "$") + "</span></span>";
       return '<div class="split-row" style="align-items:center;"><input type="checkbox" data-share-include="' + p.id + '" ' + (incluido ? "checked" : "") + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">' + avatarHtml(p.nombre, p.color, 24) + '<span style="flex:1;margin-left:8px;">' + p.nombre + "</span>" + valueField + "</div>";
     }).join("");
     const addPersonRow = d.groupId ? "" : '<div class="split-row" style="align-items:center;"><input type="text" class="draft-input" data-share-new-name placeholder="Agregar otra persona\u2026" style="flex:1;"><button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">' + ICONS.plus + "</button></div>";
@@ -7698,9 +7706,36 @@
     return out;
   }
   __name(splitEqually, "splitEqually");
+  function splitByShares(total, participantIds, partes) {
+    const n = participantIds.length;
+    const out = {};
+    if (n === 0) return out;
+    const sumPartes = participantIds.reduce((s, id) => s + Math.max(0, partes[id] || 0), 0);
+    if (sumPartes <= 0) return splitEqually(total, participantIds);
+    let asignado = 0;
+    participantIds.forEach((id, idx) => {
+      if (idx === n - 1) {
+        out[id] = total - asignado;
+        return;
+      }
+      const monto = Math.round(total * Math.max(0, partes[id] || 0) / sumPartes);
+      out[id] = monto;
+      asignado += monto;
+    });
+    return out;
+  }
+  __name(splitByShares, "splitByShares");
   function computeShareAmounts(total, draft) {
     const ids = draft.participantesIncluidos;
-    if (draft.divisionTipo === "iguales") return splitEqually(total, ids);
+    if (draft.divisionTipo === "iguales") {
+      const partes = {};
+      ids.forEach((id) => {
+        const raw = draft.customValues[id];
+        const v = raw == null || raw === "" ? 1 : safeEvalExpr(raw);
+        partes[id] = v == null || v <= 0 ? 1 : v;
+      });
+      return splitByShares(total, ids, partes);
+    }
     const out = {};
     ids.forEach((id) => {
       const raw = draft.customValues[id];
@@ -7740,6 +7775,7 @@
       const customValues2 = {};
       if (divisionTipo === "montos") customValues2["tu"] = String(monto);
       else if (divisionTipo === "pct") customValues2["tu"] = String(t.monto ? Math.round(monto / t.monto * 1e3) / 10 : 0);
+      else if (divisionTipo === "iguales") customValues2["tu"] = String(monto);
       return {
         txId: t.id,
         groupId: null,
@@ -7755,6 +7791,7 @@
     personaRows.forEach((p) => {
       if (divisionTipo === "montos") customValues[p.persona] = String(p.monto || 0);
       else if (divisionTipo === "pct") customValues[p.persona] = String(t.monto ? Math.round((p.monto || 0) / t.monto * 1e3) / 10 : 0);
+      else if (divisionTipo === "iguales") customValues[p.persona] = String(p.monto || 0);
     });
     return {
       txId: t.id,
