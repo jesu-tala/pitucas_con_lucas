@@ -302,8 +302,17 @@ Dentro del detalle de una transacción:
   grupo asociado): **un solo componente** (`renderSplitDraftForm` en `views/grupos.ts`, sobre
   `state.shareDraft`) para las dos situaciones — "Compartir con un grupo" (si `tx.groupId` está
   o se elige uno) y "Dividir este gasto con alguien" sin grupo (heredero de la vieja
-  `renderChargeSplitBlock` de tipo `'persona'`). Ofrece las 3 modalidades (partes
-  iguales/por %/monto fijo, segmented `division-tipo`), quién pagó (segmented,
+  `renderChargeSplitBlock` de tipo `'persona'`). Ofrece las 3 modalidades (por partes/por
+  %/monto fijo, segmented `division-tipo`; internamente `division_tipo` sigue guardando
+  `'iguales'` para "por partes" -- es el mismo valor que ya tiene el check de Supabase, solo
+  cambió el label y qué significa). "Por partes" YA NO reparte forzosamente en partes iguales:
+  cada persona incluida tiene un campo de "número de partes" (un peso cualquiera, no %/$ --
+  vacío cuenta como 1 parte, así que sin tocar nada sigue quedando parejo) con un lector en vivo
+  al lado de a cuánto le sale (`splitByShares`, `shared-expenses.ts`) -- mover el peso de
+  cualquiera repinta el monto de TODAS las filas, porque cambia el denominador compartido. Como
+  el monto de cada persona se deriva, nunca se tipea directo, esta modalidad siempre cuadra
+  exacto con el total por construcción (nada que balancear a mano, a diferencia de %/monto
+  fijo). Quién pagó (segmented,
   participantes del grupo o "Tú" + contactos conocidos + los que se agreguen a mano),
   checkboxes de quiénes entran, vista previa en vivo (`money()`/`moneyPlainMasked()`, así el
   modo demo enmascara gratis) y un botón de confirmar (Compartir/Guardar reparto) que se
@@ -319,8 +328,11 @@ Dentro del detalle de una transacción:
   sección 3) — `netExpenseTx()` (`helpers.ts`) sabe neteAR ambos casos. Una vez que ya hay un
   reparto de persona, la sección muestra las filas ya comprometidas (pagado/vincular
   depósito/dar por perdida, sin tocar) más un botón "Editar reparto" que reabre el mismo editor
-  precargado (`draftFromExistingSplit`). El redondeo de "partes iguales" lo absorbe siempre el
-  ÚLTIMO participante de la lista (`splitEqually`, `shared-expenses.ts`).
+  precargado (`draftFromExistingSplit`, que para "por partes" precarga el "número de partes" de
+  cada quien con su monto ya comprometido -- reproduce el mismo reparto sin pretender recuperar
+  los enteros originales). El redondeo lo absorbe siempre el ÚLTIMO participante de la lista,
+  tanto en "por partes" (`splitByShares`) como en el caso especial de todos los pesos iguales
+  (`splitEqually`, ambas en `shared-expenses.ts`).
   Una entrada `sharedByOthers` (mi parte de un gasto que registró otra persona) reutiliza el
   mismo flujo de clasificación de siempre (`needsClassifying` → `catPickerGrid`) cuando todavía
   no tiene categoría, mostrando además la sugerencia de la categoría de origen; tocar una

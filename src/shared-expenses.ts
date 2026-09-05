@@ -92,18 +92,51 @@ export function splitEqually(monto: number, participantIds: string[]): Record<st
   return out;
 }
 
+// "Por partes" (Splitwise/Tricount-style "shares"): each included participant gets an arbitrary
+// positive number of "partes" (weights, not %/$) -- e.g. jesu 3, javi 2, Y 1 -- and the money is
+// derived proportionally, never typed directly. This is the whole point of this modality: unlike
+// pct/montos (where the person types money-ish numbers that must add up exactly, or saving stays
+// blocked), a share split ALWAYS sums to the total by construction, whatever positive weights are
+// chosen -- there's nothing to "balance" by hand. Same last-absorbs-the-remainder rounding rule as
+// splitEqually (a plain equal split, weights all 1, is just a special case of this).
+export function splitByShares(total: number, participantIds: string[], partes: Record<string, number>): Record<string, number> {
+  const n = participantIds.length;
+  const out: Record<string, number> = {};
+  if(n===0) return out;
+  const sumPartes = participantIds.reduce((s,id)=>s+Math.max(0,partes[id]||0),0);
+  if(sumPartes<=0) return splitEqually(total, participantIds);
+  let asignado = 0;
+  participantIds.forEach((id, idx)=>{
+    if(idx===n-1){ out[id] = total-asignado; return; }
+    const monto = Math.round(total*Math.max(0,partes[id]||0)/sumPartes);
+    out[id] = monto;
+    asignado += monto;
+  });
+  return out;
+}
+
 // ---- The 3 split modalities, shared by BOTH call sites (a group's "share with a group" and a
 // no-group transaction's "divide this expense with someone") -- see renderSplitDraftForm in
 // views/grupos.ts for the one UI component both build on top of this. ----
 //
-// 'iguales' keeps using splitEqually (above). 'pct'/'montos' read each INCLUDED participant's
-// own typed value from draft.customValues (a percentage, or a plain amount) and round it --
-// nothing here tries to auto-balance what the user types: the "sum must match the total exactly"
-// rule is enforced by disabling the confirm button (see renderSplitDraftForm), never by silently
-// nudging a number the person typed themselves.
+// 'iguales' ("Por partes") reads each included participant's own typed "número de partes" from
+// draft.customValues (a blank value defaults to 1 part, same as everyone starting equal) and
+// derives the money via splitByShares -- always sums exactly, nothing to balance by hand.
+// 'pct'/'montos' read each included participant's own typed value from draft.customValues (a
+// percentage, or a plain amount) and round it -- nothing here tries to auto-balance what the user
+// types: the "sum must match the total exactly" rule is enforced by disabling the confirm button
+// (see renderSplitDraftForm), never by silently nudging a number the person typed themselves.
 export function computeShareAmounts(total: number, draft): Record<string, number> {
   const ids: string[] = draft.participantesIncluidos;
-  if(draft.divisionTipo==='iguales') return splitEqually(total, ids);
+  if(draft.divisionTipo==='iguales'){
+    const partes: Record<string, number> = {};
+    ids.forEach(id=>{
+      const raw = draft.customValues[id];
+      const v = (raw==null || raw==='') ? 1 : safeEvalExpr(raw);
+      partes[id] = (v==null || v<=0) ? 1 : v;
+    });
+    return splitByShares(total, ids, partes);
+  }
   const out: Record<string, number> = {};
   ids.forEach(id=>{
     const raw = draft.customValues[id];
@@ -146,6 +179,11 @@ export function draftFromExistingSplit(t: Transaction){
     const customValues: Record<string,string> = {};
     if(divisionTipo==='montos') customValues['tu'] = String(monto);
     else if(divisionTipo==='pct') customValues['tu'] = String(t.monto ? Math.round((monto/t.monto)*1000)/10 : 0);
+    // 'iguales' ("por partes"): there's no original weight kept, only the final peso amount --
+    // seeding the "número de partes" with that same amount reproduces the exact same split when
+    // recomputed (partes proporcionales a un monto ya calzan solas), without pretending to recover
+    // whatever small integers were originally typed.
+    else if(divisionTipo==='iguales') customValues['tu'] = String(monto);
     return {
       txId: t.id, groupId: null, divisionTipo, pagadoPorId,
       participantesIncluidos: ['tu', pagadoPorId], customValues, extraParticipants: [pagadoPorId]
@@ -156,6 +194,7 @@ export function draftFromExistingSplit(t: Transaction){
   personaRows.forEach(p=>{
     if(divisionTipo==='montos') customValues[p.persona] = String(p.monto||0);
     else if(divisionTipo==='pct') customValues[p.persona] = String(t.monto ? Math.round(((p.monto||0)/t.monto)*1000)/10 : 0);
+    else if(divisionTipo==='iguales') customValues[p.persona] = String(p.monto||0);
   });
   return {
     txId: t.id, groupId: null, divisionTipo, pagadoPorId: 'tu',

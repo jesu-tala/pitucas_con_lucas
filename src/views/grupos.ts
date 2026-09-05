@@ -97,7 +97,7 @@ export function renderSplitDraftForm(tx, d){
   const ok = suma===tx.monto && d.participantesIncluidos.length>0;
   const remaining = tx.monto - suma;
   const modalidadSeg = segmentedHtml('division-tipo', [
-    {id:'iguales', label:'Partes iguales'}, {id:'pct', label:'Por %'}, {id:'montos', label:'Monto fijo'}
+    {id:'iguales', label:'Por partes'}, {id:'pct', label:'Por %'}, {id:'montos', label:'Monto fijo'}
   ], d.divisionTipo);
   const groupSelectHtml = !d.groupId ? '' :
     '<label class="draft-label">Grupo</label>'+
@@ -105,9 +105,17 @@ export function renderSplitDraftForm(tx, d){
   const rows = participantes.map(p=>{
     const incluido = d.participantesIncluidos.includes(p.id);
     const raw = d.customValues[p.id] || '';
+    // "Por partes": each included person gets a "número de partes" input (a weight, not %/$ --
+    // blank means 1 part, same as everyone starting equal) plus a live read-only readout of what
+    // that weight actually works out to in pesos -- changing ANY one person's parts shifts
+    // everyone else's peso amount too (the denominator moves), so this readout gets repainted for
+    // every row on every keystroke (see the data-share-value handler in events.ts), not just the
+    // row being edited.
     const valueField = !incluido ? '<span class="tabular muted">—</span>'
-      : d.divisionTipo==='iguales' ? '<span class="tabular muted">'+money(reparto[p.id]||0)+'</span>'
-      : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="'+p.id+'" value="'+raw+'"><span>'+(d.divisionTipo==='pct'?'%':'$')+'</span></span>';
+      : d.divisionTipo==='iguales'
+        ? '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="'+p.id+'" value="'+raw+'" placeholder="1" style="width:44px;"><span>partes</span></span>'+
+          '<span class="tabular muted" data-share-computed="'+p.id+'" style="margin-left:8px;font-size:12px;flex-shrink:0;">'+money(reparto[p.id]||0)+'</span>'
+        : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="'+p.id+'" value="'+raw+'"><span>'+(d.divisionTipo==='pct'?'%':'$')+'</span></span>';
     return '<div class="split-row" style="align-items:center;">'+
       '<input type="checkbox" data-share-include="'+p.id+'" '+(incluido?'checked':'')+' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
       avatarHtml(p.nombre, p.color, 24)+
