@@ -134,6 +134,8 @@
   __name(receivableTotal, "receivableTotal");
   function netExpenseTx(t) {
     if (t.tipo !== "gasto") return catTotalAmount(t);
+    const deboRow = (t.porCobrar || []).find((p) => p.tipo === "persona" && p.direccion === "debo");
+    if (deboRow) return Math.max(deboRow.monto || 0, 0);
     const personSplits = (t.porCobrar || []).filter((p) => p.tipo === "persona").reduce((s, p) => s + (p.monto || 0), 0);
     return Math.max(catTotalAmount(t) - personSplits, 0);
   }
@@ -1591,7 +1593,7 @@
   }
   __name(renderMenuCuenta, "renderMenuCuenta");
   function buildChargeWhatsAppText(t) {
-    const pendientes = (t.porCobrar || []).filter((p) => p.tipo === "persona" && !p.pagado);
+    const pendientes = (t.porCobrar || []).filter((p) => p.tipo === "persona" && !p.pagado && p.direccion !== "debo");
     if (pendientes.length === 0) return null;
     const lines = ["Pendiente de pago"];
     pendientes.forEach((p) => {
@@ -3288,6 +3290,22 @@
         renderSheet();
         return;
       }
+      if (group === "division-tipo" && state.shareDraft) {
+        state.shareDraft.divisionTipo = val;
+        if (val !== "iguales") {
+          const t2 = getTx(state.shareDraft.txId);
+          if (t2) {
+            const base = splitEqually(t2.monto, state.shareDraft.participantesIncluidos);
+            state.shareDraft.participantesIncluidos.forEach((id) => {
+              if (state.shareDraft.customValues[id] == null || state.shareDraft.customValues[id] === "") {
+                state.shareDraft.customValues[id] = val === "pct" ? String(t2.monto ? Math.round((base[id] || 0) / t2.monto * 1e3) / 10 : 0) : String(base[id] || 0);
+              }
+            });
+          }
+        }
+        renderSheet();
+        return;
+      }
       const t = getTx(state.openTxId);
       if (t) {
         if (group === "tipo" && t.tipo !== val) {
@@ -3899,20 +3917,29 @@
             toast("Marcado como confirmado");
           }
         } else if (act === "porcobrar_persona") {
+          const draftAbierto = !!(state.shareDraft && state.shareDraft.txId === t.id && !state.shareDraft.groupId);
           if (hasReceivableType(t, "persona")) {
             t.porCobrar = t.porCobrar.filter((p) => p.tipo !== "persona");
+            delete t.pagador;
+            delete t.divisionTipo;
+            state.shareDraft = null;
             if (t.porCobrar.length === 0) {
               t.estado = t.categorias.length > 0 ? "confirmado" : "pendiente";
               state.splitCollectMode[t.id] = false;
             }
             toast("Se quit\xF3 el cobro pendiente");
+          } else if (draftAbierto) {
+            state.shareDraft = null;
+            if (t.porCobrar.length === 0) {
+              t.estado = t.categorias.length > 0 ? "confirmado" : "pendiente";
+              state.splitCollectMode[t.id] = false;
+            }
+            toast("Se cancel\xF3 el reparto");
           } else {
             t.estado = "por_cobrar";
             state.splitCollectMode[t.id] = true;
-            const already = t.porCobrar.reduce((s, p) => s + (p.monto || 0), 0);
-            const remaining = Math.max(t.monto - already, 0);
-            t.porCobrar.push({ persona: "", monto: Math.round(remaining / 2), pagado: false, tipo: "persona", montoRecibido: null, linkedTxId: null });
-            toast("Marcado como por cobrar");
+            state.shareDraft = defaultPersonaSplitDraft(t.id);
+            toast("Elige con qui\xE9n divides este gasto");
           }
         } else if (act === "porcobrar_reembolso") {
           if (hasReceivableType(t, "reembolso")) {
@@ -3993,31 +4020,12 @@
       renderSheet();
       return;
     }
-    const addContact = e.target.closest("[data-add-contact]");
-    if (addContact) {
-      const t = getTx(state.openTxId);
+    const chargeSplitOpenBtn = e.target.closest("[data-charge-split-open]");
+    if (chargeSplitOpenBtn) {
+      const t = getTx(chargeSplitOpenBtn.getAttribute("data-charge-split-open"));
       if (t) {
-        const name = addContact.getAttribute("data-add-contact");
-        const already = t.porCobrar.reduce((s, p) => s + (p.monto || 0), 0);
-        const remaining = Math.max(t.monto - already, 0);
-        const share = t.porCobrar.length === 0 ? Math.round(remaining / 2) : Math.round(remaining / 2);
-        t.porCobrar.push({ persona: name, monto: share, pagado: false, tipo: "persona", montoRecibido: null, linkedTxId: null });
-        if (t.estado !== "por_cobrar") {
-          t.estado = "por_cobrar";
-        }
+        state.shareDraft = hasReceivableType(t, "persona") ? draftFromExistingSplit(t) : defaultPersonaSplitDraft(t.id);
         state.splitCollectMode[t.id] = true;
-        renderSheet();
-        renderIfListVisible();
-      }
-      return;
-    }
-    const addChargeRow = e.target.closest("[data-add-charge-row]");
-    if (addChargeRow) {
-      const t = getTx(addChargeRow.getAttribute("data-add-charge-row"));
-      if (t) {
-        const already = t.porCobrar.reduce((s, p) => s + (p.monto || 0), 0);
-        const remaining = Math.max(t.monto - already, 0);
-        t.porCobrar.push({ persona: "", monto: Math.round(remaining / 2), pagado: false, tipo: "persona", montoRecibido: null, linkedTxId: null });
         renderSheet();
       }
       return;
@@ -4102,8 +4110,16 @@
     if (rmChargeRow) {
       const t = getTx(state.openTxId);
       const idx = parseInt(rmChargeRow.getAttribute("data-charge-remove"), 10);
-      if (t) {
+      if (t && t.porCobrar[idx]) {
         t.porCobrar.splice(idx, 1);
+        if (!t.porCobrar.some((p) => p.tipo === "persona")) {
+          delete t.pagador;
+          delete t.divisionTipo;
+        }
+        if (t.porCobrar.length === 0) {
+          t.estado = t.categorias.length > 0 ? "confirmado" : "pendiente";
+          state.splitCollectMode[t.id] = false;
+        }
         renderSheet();
         renderIfListVisible();
       }
@@ -4379,14 +4395,24 @@
     if (shareConfirmBtn) {
       const txId = shareConfirmBtn.getAttribute("data-share-confirm");
       const d = state.shareDraft;
-      if (d && d.txId === txId && d.groupId && d.pagadoPorId && d.participantesIncluidos.length > 0) {
-        const t = getTx(txId);
-        const reparto = splitEqually(t ? t.monto : 0, d.participantesIncluidos);
-        shareExistingTransaction(txId, d.groupId, d.pagadoPorId, "iguales", reparto).then(function(gasto) {
+      const t = getTx(txId);
+      if (d && t && d.txId === txId && d.pagadoPorId && d.participantesIncluidos.length > 0) {
+        const reparto = computeShareAmounts(t.monto, d);
+        const suma = shareAmountsSum(reparto, d.participantesIncluidos);
+        if (suma !== t.monto) return;
+        if (d.groupId) {
+          shareExistingTransaction(txId, d.groupId, d.pagadoPorId, d.divisionTipo, reparto).then(function(gasto) {
+            state.shareDraft = null;
+            toast(gasto ? "Gasto compartido" : "No se pudo compartir \u2014 revisa tu conexi\xF3n");
+            render();
+          });
+        } else {
+          commitPersonaSplit(t, d, reparto);
           state.shareDraft = null;
-          toast(gasto ? "Gasto compartido" : "No se pudo compartir \u2014 revisa tu conexi\xF3n");
-          render();
-        });
+          toast("Reparto guardado");
+          renderSheet();
+          renderIfListVisible();
+        }
       }
       return;
     }
@@ -4772,6 +4798,19 @@
       renderSheet();
       return;
     }
+    const shareAddNameBtn = e.target.closest("[data-share-add-name]");
+    if (shareAddNameBtn && state.shareDraft) {
+      const row = shareAddNameBtn.closest(".split-row");
+      const input = row ? row.querySelector("[data-share-new-name]") : null;
+      const name = input ? input.value.trim() : "";
+      if (name) {
+        const d = state.shareDraft;
+        if (!d.extraParticipants.includes(name)) d.extraParticipants.push(name);
+        if (!d.participantesIncluidos.includes(name)) d.participantesIncluidos.push(name);
+        renderSheet();
+      }
+      return;
+    }
     const reconciliarElimCheck = e.target.closest("[data-reconcile-diff-elim-check]");
     if (reconciliarElimCheck) {
       const txId = reconciliarElimCheck.getAttribute("data-reconcile-diff-elim-check");
@@ -4869,6 +4908,35 @@
             remainingEl.textContent = money(tuParte);
             remainingEl.className = (tuParte < 0 ? "bad" : "ok") + " tabular";
           }
+        }
+      }
+      return;
+    }
+    const shareValueInput = e.target.closest("[data-share-value]");
+    if (shareValueInput && state.shareDraft) {
+      const id = shareValueInput.getAttribute("data-share-value");
+      const d = state.shareDraft;
+      d.customValues[id] = shareValueInput.value;
+      const t = getTx(d.txId);
+      if (t) {
+        const reparto = computeShareAmounts(t.monto, d);
+        const suma = shareAmountsSum(reparto, d.participantesIncluidos);
+        const ok = suma === t.monto && d.participantesIncluidos.length > 0;
+        const wrap = shareValueInput.closest(".sheet-block");
+        if (wrap) {
+          const remainingEl = wrap.querySelector(".split-remaining span:last-child");
+          if (remainingEl) {
+            remainingEl.textContent = money(suma) + " de " + money(t.monto);
+            remainingEl.className = (ok ? "ok" : "bad") + " tabular";
+          }
+          const errEl = wrap.querySelector(".field-error");
+          if (errEl) {
+            const remaining = t.monto - suma;
+            errEl.textContent = ok ? "" : remaining > 0 ? "Faltan " + money(remaining) + " por repartir" : "Sobran " + money(-remaining) + " por repartir";
+            errEl.style.display = ok ? "none" : "";
+          }
+          const confirmBtn = wrap.querySelector("[data-share-confirm]");
+          if (confirmBtn) confirmBtn.disabled = !ok;
         }
       }
       return;
@@ -5696,11 +5764,28 @@
     return {
       txId,
       groupId: gid,
+      divisionTipo: "iguales",
       pagadoPorId: mi ? mi.id : participantes[0] ? participantes[0].id : null,
-      participantesIncluidos: participantes.map((p) => p.id)
+      participantesIncluidos: participantes.map((p) => p.id),
+      customValues: {},
+      extraParticipants: []
     };
   }
   __name(defaultShareDraft, "defaultShareDraft");
+  function shareDraftParticipants(d) {
+    if (d.groupId) return participantsOfGroup(d.groupId);
+    const nombres = ["T\xFA", ...CONTACTS, ...d.extraParticipants];
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    nombres.forEach((n) => {
+      const id = n === "T\xFA" ? "tu" : n;
+      if (seen.has(id)) return;
+      seen.add(id);
+      out.push({ id, nombre: n, color: "lavender" });
+    });
+    return out;
+  }
+  __name(shareDraftParticipants, "shareDraftParticipants");
   function renderShareGroupSection(tx) {
     if (tx.tipo !== "gasto" || tx.sharedByOthers) return "";
     if (tx.groupId) {
@@ -5708,20 +5793,35 @@
       return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Compartido con un grupo</div><p class="muted" style="font-size:12.5px;margin:0;">Este gasto ya se comparti\xF3 con <b>' + (g ? g.nombre : "un grupo") + "</b>. Para cambiar el reparto, hazlo desde la vista del grupo.</p></div>";
     }
     if (!GROUPS.length) return "";
-    const d = state.shareDraft && state.shareDraft.txId === tx.id ? state.shareDraft : null;
+    const d = state.shareDraft && state.shareDraft.txId === tx.id && state.shareDraft.groupId ? state.shareDraft : null;
     if (!d) {
       return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Compartir con un grupo</div><button class="split-add" data-share-open="' + tx.id + '">' + ICONS.users + " Elegir un grupo</button></div>";
     }
-    const participantes = participantsOfGroup(d.groupId);
-    const reparto = splitEqually(tx.monto, d.participantesIncluidos);
-    const suma = d.participantesIncluidos.reduce((s, pid) => s + (reparto[pid] || 0), 0);
-    const ok = suma === tx.monto;
-    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Compartir con un grupo</div><label class="draft-label">Grupo</label><select data-share-group>' + GROUPS.map((g) => '<option value="' + g.id + '" ' + (g.id === d.groupId ? "selected" : "") + ">" + g.icono + " " + g.nombre + "</option>").join("") + '</select><label class="draft-label" style="margin-top:12px;">\xBFQui\xE9n pag\xF3?</label>' + segmentedHtml("compartir-pagador", participantes.map((p) => ({ id: p.id, label: p.nombre })), d.pagadoPorId) + '<label class="draft-label" style="margin-top:12px;">\xBFEntre qui\xE9nes se divide? (partes iguales)</label>' + participantes.map((p) => {
-      const incluido = d.participantesIncluidos.includes(p.id);
-      return '<div class="split-row" style="align-items:center;"><input type="checkbox" data-share-include="' + p.id + '" ' + (incluido ? "checked" : "") + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">' + avatarHtml(p.nombre, p.color, 24) + '<span style="flex:1;margin-left:8px;">' + p.nombre + '</span><span class="tabular muted">' + (incluido ? money(reparto[p.id] || 0) : "\u2014") + "</span></div>";
-    }).join("") + '<div class="split-remaining"><span>Total repartido</span><span class="' + (ok ? "ok" : "bad") + ' tabular">' + money(suma) + " de " + money(tx.monto) + '</span></div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-share-confirm="' + tx.id + '" ' + (d.participantesIncluidos.length && ok ? "" : "disabled") + ">Compartir</button></div></div>";
+    return renderSplitDraftForm(tx, d);
   }
   __name(renderShareGroupSection, "renderShareGroupSection");
+  function renderSplitDraftForm(tx, d) {
+    const participantes = shareDraftParticipants(d);
+    const reparto = computeShareAmounts(tx.monto, d);
+    const suma = shareAmountsSum(reparto, d.participantesIncluidos);
+    const ok = suma === tx.monto && d.participantesIncluidos.length > 0;
+    const remaining = tx.monto - suma;
+    const modalidadSeg = segmentedHtml("division-tipo", [
+      { id: "iguales", label: "Partes iguales" },
+      { id: "pct", label: "Por %" },
+      { id: "montos", label: "Monto fijo" }
+    ], d.divisionTipo);
+    const groupSelectHtml = !d.groupId ? "" : '<label class="draft-label">Grupo</label><select data-share-group>' + GROUPS.map((g) => '<option value="' + g.id + '" ' + (g.id === d.groupId ? "selected" : "") + ">" + g.icono + " " + g.nombre + "</option>").join("") + "</select>";
+    const rows = participantes.map((p) => {
+      const incluido = d.participantesIncluidos.includes(p.id);
+      const raw = d.customValues[p.id] || "";
+      const valueField = !incluido ? '<span class="tabular muted">\u2014</span>' : d.divisionTipo === "iguales" ? '<span class="tabular muted">' + money(reparto[p.id] || 0) + "</span>" : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '"><span>' + (d.divisionTipo === "pct" ? "%" : "$") + "</span></span>";
+      return '<div class="split-row" style="align-items:center;"><input type="checkbox" data-share-include="' + p.id + '" ' + (incluido ? "checked" : "") + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">' + avatarHtml(p.nombre, p.color, 24) + '<span style="flex:1;margin-left:8px;">' + p.nombre + "</span>" + valueField + "</div>";
+    }).join("");
+    const addPersonRow = d.groupId ? "" : '<div class="split-row" style="align-items:center;"><input type="text" class="draft-input" data-share-new-name placeholder="Agregar otra persona\u2026" style="flex:1;"><button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">' + ICONS.plus + "</button></div>";
+    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">' + (d.groupId ? "Compartir con un grupo" : "Dividir este gasto") + "</div>" + groupSelectHtml + '<label class="draft-label" style="margin-top:12px;">\xBFC\xF3mo se divide?</label>' + modalidadSeg + '<label class="draft-label" style="margin-top:12px;">\xBFQui\xE9n pag\xF3?</label>' + segmentedHtml("compartir-pagador", participantes.map((p) => ({ id: p.id, label: p.nombre })), d.pagadoPorId) + '<label class="draft-label" style="margin-top:12px;">\xBFEntre qui\xE9nes se divide?</label>' + rows + addPersonRow + '<div class="split-remaining"><span>Total repartido</span><span class="' + (ok ? "ok" : "bad") + ' tabular">' + money(suma) + " de " + money(tx.monto) + '</span></div><div class="field-error" style="' + (ok ? "display:none;" : "") + '">' + (remaining > 0 ? "Faltan " + money(remaining) + " por repartir" : remaining < 0 ? "Sobran " + money(-remaining) + " por repartir" : "") + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-share-confirm="' + tx.id + '" ' + (ok ? "" : "disabled") + ">" + (d.groupId ? "Compartir" : "Guardar reparto") + "</button></div></div>";
+  }
+  __name(renderSplitDraftForm, "renderSplitDraftForm");
   function renderGroupsView() {
     document.getElementById("header-title").textContent = "Grupos";
     if (state.openGroupId) renderGroupDetail(state.openGroupId);
@@ -5852,6 +5952,23 @@
     return '<div class="cat-rows"><div class="split-mode-row"><span class="muted" style="font-size:12.5px;">Repartir el monto total</span><div class="mini-toggle"><button data-catunit="$" class="' + (unit === "$" ? "active" : "") + '">$</button><button data-catunit="%" class="' + (unit === "%" ? "active" : "") + '">%</button></div></div>' + rows + '<button class="split-add" data-add-cat-row="' + t.id + '">' + ICONS.plus + " Agregar categor\xEDa</button>" + (t.categorias.length > 0 ? '<div class="split-remaining"><span>Por asignar</span><span class="' + (ok ? "ok" : "bad") + ' tabular">' + money(diff) + "</span></div>" : "") + "</div>";
   }
   __name(renderCategoryRows, "renderCategoryRows");
+  function renderPersonaSettlementRows(t) {
+    const personaEntries = t.porCobrar.map((p, idx) => ({ p, idx })).filter((x) => x.p.tipo === "persona");
+    if (personaEntries.length === 0) {
+      return '<button class="split-add" data-charge-split-open="' + t.id + '">' + ICONS.users + " Dividir este gasto con alguien</button>";
+    }
+    const rows = personaEntries.map(({ p, idx }) => {
+      const isDebo = p.direccion === "debo";
+      const etiqueta = isDebo ? "Le debes a " + (p.persona || "esta persona") : (p.persona || "Sin nombre") + " te debe";
+      const nameField = '<span style="flex:1;min-width:0;"><span class="persona-label" style="font-size:13px;font-weight:600;">' + etiqueta + "</span></span>";
+      const amtField = '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">' + moneyPlainMasked(pendingEffectiveAmount(p)) + "</span>";
+      const linkBtn = !p.pagado && !isDebo ? '<button class="link-btn" data-link-pending="' + idx + '" aria-label="Vincular a un dep\xF3sito">' + ICONS.inbox + "</button>" : "";
+      const writeOffLink = !p.pagado && !isDebo ? '<button class="split-toggle-link" data-write-off="' + idx + '" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida \u2014 pasarla a gasto de este mes</button>' : "";
+      return '<div><div class="split-row' + (p.pagado ? " paid" : "") + '" data-charge-row="' + idx + '"><button class="chk-pagado' + (p.pagado ? " checked" : "") + '" data-toggle-paid="' + idx + '" aria-label="Marcar como ' + (isDebo ? "pagado" : "cobrado") + '" aria-pressed="' + (p.pagado ? "true" : "false") + '">' + ICONS.check + "</button>" + nameField + amtField + linkBtn + '<button class="rm-btn" data-charge-remove="' + idx + '">' + ICONS.trash + "</button></div>" + writeOffLink + "</div>";
+    }).join("");
+    return rows + '<button class="split-toggle-link" data-charge-split-open="' + t.id + '" style="display:block;margin-top:4px;">Editar reparto</button>';
+  }
+  __name(renderPersonaSettlementRows, "renderPersonaSettlementRows");
   function renderChargeSplitBlock(t) {
     const mode = state.splitCollectMode[t.id] || t.porCobrar.length > 0;
     if (!mode) {
@@ -5862,27 +5979,24 @@
     const soloPersona = hasPersona && !hasReembolso;
     const soloReembolso = hasReembolso && !hasPersona;
     const unit = state.splitCollectUnit[t.id] || "$";
-    const usedNames = t.porCobrar.map((p) => p.persona);
-    const suggestions = soloReembolso ? [] : CONTACTS.filter((c) => !usedNames.includes(c));
     const todosPagados = allCollected(t);
-    const rows = t.porCobrar.map((p, idx) => {
-      const isReembolso = p.tipo === "reembolso";
+    const personaDraftOpen = state.shareDraft && state.shareDraft.txId === t.id && !state.shareDraft.groupId;
+    const personaSection = personaDraftOpen ? renderSplitDraftForm(t, state.shareDraft) : renderPersonaSettlementRows(t);
+    const reembolsoRows = t.porCobrar.map((p, idx) => ({ p, idx })).filter((x) => x.p.tipo === "reembolso").map(({ p, idx }) => {
       const montoConocido = p.monto != null;
       const shown = !montoConocido ? "" : unit === "%" ? Math.round(p.monto / t.monto * 1e3) / 10 : p.monto;
-      const tipoTag = isReembolso ? '<span class="pend-tipo-tag">Reembolso</span>' : "";
-      const nameField = p.pagado ? '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;">' + tipoTag + '<span class="persona-label" style="font-size:13px;font-weight:600;">' + (p.persona || "Sin nombre") + "</span></span>" : '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;">' + tipoTag + '<input type="text" class="persona-label" style="width:100%;" data-charge-name="' + idx + '" value="' + p.persona + '" placeholder="' + (isReembolso ? "Isapre, seguro\u2026" : "Nombre") + '"></span>';
-      const amtField = p.pagado ? '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">' + moneyPlainMasked(pendingEffectiveAmount(p)) + " " + unit + (isReembolso && p.montoRecibido != null && p.monto != null && p.montoRecibido !== p.monto ? '<span class="pend-esperado muted">de ' + moneyPlainMasked(p.monto) + " esperado</span>" : "") + "</span>" : '<span class="num-wrap persona-amt"><input type="text" inputmode="decimal" data-charge-amount="' + idx + '" value="' + shown + '" placeholder="' + (isReembolso ? "Por confirmar" : "0") + '"><span>' + unit + "</span></span>";
+      const nameField = p.pagado ? '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span class="pend-tipo-tag">Reembolso</span><span class="persona-label" style="font-size:13px;font-weight:600;">' + (p.persona || "Sin nombre") + "</span></span>" : '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;"><span class="pend-tipo-tag">Reembolso</span><input type="text" class="persona-label" style="width:100%;" data-charge-name="' + idx + '" value="' + p.persona + '" placeholder="Isapre, seguro\u2026"></span>';
+      const amtField = p.pagado ? '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">' + moneyPlainMasked(pendingEffectiveAmount(p)) + " " + unit + (p.montoRecibido != null && p.monto != null && p.montoRecibido !== p.monto ? '<span class="pend-esperado muted">de ' + moneyPlainMasked(p.monto) + " esperado</span>" : "") + "</span>" : '<span class="num-wrap persona-amt"><input type="text" inputmode="decimal" data-charge-amount="' + idx + '" value="' + shown + '" placeholder="Por confirmar"><span>' + unit + "</span></span>";
       const linkBtn = p.pagado ? "" : '<button class="link-btn" data-link-pending="' + idx + '" aria-label="Vincular a un dep\xF3sito">' + ICONS.inbox + "</button>";
-      const writeOffLink = !p.pagado && !isReembolso ? '<button class="split-toggle-link" data-write-off="' + idx + '" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida \u2014 pasarla a gasto de este mes</button>' : "";
-      return '<div><div class="split-row' + (p.pagado ? " paid" : "") + '" data-charge-row="' + idx + '"><button class="chk-pagado' + (p.pagado ? " checked" : "") + '" data-toggle-paid="' + idx + '" aria-label="Marcar ' + (p.persona || "esta persona") + ' como pagado" aria-pressed="' + (p.pagado ? "true" : "false") + '">' + ICONS.check + "</button>" + nameField + amtField + linkBtn + '<button class="rm-btn" data-charge-remove="' + idx + '">' + ICONS.trash + "</button></div>" + writeOffLink + "</div>";
+      return '<div><div class="split-row' + (p.pagado ? " paid" : "") + '" data-charge-row="' + idx + '"><button class="chk-pagado' + (p.pagado ? " checked" : "") + '" data-toggle-paid="' + idx + '" aria-label="Marcar ' + (p.persona || "este reembolso") + ' como pagado" aria-pressed="' + (p.pagado ? "true" : "false") + '">' + ICONS.check + "</button>" + nameField + amtField + linkBtn + '<button class="rm-btn" data-charge-remove="' + idx + '">' + ICONS.trash + "</button></div></div>";
     }).join("");
     const totalCobro = receivableTotal(t);
-    const tuParte = t.monto - totalCobro;
+    const deboRow = t.porCobrar.find((p) => p.tipo === "persona" && p.direccion === "debo");
+    const tuParte = deboRow ? pendingEffectiveAmount(deboRow) : t.monto - totalCobro;
     const bad = tuParte < 0;
-    const emptyHint = soloReembolso ? "Agrega el reembolso que esperas por este gasto (isapre, seguro, etc)." : soloPersona ? "Agrega a qui\xE9n le cobras este gasto." : "Agrega a qui\xE9n le cobras, o un reembolso que esperas por este gasto.";
-    const tieneCobroPersonaPendiente = t.porCobrar.some((p) => p.tipo === "persona" && !p.pagado);
+    const tieneCobroPersonaPendiente = t.porCobrar.some((p) => p.tipo === "persona" && !p.pagado && p.direccion !== "debo");
     const copyBtn = tieneCobroPersonaPendiente ? '<button class="boleta-entry-link" data-copy-charge="' + t.id + '">' + ICONS.copy + " Copiar para WhatsApp</button>" : "";
-    return '<div class="split-block">' + (todosPagados ? '<div class="cobro-banner-done">' + ICONS.checkCircle + "<span>Ya te pagaron/reembolsaron todo lo de esta transacci\xF3n.</span></div>" : "") + (soloReembolso ? "" : '<button class="boleta-entry-link" data-open-receipt="' + t.id + '">' + ICONS.camera + " Subir foto de la boleta y repartir autom\xE1tico</button>") + (suggestions.length ? '<div class="contact-chips">' + suggestions.map((c) => '<button class="contact-chip" data-add-contact="' + c + '">+ ' + c + "</button>").join("") + "</div>" : "") + '<div class="split-mode-row"><span class="muted" style="font-size:12.5px;">A cu\xE1nto le corresponde a cada uno</span><div class="mini-toggle"><button data-chargeunit="$" class="' + (unit === "$" ? "active" : "") + '">$</button><button data-chargeunit="%" class="' + (unit === "%" ? "active" : "") + '">%</button></div></div>' + (rows || '<p class="muted" style="font-size:12.5px;padding:6px 0;">' + emptyHint + "</p>") + '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + (soloReembolso ? "" : '<button class="split-add" data-add-charge-row="' + t.id + '">' + ICONS.plus + " Agregar persona</button>") + (soloPersona ? "" : '<button class="split-add" data-add-reimbursement-row="' + t.id + '">' + ICONS.plus + " Agregar reembolso</button>") + '</div><div class="split-remaining"><span>Tu parte del gasto</span><span class="' + (bad ? "bad" : "ok") + ' tabular">' + money(tuParte) + "</span></div>" + copyBtn + "</div>";
+    return '<div class="split-block">' + (todosPagados ? '<div class="cobro-banner-done">' + ICONS.checkCircle + "<span>Ya te pagaron/reembolsaron todo lo de esta transacci\xF3n.</span></div>" : "") + (soloReembolso ? "" : '<button class="boleta-entry-link" data-open-receipt="' + t.id + '">' + ICONS.camera + " Subir foto de la boleta y repartir autom\xE1tico</button>") + personaSection + '<div class="split-mode-row" style="margin-top:14px;"><span class="muted" style="font-size:12.5px;">Reembolso pendiente</span><div class="mini-toggle"><button data-chargeunit="$" class="' + (unit === "$" ? "active" : "") + '">$</button><button data-chargeunit="%" class="' + (unit === "%" ? "active" : "") + '">%</button></div></div>' + (reembolsoRows || '<p class="muted" style="font-size:12.5px;padding:6px 0;">Agrega el reembolso que esperas por este gasto (isapre, seguro, etc).</p>') + (soloPersona ? "" : '<button class="split-add" data-add-reimbursement-row="' + t.id + '">' + ICONS.plus + " Agregar reembolso</button>") + '<div class="split-remaining"><span>Tu parte del gasto</span><span class="' + (bad ? "bad" : "ok") + ' tabular">' + money(tuParte) + "</span></div>" + copyBtn + "</div>";
   }
   __name(renderChargeSplitBlock, "renderChargeSplitBlock");
   function renderDraftCategoryRow(d) {
@@ -6362,13 +6476,113 @@
     const out = {};
     if (n === 0) return out;
     const floor = Math.floor(monto / n);
-    let remainder = Math.round(monto) - floor * n;
+    const remainder = Math.round(monto) - floor * n;
     participantIds.forEach((id, idx) => {
-      out[id] = floor + (idx < remainder ? 1 : 0);
+      out[id] = floor + (idx === n - 1 ? remainder : 0);
     });
     return out;
   }
   __name(splitEqually, "splitEqually");
+  function computeShareAmounts(total, draft) {
+    const ids = draft.participantesIncluidos;
+    if (draft.divisionTipo === "iguales") return splitEqually(total, ids);
+    const out = {};
+    ids.forEach((id) => {
+      const raw = draft.customValues[id];
+      const v = raw == null || raw === "" ? null : safeEvalExpr(raw);
+      if (v == null) {
+        out[id] = 0;
+        return;
+      }
+      out[id] = draft.divisionTipo === "pct" ? Math.round(total * v / 100) : Math.round(v);
+    });
+    return out;
+  }
+  __name(computeShareAmounts, "computeShareAmounts");
+  function shareAmountsSum(amounts, includedIds) {
+    return includedIds.reduce((s, id) => s + (amounts[id] || 0), 0);
+  }
+  __name(shareAmountsSum, "shareAmountsSum");
+  function defaultPersonaSplitDraft(txId) {
+    return {
+      txId,
+      groupId: null,
+      divisionTipo: "iguales",
+      pagadoPorId: "tu",
+      participantesIncluidos: ["tu"],
+      customValues: {},
+      extraParticipants: []
+    };
+  }
+  __name(defaultPersonaSplitDraft, "defaultPersonaSplitDraft");
+  function draftFromExistingSplit(t) {
+    const divisionTipo = t.divisionTipo || "iguales";
+    const personaRows = (t.porCobrar || []).filter((p) => p.tipo === "persona");
+    const deboRow = personaRows.find((p) => p.direccion === "debo");
+    if (t.pagador || deboRow) {
+      const pagadoPorId = t.pagador || (deboRow ? deboRow.persona : "tu");
+      const monto = deboRow ? deboRow.monto || 0 : 0;
+      const customValues2 = {};
+      if (divisionTipo === "montos") customValues2["tu"] = String(monto);
+      else if (divisionTipo === "pct") customValues2["tu"] = String(t.monto ? Math.round(monto / t.monto * 1e3) / 10 : 0);
+      return {
+        txId: t.id,
+        groupId: null,
+        divisionTipo,
+        pagadoPorId,
+        participantesIncluidos: ["tu", pagadoPorId],
+        customValues: customValues2,
+        extraParticipants: [pagadoPorId]
+      };
+    }
+    const participantesIncluidos = ["tu", ...personaRows.map((p) => p.persona)];
+    const customValues = {};
+    personaRows.forEach((p) => {
+      if (divisionTipo === "montos") customValues[p.persona] = String(p.monto || 0);
+      else if (divisionTipo === "pct") customValues[p.persona] = String(t.monto ? Math.round((p.monto || 0) / t.monto * 1e3) / 10 : 0);
+    });
+    return {
+      txId: t.id,
+      groupId: null,
+      divisionTipo,
+      pagadoPorId: "tu",
+      participantesIncluidos,
+      customValues,
+      extraParticipants: personaRows.map((p) => p.persona)
+    };
+  }
+  __name(draftFromExistingSplit, "draftFromExistingSplit");
+  function commitPersonaSplit(t, draft, amounts) {
+    const reembolsoRows = (t.porCobrar || []).filter((p) => p.tipo === "reembolso");
+    let personaRows;
+    if (draft.pagadoPorId === "tu") {
+      personaRows = draft.participantesIncluidos.filter((id) => id !== "tu").map((id) => ({
+        persona: id,
+        monto: amounts[id] || 0,
+        pagado: false,
+        tipo: "persona",
+        montoRecibido: null,
+        linkedTxId: null,
+        direccion: "me_deben"
+      }));
+      delete t.pagador;
+    } else {
+      personaRows = [{
+        persona: draft.pagadoPorId,
+        monto: amounts["tu"] || 0,
+        pagado: false,
+        tipo: "persona",
+        montoRecibido: null,
+        linkedTxId: null,
+        direccion: "debo"
+      }];
+      t.pagador = draft.pagadoPorId;
+    }
+    t.divisionTipo = draft.divisionTipo;
+    t.porCobrar = personaRows.concat(reembolsoRows);
+    t.estado = personaRows.length > 0 || reembolsoRows.length > 0 ? "por_cobrar" : t.categorias.length > 0 ? "confirmado" : "pendiente";
+  }
+  __name(commitPersonaSplit, "commitPersonaSplit");
   function safeEvalExpr(raw) {
     const cleaned = String(raw).replace(/,/g, ".").replace(/\s+/g, "");
     if (cleaned === "" || !/^[0-9+\-*/().]*$/.test(cleaned)) return null;
@@ -7125,6 +7339,7 @@
     referenceMonthlyIncome: referenceMonthlyIncome, sumSpendingGoalPct: sumSpendingGoalPct,
     monthlyBudgetTotal: monthlyBudgetTotal, sumaPresupuestosCategorias: sumaPresupuestosCategorias,
     pgBytesToArrayBuffer: pgBytesToArrayBuffer, hasReceivableType: hasReceivableType,
+    netExpenseTx: netExpenseTx,
     get TRANSFER_INFO(){ return TRANSFER_INFO; }, set TRANSFER_INFO(v){ TRANSFER_INFO = v; },
     buildChargeWhatsAppText: buildChargeWhatsAppText, transferInfoComplete: transferInfoComplete,
     ensureCheckingAccountMethod: ensureCheckingAccountMethod, ensureUnknownPaymentMethod: ensureUnknownPaymentMethod,

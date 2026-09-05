@@ -162,9 +162,18 @@ Supabase (ver sección 5) o a un respaldo JSON descargable (Menú → Respaldo e
     resto de la app (lista de Transacciones, donuts de Balance/Presupuesto, editor de reglas,
     filtros...) no tenga que saber cuál de las tres recibió.
   - `porCobrar`: `[{persona, monto, pagado, tipo:'persona'|'reembolso', montoRecibido,
-    linkedTxId}]`. `'persona'` = alguien te debe su parte (se descuenta de Gastos al dividir,
-    no cuando te pagan). `'reembolso'` = plata que vuelve después (isapre, seguro), el gasto ya
-    fue 100% tuyo y el reembolso se ve como crédito en el mes en que llega.
+    linkedTxId, direccion?:'me_deben'|'debo'}]`. `'persona'` = dividiste este gasto con alguien;
+    `direccion` dice hacia dónde va la plata — `'me_deben'` (o ausente, mismo significado en
+    datos viejos) es el caso de toda la vida: pagaste tú, esa persona te debe su parte (se
+    descuenta de Gastos al dividir, no cuando te pagan). `'debo'` es el caso simétrico agregado
+    junto con "Dividir este gasto" (sección 4): pagó OTRA persona y tú le debes tu propia
+    parte — siempre una única fila (esta app no lleva un libro N-a-N entre personas sueltas, solo
+    tu propia relación con quien pagó de verdad; para eso está un Grupo real). `'reembolso'` =
+    plata que vuelve después (isapre, seguro), el gasto ya fue 100% tuyo y el reembolso se ve
+    como crédito en el mes en que llega — no tiene noción de dirección, ese flujo no cambió.
+    La transacción misma puede llevar además `pagador` (quién pagó de verdad, ausente = "Tú") y
+    `divisionTipo` (`'iguales'|'montos'|'pct'`, qué modalidad armó el reparto actual) una vez que
+    tiene un split de tipo `'persona'`.
   - `cuotas: {total}` (opcional) — compras en cuotas; `regenerateInstallmentsFor(txId)` genera
     transacciones-cuota futuras (`cuotaProyectada`, `cuotaNumero`, `cuotaTotal`) y extiende
     `MONTHS` si hace falta.
@@ -286,15 +295,32 @@ Dentro del detalle de una transacción:
   candidato real a ser el pago de un pendiente) o si ya está vinculado — un ingreso ya
   categorizado (sueldo, freelance, etc.) nunca la muestra.
 - **Acciones rápidas** (solo gastos): confirmar / por cobrar a alguien / reembolso pendiente /
-  no es gasto.
-- **Compartir con un grupo** (solo gastos propios, no en una entrada `sharedByOthers`):
-  cerrado por defecto ("Elegir un grupo"); al abrirlo, elegir grupo, quién pagó (segmented) y
-  entre quiénes se divide (checkboxes, partes iguales con vista previa en vivo del reparto y
-  chequeo de que suma el total exacto) — "Compartir" llama `shareExistingTransaction`.
-  Una vez compartida, la sección pasa a una tarjeta de solo lectura ("ya se compartió con
-  &lt;grupo&gt;"); para cambiar el reparto hay que hacerlo desde la vista del grupo. **Alcance
-  de esta primera pasada: solo partes iguales** — "montos"/"%" (reparto personalizado) queda
-  para una próxima pasada, el esquema/backend ya los soporta (`division_tipo`).
+  no es gasto. "Por cobrar a alguien" ya no arma una fila adivinada 50/50 -- abre directamente
+  el editor de reparto compartido (ver el bullet siguiente), es un toggle de 3 estados: sin
+  reparto → abre el editor → cancelar (si nada se confirmó) / quitar reparto (si ya había uno).
+- **Dividir este gasto** (solo gastos propios, no en una entrada `sharedByOthers`; con o sin
+  grupo asociado): **un solo componente** (`renderSplitDraftForm` en `views/grupos.ts`, sobre
+  `state.shareDraft`) para las dos situaciones — "Compartir con un grupo" (si `tx.groupId` está
+  o se elige uno) y "Dividir este gasto con alguien" sin grupo (heredero de la vieja
+  `renderChargeSplitBlock` de tipo `'persona'`). Ofrece las 3 modalidades (partes
+  iguales/por %/monto fijo, segmented `division-tipo`), quién pagó (segmented,
+  participantes del grupo o "Tú" + contactos conocidos + los que se agreguen a mano),
+  checkboxes de quiénes entran, vista previa en vivo (`money()`/`moneyPlainMasked()`, así el
+  modo demo enmascara gratis) y un botón de confirmar (Compartir/Guardar reparto) que se
+  mantiene deshabilitado hasta que la suma cuadre EXACTO con el total, en las 3 modalidades por
+  igual (antes solo `'iguales'` tenía esa garantía, y solo para grupos). Con grupo, "Compartir"
+  llama `shareExistingTransaction` (ya soportaba `division_tipo`/reparto genérico, solo la UI
+  estaba fija en `'iguales'`) y, una vez compartida, la sección pasa a una tarjeta de solo
+  lectura ("ya se compartió con &lt;grupo&gt;") — para cambiar el reparto hay que hacerlo desde
+  la vista del grupo. Sin grupo, "Guardar reparto" escribe directo en `porCobrar` vía
+  `commitPersonaSplit` (`shared-expenses.ts`): si pagaste tú (el único caso de antes de esta
+  función), una fila `direccion:'me_deben'` por cada otro participante; si pagó otra persona,
+  una única fila `direccion:'debo'` con tu propia parte (ver la nota sobre `porCobrar` en la
+  sección 3) — `netExpenseTx()` (`helpers.ts`) sabe neteAR ambos casos. Una vez que ya hay un
+  reparto de persona, la sección muestra las filas ya comprometidas (pagado/vincular
+  depósito/dar por perdida, sin tocar) más un botón "Editar reparto" que reabre el mismo editor
+  precargado (`draftFromExistingSplit`). El redondeo de "partes iguales" lo absorbe siempre el
+  ÚLTIMO participante de la lista (`splitEqually`, `shared-expenses.ts`).
   Una entrada `sharedByOthers` (mi parte de un gasto que registró otra persona) reutiliza el
   mismo flujo de clasificación de siempre (`needsClassifying` → `catPickerGrid`) cuando todavía
   no tiene categoría, mostrando además la sugerencia de la categoría de origen; tocar una
@@ -534,6 +560,13 @@ es un script Node independiente.
   sandbox de test), estos tests inyectan el estado de grupos directo por `window.__debug` —
   igual que `audit_gastos_compartidos.js` — y verifican la UI sobre ese estado, no el viaje de
   ida y vuelta a la base de datos.
+- **`shot_split_gasto_persona.js`**: el editor de reparto compartido (`renderSplitDraftForm`) en
+  sus dos entradas (con y sin grupo) — las 3 modalidades sumando exacto al total (incluyendo el
+  caso de redondeo de "partes iguales"), un reparto ad-hoc entre un subconjunto de participantes,
+  el caso nuevo "otra persona pagó" (`direccion:'debo'`) y que `netExpenseTx()` lo netee bien,
+  la regresión de una fila `porCobrar` legado (sin `pagador`/`divisionTipo`/`direccion`) y el
+  enmascarado en modo demo. Misma limitación que `shot_compartir_grupo.js` con la escritura real
+  a Supabase del caso con grupo.
 - Convención: **todo bug fix o cambio de comportamiento agrega/actualiza un test** que bloquee
   que vuelva a pasar — nunca se corrige "a mano" sin dejar cobertura.
 - Un test que NO necesita abrir el navegador (por ejemplo, comparar `manifest.json` contra

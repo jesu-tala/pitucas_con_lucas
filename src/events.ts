@@ -1,6 +1,6 @@
 import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
-import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, splitEqually, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, groupBalances } from './shared-expenses';
+import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, splitEqually, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, groupBalances, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit } from './shared-expenses';
 import { RECEIPT_EXAMPLES, receiptItemIdCounter, receiptTotal, closeSheet, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
 import { CATEGORIES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
@@ -182,6 +182,28 @@ phone.addEventListener('click', function(e: any){
     }
     if(group==='compartir-pagador' && state.shareDraft){
       state.shareDraft.pagadoPorId = val;
+      renderSheet();
+      return;
+    }
+    if(group==='division-tipo' && state.shareDraft){
+      state.shareDraft.divisionTipo = val;
+      // Seed each included participant's custom value from the equal split so switching to
+      // "%"/"monto fijo" doesn't start everyone at a blank/zero — nice starting point to fine-tune
+      // rather than type from scratch (only fills in blanks, never overwrites something the user
+      // already typed if they flip back and forth between modalities).
+      if(val!=='iguales'){
+        const t = getTx(state.shareDraft.txId);
+        if(t){
+          const base = splitEqually(t.monto, state.shareDraft.participantesIncluidos);
+          state.shareDraft.participantesIncluidos.forEach(id=>{
+            if(state.shareDraft.customValues[id]==null || state.shareDraft.customValues[id]===''){
+              state.shareDraft.customValues[id] = val==='pct'
+                ? String(t.monto ? Math.round((base[id]||0)/t.monto*1000)/10 : 0)
+                : String(base[id]||0);
+            }
+          });
+        }
+      }
       renderSheet();
       return;
     }
@@ -773,18 +795,27 @@ phone.addEventListener('click', function(e: any){
         else { t.estado='confirmado'; toast('Marcado como confirmado'); }
       }
       else if(act==='porcobrar_persona'){
+        // 3-way toggle: no split at all -> opens the shared split draft (see
+        // defaultPersonaSplitDraft/renderSplitDraftForm) so choosing who's in it and how it's
+        // divided always goes through the same hard-validated picker, never a guessed row ->
+        // draft open but not yet confirmed -> cancels it -> a split already committed -> removes it.
+        const draftAbierto = !!(state.shareDraft && state.shareDraft.txId===t.id && !state.shareDraft.groupId);
         if(hasReceivableType(t,'persona')){
           // it was already marked — pressing again deselects it (only removes the rows of
           // this type; if no pending charge/reimbursement is left, it goes back to confirmado).
           t.porCobrar = t.porCobrar.filter(p=>p.tipo!=='persona');
+          delete t.pagador; delete t.divisionTipo;
+          state.shareDraft = null;
           if(t.porCobrar.length===0){ t.estado = t.categorias.length>0 ? 'confirmado' : 'pendiente'; state.splitCollectMode[t.id]=false; }
           toast('Se quitó el cobro pendiente');
+        } else if(draftAbierto){
+          state.shareDraft = null;
+          if(t.porCobrar.length===0){ t.estado = t.categorias.length>0 ? 'confirmado' : 'pendiente'; state.splitCollectMode[t.id]=false; }
+          toast('Se canceló el reparto');
         } else {
           t.estado='por_cobrar'; state.splitCollectMode[t.id]=true;
-          const already = t.porCobrar.reduce((s,p)=>s+(p.monto||0),0);
-          const remaining = Math.max(t.monto - already, 0);
-          t.porCobrar.push({persona:'', monto: Math.round(remaining/2), pagado:false, tipo:'persona', montoRecibido:null, linkedTxId:null});
-          toast('Marcado como por cobrar');
+          state.shareDraft = defaultPersonaSplitDraft(t.id);
+          toast('Elige con quién divides este gasto');
         }
       }
       else if(act==='porcobrar_reembolso'){
@@ -866,28 +897,19 @@ phone.addEventListener('click', function(e: any){
     renderSheet();
     return;
   }
-  const addContact = e.target.closest('[data-add-contact]');
-  if(addContact){
-    const t = getTx(state.openTxId);
+  // "Dividir este gasto con alguien" / "Editar reparto" — opens the shared split draft (see
+  // renderSplitDraftForm in views/grupos.ts): fresh (defaultPersonaSplitDraft) if there's no
+  // persona split yet, or rebuilt from what's already committed (draftFromExistingSplit) so
+  // reopening it doesn't lose the modality/amounts chosen last time. Replaces the old
+  // freeform "add a blank row and type a name/amount" flow (data-add-charge-row/data-add-contact) —
+  // now that the sum has to match the total exactly for all 3 modalities, typing into
+  // uncoordinated per-row fields could never guarantee that.
+  const chargeSplitOpenBtn = e.target.closest('[data-charge-split-open]');
+  if(chargeSplitOpenBtn){
+    const t = getTx(chargeSplitOpenBtn.getAttribute('data-charge-split-open'));
     if(t){
-      const name = addContact.getAttribute('data-add-contact');
-      const already = t.porCobrar.reduce((s,p)=>s+(p.monto||0),0);
-      const remaining = Math.max(t.monto - already, 0);
-      const share = t.porCobrar.length===0 ? Math.round(remaining/2) : Math.round(remaining/2);
-      t.porCobrar.push({persona:name, monto: share, pagado:false, tipo:'persona', montoRecibido:null, linkedTxId:null});
-      if(t.estado!=='por_cobrar'){ t.estado='por_cobrar'; }
-      state.splitCollectMode[t.id]=true;
-      renderSheet(); renderIfListVisible();
-    }
-    return;
-  }
-  const addChargeRow = e.target.closest('[data-add-charge-row]');
-  if(addChargeRow){
-    const t = getTx(addChargeRow.getAttribute('data-add-charge-row'));
-    if(t){
-      const already = t.porCobrar.reduce((s,p)=>s+(p.monto||0),0);
-      const remaining = Math.max(t.monto - already, 0);
-      t.porCobrar.push({persona:'', monto: Math.round(remaining/2), pagado:false, tipo:'persona', montoRecibido:null, linkedTxId:null});
+      state.shareDraft = hasReceivableType(t,'persona') ? draftFromExistingSplit(t) : defaultPersonaSplitDraft(t.id);
+      state.splitCollectMode[t.id] = true;
       renderSheet();
     }
     return;
@@ -965,7 +987,14 @@ phone.addEventListener('click', function(e: any){
   if(rmChargeRow){
     const t = getTx(state.openTxId);
     const idx = parseInt(rmChargeRow.getAttribute('data-charge-remove'),10);
-    if(t){ t.porCobrar.splice(idx,1); renderSheet(); renderIfListVisible(); }
+    if(t && t.porCobrar[idx]){
+      t.porCobrar.splice(idx,1);
+      // pagador/divisionTipo only mean anything while there's still a persona split -- clear
+      // them so a brand new "Dividir este gasto" starts fresh instead of inheriting a stale payer.
+      if(!t.porCobrar.some(p=>p.tipo==='persona')){ delete t.pagador; delete t.divisionTipo; }
+      if(t.porCobrar.length===0){ t.estado = t.categorias.length>0 ? 'confirmado' : 'pendiente'; state.splitCollectMode[t.id]=false; }
+      renderSheet(); renderIfListVisible();
+    }
     return;
   }
 
@@ -1222,14 +1251,23 @@ phone.addEventListener('click', function(e: any){
   if(shareConfirmBtn){
     const txId = shareConfirmBtn.getAttribute('data-share-confirm');
     const d = state.shareDraft;
-    if(d && d.txId===txId && d.groupId && d.pagadoPorId && d.participantesIncluidos.length>0){
-      const t = getTx(txId);
-      const reparto = splitEqually(t ? t.monto : 0, d.participantesIncluidos);
-      shareExistingTransaction(txId, d.groupId, d.pagadoPorId, 'iguales', reparto).then(function(gasto){
+    const t = getTx(txId);
+    if(d && t && d.txId===txId && d.pagadoPorId && d.participantesIncluidos.length>0){
+      const reparto = computeShareAmounts(t.monto, d);
+      const suma = shareAmountsSum(reparto, d.participantesIncluidos);
+      if(suma!==t.monto) return; // hard guard -- the confirm button should already be disabled
+      if(d.groupId){
+        shareExistingTransaction(txId, d.groupId, d.pagadoPorId, d.divisionTipo, reparto).then(function(gasto){
+          state.shareDraft = null;
+          toast(gasto ? 'Gasto compartido' : 'No se pudo compartir — revisa tu conexión');
+          render();
+        });
+      } else {
+        commitPersonaSplit(t, d, reparto);
         state.shareDraft = null;
-        toast(gasto ? 'Gasto compartido' : 'No se pudo compartir — revisa tu conexión');
-        render();
-      });
+        toast('Reparto guardado');
+        renderSheet(); renderIfListVisible();
+      }
     }
     return;
   }
@@ -1559,6 +1597,21 @@ phone.addEventListener('change', function(e: any){
     renderSheet();
     return;
   }
+  // "+ agregar persona" inside the split draft (no-group only — see shareDraftParticipants):
+  // adds a brand new ad-hoc name to the pool AND checks it in, ready for the live preview.
+  const shareAddNameBtn = e.target.closest('[data-share-add-name]');
+  if(shareAddNameBtn && state.shareDraft){
+    const row = shareAddNameBtn.closest('.split-row');
+    const input = row ? row.querySelector('[data-share-new-name]') as HTMLInputElement : null;
+    const name = input ? input.value.trim() : '';
+    if(name){
+      const d = state.shareDraft;
+      if(!d.extraParticipants.includes(name)) d.extraParticipants.push(name);
+      if(!d.participantesIncluidos.includes(name)) d.participantesIncluidos.push(name);
+      renderSheet();
+    }
+    return;
+  }
 
   // Per-item confirmation for "Posibles a eliminar" in the automatic reconciliation diff
   // (see reconcile.ts) -- checking a box only stages it; nothing is deleted until "Eliminar
@@ -1664,6 +1717,36 @@ phone.addEventListener('input', function(e: any){
           remainingEl.textContent = money(tuParte);
           remainingEl.className = (tuParte<0?'bad':'ok')+' tabular';
         }
+      }
+    }
+    return;
+  }
+  // A %/monto value typed into the split draft (see renderSplitDraftForm) — patches just the
+  // "total repartido"/error line and the confirm button's disabled state directly in the DOM
+  // (same reasoning as data-cat-amount/data-charge-amount above: a full renderSheet() on every
+  // keystroke would steal focus mid-typing).
+  const shareValueInput = e.target.closest('[data-share-value]');
+  if(shareValueInput && state.shareDraft){
+    const id = shareValueInput.getAttribute('data-share-value');
+    const d = state.shareDraft;
+    d.customValues[id] = shareValueInput.value;
+    const t = getTx(d.txId);
+    if(t){
+      const reparto = computeShareAmounts(t.monto, d);
+      const suma = shareAmountsSum(reparto, d.participantesIncluidos);
+      const ok = suma===t.monto && d.participantesIncluidos.length>0;
+      const wrap = shareValueInput.closest('.sheet-block');
+      if(wrap){
+        const remainingEl = wrap.querySelector('.split-remaining span:last-child');
+        if(remainingEl){ remainingEl.textContent = money(suma)+' de '+money(t.monto); remainingEl.className = (ok?'ok':'bad')+' tabular'; }
+        const errEl = wrap.querySelector('.field-error') as HTMLElement;
+        if(errEl){
+          const remaining = t.monto - suma;
+          errEl.textContent = ok ? '' : (remaining>0 ? 'Faltan '+money(remaining)+' por repartir' : 'Sobran '+money(-remaining)+' por repartir');
+          errEl.style.display = ok ? 'none' : '';
+        }
+        const confirmBtn = wrap.querySelector('[data-share-confirm]') as HTMLButtonElement;
+        if(confirmBtn) confirmBtn.disabled = !ok;
       }
     }
     return;

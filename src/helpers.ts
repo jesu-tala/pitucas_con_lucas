@@ -105,8 +105,25 @@ export function receivableTotal(t){ return t.porCobrar.reduce((s,p)=>s+pendingEf
 // Since the netting happens when you split (not when the deposit is received), a month that's
 // already closed doesn't change because of a reimbursement or payment that arrives later — it
 // only changes if you edit that old transaction.
+// This now covers 3 cases, not 2 -- the third (direccion:'debo') was added alongside the
+// "divide with someone, with or without a group" feature (see ReceivableItem.direccion and
+// Transaction.pagador/divisionTipo in types.ts):
+//  · no 'persona' rows: the whole thing is your expense, same as ever.
+//  · 'persona' rows with direccion 'me_deben' (or absent -- old data, same meaning): YOU paid the
+//    full catTotalAmount(t) and fronted everyone else's share, so their shares net OFF your
+//    expense as soon as you split it (unchanged from before this feature).
+//  · a SINGLE 'persona' row with direccion 'debo': someone ELSE paid, and this transaction only
+//    exists in your ledger to track your own relationship to them (see commitPersonaSplit in
+//    shared-expenses.ts, which guarantees a 'debo' row is always alone). catTotalAmount(t) is the
+//    whole bill, but you never actually fronted any of it -- your real expense is exactly that
+//    row's own amount (your computed share), full stop. It would be wrong to do
+//    "catTotalAmount(t) - thatRow" (that nets your OWN share off your OWN expense, leaving ~0);
+//    it's equally wrong to count catTotalAmount(t) in full (that's the whole bill, not what you
+//    owe). The debo row's amount IS the answer directly.
 export function netExpenseTx(t){
   if(t.tipo!=='gasto') return catTotalAmount(t);
+  const deboRow = (t.porCobrar||[]).find(p=>p.tipo==='persona' && p.direccion==='debo');
+  if(deboRow) return Math.max(deboRow.monto||0, 0);
   const personSplits = (t.porCobrar||[]).filter(p=>p.tipo==='persona').reduce((s,p)=>s+(p.monto||0),0);
   return Math.max(catTotalAmount(t) - personSplits, 0);
 }

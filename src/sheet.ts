@@ -5,7 +5,7 @@ import { ensureMonthExists, safeEvalExpr } from './shared-expenses';
 import { CATEGORIES, CONTACTS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, money, moneyPlainMasked, state, todayISO } from './state';
 import { ReceivableItem, Transaction } from './types';
 import { toast } from './ui/toasts';
-import { renderShareGroupSection } from './views/grupos';
+import { renderShareGroupSection, renderSplitDraftForm } from './views/grupos';
 import { activePlatformIds, investmentCatOptions, isPlatformArchived, platformIds } from './views/inversiones';
 import { advFilterCount } from './views/transacciones';
 /* ===================== DETAIL SHEET ===================== */
@@ -64,78 +64,117 @@ export function renderCategoryRows(t, allowSplit){
   '</div>';
 }
 
-export function renderChargeSplitBlock(t){
-  const mode = state.splitCollectMode[t.id] || t.porCobrar.length>0;
-  if(!mode){
-    return '';
+// Committed persona rows once a split already exists: same per-person settlement UI as before
+// this feature (paid checkbox, masked amount, link-a-deposit, write-off, remove) — none of that
+// is touched, it's the "manage an already-agreed split" concern, distinct from "create/edit the
+// split", which now goes entirely through renderSplitDraftForm (views/grupos.ts). The only new
+// thing here is a fixed (non-editable) label per row instead of a free-typed name/amount, since
+// renaming or re-amounting now happens by reopening the draft ("Editar reparto") rather than
+// inline — that's what makes the "sum must match the total, always" rule actually enforceable.
+function renderPersonaSettlementRows(t){
+  const personaEntries = t.porCobrar.map((p,idx)=>({p,idx})).filter(x=>x.p.tipo==='persona');
+  if(personaEntries.length===0){
+    return '<button class="split-add" data-charge-split-open="'+t.id+'">'+ICONS.users+' Dividir este gasto con alguien</button>';
   }
-  // "Charge someone" and "Pending reimbursement" are separate actions — if this
-  // transaction only has rows of one type (the normal case, entering through one quick
-  // action or the other), this block specializes: it doesn't offer to add the other type, so as
-  // not to mix "charging a person" with "a reimbursement you're waiting for". If it already has
-  // both types (e.g. data from before this change), both options are shown so as not to block anything.
-  const hasPersona = hasReceivableType(t,'persona');
-  const hasReembolso = hasReceivableType(t,'reembolso');
-  const soloPersona = hasPersona && !hasReembolso;
-  const soloReembolso = hasReembolso && !hasPersona;
-  const unit = state.splitCollectUnit[t.id] || '$';
-  const usedNames = t.porCobrar.map(p=>p.persona);
-  const suggestions = soloReembolso ? [] : CONTACTS.filter(c=>!usedNames.includes(c));
-  const todosPagados = allCollected(t);
-  const rows = t.porCobrar.map((p,idx)=>{
-    const isReembolso = p.tipo==='reembolso';
-    const montoConocido = p.monto!=null;
-    const shown = !montoConocido ? '' : (unit==='%' ? Math.round((p.monto/t.monto)*1000)/10 : p.monto);
-    const tipoTag = isReembolso ? '<span class="pend-tipo-tag">Reembolso</span>' : '';
-    const nameField = p.pagado
-      ? '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;">'+tipoTag+'<span class="persona-label" style="font-size:13px;font-weight:600;">'+(p.persona||'Sin nombre')+'</span></span>'
-      : '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;">'+tipoTag+
-          '<input type="text" class="persona-label" style="width:100%;" data-charge-name="'+idx+'" value="'+p.persona+'" placeholder="'+(isReembolso?'Isapre, seguro…':'Nombre')+'"></span>';
-    const amtField = p.pagado
-      ? '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">'+
-          moneyPlainMasked(pendingEffectiveAmount(p))+' '+unit+
-          (isReembolso && p.montoRecibido!=null && p.monto!=null && p.montoRecibido!==p.monto ? '<span class="pend-esperado muted">de '+moneyPlainMasked(p.monto)+' esperado</span>' : '')+
-        '</span>'
-      : '<span class="num-wrap persona-amt"><input type="text" inputmode="decimal" data-charge-amount="'+idx+'" value="'+shown+'" placeholder="'+(isReembolso?'Por confirmar':'0')+'"><span>'+unit+'</span></span>';
-    const linkBtn = p.pagado ? '' : '<button class="link-btn" data-link-pending="'+idx+'" aria-label="Vincular a un depósito">'+ICONS.inbox+'</button>';
-    // "Write off" only applies to a person's share (a real receivable) —
-    // a reimbursement that never arrives doesn't need this: that expense already counted 100% as yours.
-    const writeOffLink = (!p.pagado && !isReembolso)
+  const rows = personaEntries.map(({p,idx})=>{
+    const isDebo = p.direccion==='debo';
+    // 'debo' (someone else paid, you owe THEM): the label reads "Le debes a <payer>". Absent or
+    // 'me_deben' (you paid, unchanged from before this feature): "<persona> te debe".
+    const etiqueta = isDebo ? 'Le debes a '+(p.persona||'esta persona') : (p.persona||'Sin nombre')+' te debe';
+    const nameField = '<span style="flex:1;min-width:0;"><span class="persona-label" style="font-size:13px;font-weight:600;">'+etiqueta+'</span></span>';
+    const amtField = '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">'+moneyPlainMasked(pendingEffectiveAmount(p))+'</span>';
+    // Linking to an incoming deposit only makes sense when money comes TO you ('me_deben') — a
+    // 'debo' row settles when YOU pay someone else, there's no deposit to link, just a manual
+    // "mark as paid" (the chk-pagado button, offered either way).
+    const linkBtn = (!p.pagado && !isDebo) ? '<button class="link-btn" data-link-pending="'+idx+'" aria-label="Vincular a un depósito">'+ICONS.inbox+'</button>' : '';
+    // Same reasoning for "dar por perdida": that only ever applies to money owed TO you that
+    // never arrives — you can't "write off" a debt you owe.
+    const writeOffLink = (!p.pagado && !isDebo)
       ? '<button class="split-toggle-link" data-write-off="'+idx+'" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida — pasarla a gasto de este mes</button>'
       : '';
     return '<div>'+
       '<div class="split-row'+(p.pagado?' paid':'')+'" data-charge-row="'+idx+'">'+
-        '<button class="chk-pagado'+(p.pagado?' checked':'')+'" data-toggle-paid="'+idx+'" aria-label="Marcar '+(p.persona||'esta persona')+' como pagado" aria-pressed="'+(p.pagado?'true':'false')+'">'+ICONS.check+'</button>'+
+        '<button class="chk-pagado'+(p.pagado?' checked':'')+'" data-toggle-paid="'+idx+'" aria-label="Marcar como '+(isDebo?'pagado':'cobrado')+'" aria-pressed="'+(p.pagado?'true':'false')+'">'+ICONS.check+'</button>'+
         nameField+ amtField+ linkBtn+
         '<button class="rm-btn" data-charge-remove="'+idx+'">'+ICONS.trash+'</button>'+
       '</div>'+
       writeOffLink+
     '</div>';
   }).join('');
+  return rows+'<button class="split-toggle-link" data-charge-split-open="'+t.id+'" style="display:block;margin-top:4px;">Editar reparto</button>';
+}
+
+export function renderChargeSplitBlock(t){
+  const mode = state.splitCollectMode[t.id] || t.porCobrar.length>0;
+  if(!mode){
+    return '';
+  }
+  // "Charge someone" and "Pending reimbursement" are separate actions — if this transaction
+  // only has committed rows of one type, the reimbursement side of this block specializes: it
+  // doesn't offer to add a reimbursement once it's already a pure persona split (soloPersona).
+  // The persona side (renderPersonaSettlementRows/renderSplitDraftForm) is no longer gated this
+  // way — dividing a gasto with someone is now a universal action (see the feature's scope),
+  // not something hidden away just because a reimbursement happens to already exist on it.
+  const hasPersona = hasReceivableType(t,'persona');
+  const hasReembolso = hasReceivableType(t,'reembolso');
+  const soloPersona = hasPersona && !hasReembolso;
+  const soloReembolso = hasReembolso && !hasPersona;
+  const unit = state.splitCollectUnit[t.id] || '$';
+  const todosPagados = allCollected(t);
+
+  // ---- persona: creating/editing the split now goes through the shared draft+picker
+  // (renderSplitDraftForm) also used by "share with a group" — see state.shareDraft's doc
+  // comment in views/grupos.ts for why both flows share one component. ----
+  const personaDraftOpen = state.shareDraft && state.shareDraft.txId===t.id && !state.shareDraft.groupId;
+  const personaSection = personaDraftOpen ? renderSplitDraftForm(t, state.shareDraft) : renderPersonaSettlementRows(t);
+
+  // ---- reembolso: UNCHANGED logic/behavior, just no longer sharing a rendering loop with
+  // persona rows (which used to live in the same t.porCobrar.map(...) above). ----
+  const reembolsoRows = t.porCobrar.map((p,idx)=>({p,idx})).filter(x=>x.p.tipo==='reembolso').map(({p,idx})=>{
+    const montoConocido = p.monto!=null;
+    const shown = !montoConocido ? '' : (unit==='%' ? Math.round((p.monto/t.monto)*1000)/10 : p.monto);
+    const nameField = p.pagado
+      ? '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span class="pend-tipo-tag">Reembolso</span><span class="persona-label" style="font-size:13px;font-weight:600;">'+(p.persona||'Sin nombre')+'</span></span>'
+      : '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;"><span class="pend-tipo-tag">Reembolso</span>'+
+          '<input type="text" class="persona-label" style="width:100%;" data-charge-name="'+idx+'" value="'+p.persona+'" placeholder="Isapre, seguro…"></span>';
+    const amtField = p.pagado
+      ? '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">'+
+          moneyPlainMasked(pendingEffectiveAmount(p))+' '+unit+
+          (p.montoRecibido!=null && p.monto!=null && p.montoRecibido!==p.monto ? '<span class="pend-esperado muted">de '+moneyPlainMasked(p.monto)+' esperado</span>' : '')+
+        '</span>'
+      : '<span class="num-wrap persona-amt"><input type="text" inputmode="decimal" data-charge-amount="'+idx+'" value="'+shown+'" placeholder="Por confirmar"><span>'+unit+'</span></span>';
+    const linkBtn = p.pagado ? '' : '<button class="link-btn" data-link-pending="'+idx+'" aria-label="Vincular a un depósito">'+ICONS.inbox+'</button>';
+    return '<div>'+
+      '<div class="split-row'+(p.pagado?' paid':'')+'" data-charge-row="'+idx+'">'+
+        '<button class="chk-pagado'+(p.pagado?' checked':'')+'" data-toggle-paid="'+idx+'" aria-label="Marcar '+(p.persona||'este reembolso')+' como pagado" aria-pressed="'+(p.pagado?'true':'false')+'">'+ICONS.check+'</button>'+
+        nameField+ amtField+ linkBtn+
+        '<button class="rm-btn" data-charge-remove="'+idx+'">'+ICONS.trash+'</button>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
   const totalCobro = receivableTotal(t);
-  const tuParte = t.monto - totalCobro;
+  const deboRow = t.porCobrar.find(p=>p.tipo==='persona' && p.direccion==='debo');
+  // "Your part of the expense": normally what's left after netting off what others owe you (and
+  // any reimbursement you're expecting — same quirk as before this feature, see the comment on
+  // netExpenseTx in helpers.ts for why that's not identical to the aggregates' accounting). When
+  // someone else paid (a 'debo' row), t.monto is the whole bill, not what you're really out —
+  // your part IS that row's own amount, full stop.
+  const tuParte = deboRow ? pendingEffectiveAmount(deboRow) : (t.monto - totalCobro);
   const bad = tuParte < 0;
-  const emptyHint = soloReembolso
-    ? 'Agrega el reembolso que esperas por este gasto (isapre, seguro, etc).'
-    : soloPersona
-      ? 'Agrega a quién le cobras este gasto.'
-      : 'Agrega a quién le cobras, o un reembolso que esperas por este gasto.';
-  const tieneCobroPersonaPendiente = t.porCobrar.some(p=>p.tipo==='persona' && !p.pagado);
+  const tieneCobroPersonaPendiente = t.porCobrar.some(p=>p.tipo==='persona' && !p.pagado && p.direccion!=='debo');
   const copyBtn = tieneCobroPersonaPendiente
     ? '<button class="boleta-entry-link" data-copy-charge="'+t.id+'">'+ICONS.copy+' Copiar para WhatsApp</button>'
     : '';
   return '<div class="split-block">'+
     (todosPagados ? '<div class="cobro-banner-done">'+ICONS.checkCircle+'<span>Ya te pagaron/reembolsaron todo lo de esta transacción.</span></div>' : '')+
     (soloReembolso ? '' : '<button class="boleta-entry-link" data-open-receipt="'+t.id+'">'+ICONS.camera+' Subir foto de la boleta y repartir automático</button>')+
-    (suggestions.length? '<div class="contact-chips">'+suggestions.map(c=>'<button class="contact-chip" data-add-contact="'+c+'">+ '+c+'</button>').join('')+'</div>' : '')+
-    '<div class="split-mode-row"><span class="muted" style="font-size:12.5px;">A cuánto le corresponde a cada uno</span>'+
+    personaSection+
+    '<div class="split-mode-row" style="margin-top:14px;"><span class="muted" style="font-size:12.5px;">Reembolso pendiente</span>'+
       '<div class="mini-toggle"><button data-chargeunit="$" class="'+(unit==='$'?'active':'')+'">$</button><button data-chargeunit="%" class="'+(unit==='%'?'active':'')+'">%</button></div>'+
     '</div>'+
-    (rows || '<p class="muted" style="font-size:12.5px;padding:6px 0;">'+emptyHint+'</p>')+
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+
-      (soloReembolso ? '' : '<button class="split-add" data-add-charge-row="'+t.id+'">'+ICONS.plus+' Agregar persona</button>')+
-      (soloPersona ? '' : '<button class="split-add" data-add-reimbursement-row="'+t.id+'">'+ICONS.plus+' Agregar reembolso</button>')+
-    '</div>'+
+    (reembolsoRows || '<p class="muted" style="font-size:12.5px;padding:6px 0;">Agrega el reembolso que esperas por este gasto (isapre, seguro, etc).</p>')+
+    (soloPersona ? '' : '<button class="split-add" data-add-reimbursement-row="'+t.id+'">'+ICONS.plus+' Agregar reembolso</button>')+
     '<div class="split-remaining"><span>Tu parte del gasto</span><span class="'+(bad?'bad':'ok')+' tabular">'+money(tuParte)+'</span></div>'+
     copyBtn+
   '</div>';

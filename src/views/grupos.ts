@@ -1,8 +1,8 @@
 import { dayLabel } from '../helpers';
 import { ICONS } from '../icons';
-import { expensesOfGroup, participantsOfGroup, splitEqually, groupBalances, suggestedTransfers } from '../shared-expenses';
+import { expensesOfGroup, participantsOfGroup, computeShareAmounts, shareAmountsSum, groupBalances, suggestedTransfers } from '../shared-expenses';
 import { segmentedHtml } from '../sheet';
-import { GROUPS, GROUP_PARTICIPANTS, money, state } from '../state';
+import { CONTACTS, GROUPS, GROUP_PARTICIPANTS, money, state } from '../state';
 import { currentUser } from '../supabase';
 /* ===================== GROUPS (shared expenses) ===================== */
 // Round avatar with the participant's initial + color -- same category-color reuse approach
@@ -25,19 +25,40 @@ export function myParticipantInGroup(groupId){
 
 // Draft for "Share with a group" (transaction detail): by default it's shared with the first
 // group, assumes you paid, and splits equally among ALL participants (you included) -- all of
-// that is uncheckable/changeable afterward.
-// SCOPE NOTE: this first pass only offers equal shares -- "montos"/"%" (custom split) is left
-// for a future pass, the schema/backend already supports them.
+// that is uncheckable/changeable afterward. Also doubles as the state shape for "divide this
+// expense with someone" when there's NO group (see defaultPersonaSplitDraft in
+// shared-expenses.ts) -- both flows share the exact same draft fields, event handlers and render
+// function (renderSplitDraftForm, below); the ONLY thing that differs between them is groupId
+// (a real id here, null for the no-group case) and where "confirm" commits the result (Supabase
+// vs. the transaction's own porCobrar -- see the data-share-confirm handler in events.ts).
 export function defaultShareDraft(txId, groupId?){
   const gid = groupId || (GROUPS[0] ? GROUPS[0].id : null);
   if(!gid) return null;
   const participantes = participantsOfGroup(gid);
   const mi = myParticipantInGroup(gid);
   return {
-    txId, groupId: gid,
+    txId, groupId: gid, divisionTipo:'iguales',
     pagadoPorId: mi ? mi.id : (participantes[0] ? participantes[0].id : null),
-    participantesIncluidos: participantes.map(p=>p.id)
+    participantesIncluidos: participantes.map(p=>p.id),
+    customValues: {}, extraParticipants: []
   };
+}
+
+// Universe of participants a draft can offer, for either flow: group members if d.groupId is
+// set, otherwise "Tú" (the account owner, fixed id 'tu') + known contacts + any ad-hoc name
+// typed into THIS draft via "+ agregar persona" (extraParticipants) -- deduped, in that order.
+export function shareDraftParticipants(d){
+  if(d.groupId) return participantsOfGroup(d.groupId);
+  const nombres = ['Tú', ...CONTACTS, ...d.extraParticipants];
+  const seen = new Set();
+  const out: {id:string, nombre:string, color:string}[] = [];
+  nombres.forEach(n=>{
+    const id = n==='Tú' ? 'tu' : n;
+    if(seen.has(id)) return;
+    seen.add(id);
+    out.push({id, nombre:n, color:'lavender'});
+  });
+  return out;
 }
 
 export function renderShareGroupSection(tx){
@@ -50,37 +71,67 @@ export function renderShareGroupSection(tx){
     '</div>';
   }
   if(!GROUPS.length) return '';
-  const d = (state.shareDraft && state.shareDraft.txId===tx.id) ? state.shareDraft : null;
+  const d = (state.shareDraft && state.shareDraft.txId===tx.id && state.shareDraft.groupId) ? state.shareDraft : null;
   if(!d){
     return '<div class="sheet-block card" style="padding:16px;">'+
       '<div class="sheet-block-title">Compartir con un grupo</div>'+
       '<button class="split-add" data-share-open="'+tx.id+'">'+ICONS.users+' Elegir un grupo</button>'+
     '</div>';
   }
-  const participantes = participantsOfGroup(d.groupId);
-  const reparto = splitEqually(tx.monto, d.participantesIncluidos);
-  const suma = d.participantesIncluidos.reduce((s,pid)=>s+(reparto[pid]||0),0);
-  const ok = suma===tx.monto;
-  return '<div class="sheet-block card" style="padding:16px;">'+
-    '<div class="sheet-block-title">Compartir con un grupo</div>'+
+  return renderSplitDraftForm(tx, d);
+}
+
+// The one shared "3 modalities + who pays + who's in it + live preview, hard-validated" picker,
+// used both by "share with a group" (renderShareGroupSection, above) and by "divide this expense
+// with someone" when there's no group (renderChargeSplitBlock in sheet.ts) -- same component,
+// same data-share-* attributes/state.shareDraft, same event handlers in events.ts; the two call
+// sites differ only in seeding (defaultShareDraft vs defaultPersonaSplitDraft) and in what
+// data-share-confirm actually commits to (see events.ts). Sum-must-match-total is a HARD rule:
+// the confirm button stays disabled until it does, for all 3 modalities alike (before this
+// feature, only 'iguales' had that guarantee -- 'pct'/'montos' didn't exist in the UI at all).
+export function renderSplitDraftForm(tx, d){
+  const participantes = shareDraftParticipants(d);
+  const reparto = computeShareAmounts(tx.monto, d);
+  const suma = shareAmountsSum(reparto, d.participantesIncluidos);
+  const ok = suma===tx.monto && d.participantesIncluidos.length>0;
+  const remaining = tx.monto - suma;
+  const modalidadSeg = segmentedHtml('division-tipo', [
+    {id:'iguales', label:'Partes iguales'}, {id:'pct', label:'Por %'}, {id:'montos', label:'Monto fijo'}
+  ], d.divisionTipo);
+  const groupSelectHtml = !d.groupId ? '' :
     '<label class="draft-label">Grupo</label>'+
-    '<select data-share-group>'+GROUPS.map(g=>'<option value="'+g.id+'" '+(g.id===d.groupId?'selected':'')+'>'+g.icono+' '+g.nombre+'</option>').join('')+'</select>'+
+    '<select data-share-group>'+GROUPS.map(g=>'<option value="'+g.id+'" '+(g.id===d.groupId?'selected':'')+'>'+g.icono+' '+g.nombre+'</option>').join('')+'</select>';
+  const rows = participantes.map(p=>{
+    const incluido = d.participantesIncluidos.includes(p.id);
+    const raw = d.customValues[p.id] || '';
+    const valueField = !incluido ? '<span class="tabular muted">—</span>'
+      : d.divisionTipo==='iguales' ? '<span class="tabular muted">'+money(reparto[p.id]||0)+'</span>'
+      : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="'+p.id+'" value="'+raw+'"><span>'+(d.divisionTipo==='pct'?'%':'$')+'</span></span>';
+    return '<div class="split-row" style="align-items:center;">'+
+      '<input type="checkbox" data-share-include="'+p.id+'" '+(incluido?'checked':'')+' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
+      avatarHtml(p.nombre, p.color, 24)+
+      '<span style="flex:1;margin-left:8px;">'+p.nombre+'</span>'+
+      valueField+
+    '</div>';
+  }).join('');
+  const addPersonRow = d.groupId ? '' :
+    '<div class="split-row" style="align-items:center;">'+
+      '<input type="text" class="draft-input" data-share-new-name placeholder="Agregar otra persona…" style="flex:1;">'+
+      '<button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">'+ICONS.plus+'</button>'+
+    '</div>';
+  return '<div class="sheet-block card" style="padding:16px;">'+
+    '<div class="sheet-block-title">'+(d.groupId?'Compartir con un grupo':'Dividir este gasto')+'</div>'+
+    groupSelectHtml+
+    '<label class="draft-label" style="margin-top:12px;">¿Cómo se divide?</label>'+modalidadSeg+
     '<label class="draft-label" style="margin-top:12px;">¿Quién pagó?</label>'+
     segmentedHtml('compartir-pagador', participantes.map(p=>({id:p.id,label:p.nombre})), d.pagadoPorId)+
-    '<label class="draft-label" style="margin-top:12px;">¿Entre quiénes se divide? (partes iguales)</label>'+
-    participantes.map(p=>{
-      const incluido = d.participantesIncluidos.includes(p.id);
-      return '<div class="split-row" style="align-items:center;">'+
-        '<input type="checkbox" data-share-include="'+p.id+'" '+(incluido?'checked':'')+' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
-        avatarHtml(p.nombre, p.color, 24)+
-        '<span style="flex:1;margin-left:8px;">'+p.nombre+'</span>'+
-        '<span class="tabular muted">'+(incluido?money(reparto[p.id]||0):'—')+'</span>'+
-      '</div>';
-    }).join('')+
+    '<label class="draft-label" style="margin-top:12px;">¿Entre quiénes se divide?</label>'+
+    rows+addPersonRow+
     '<div class="split-remaining"><span>Total repartido</span><span class="'+(ok?'ok':'bad')+' tabular">'+money(suma)+' de '+money(tx.monto)+'</span></div>'+
+    '<div class="field-error" style="'+(ok?'display:none;':'')+'">'+(remaining>0?'Faltan '+money(remaining)+' por repartir':(remaining<0?'Sobran '+money(-remaining)+' por repartir':''))+'</div>'+
     '<div style="display:flex;gap:10px;margin-top:14px;">'+
       '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button>'+
-      '<button class="save-tx-btn" style="flex:1;" data-share-confirm="'+tx.id+'" '+(d.participantesIncluidos.length && ok ? '' : 'disabled')+'>Compartir</button>'+
+      '<button class="save-tx-btn" style="flex:1;" data-share-confirm="'+tx.id+'" '+(ok?'':'disabled')+'>'+(d.groupId?'Compartir':'Guardar reparto')+'</button>'+
     '</div>'+
   '</div>';
 }
