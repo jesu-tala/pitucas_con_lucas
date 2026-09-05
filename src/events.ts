@@ -2103,13 +2103,6 @@ phone.addEventListener('input', function(e: any){
     updateProyeccionCompute();
     return;
   }
-  const projInflationInput = e.target.closest('[data-proj-inflation-input]');
-  if(projInflationInput){
-    const v = parseFloat(projInflationInput.value.replace(',','.'));
-    PROJECTION_ASSUMPTIONS.inflacionAnual = isNaN(v) ? 0 : v;
-    updateProyeccionCompute();
-    return;
-  }
 
   const draftField = e.target.closest('[data-draft-field]');
   if(draftField && state.draftTx){

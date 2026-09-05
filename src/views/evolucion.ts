@@ -51,9 +51,14 @@ export function yearTotals(year){
 // as the rest of the app (we never suggest a growth %). It's "how much you will have put in"
 // over that term, not a promise of how much your money will grow.
 // The one place in the app where we DO invent a number — at the user's explicit request, to be
-// able to project 20 years out. A moderate return and a typical inflation rate by default, but
-// both stay editable in plain sight, never hidden as if they were a fact.
-export let PROJECTION_ASSUMPTIONS = {retornoAnual:6, inflacionAnual:3};
+// able to project 20 years out. A moderate return by default, but stays editable in plain
+// sight, never hidden as if it were a fact.
+// Nota: hasta antes de este cambio la proyección aplicaba una tasa REAL (retorno descontado por
+// inflación vía Fisher) para mostrar el resultado "en pesos de hoy" -- a pedido explícito de la
+// usuaria ("quiero que quede en pesos nominal") se sacó ese descuento: el % de retorno se aplica
+// directo, sin inflación de por medio, así que el número mostrado son pesos nominales del año
+// en que se cumple la proyección, no poder de compra de hoy.
+export let PROJECTION_ASSUMPTIONS = {retornoAnual:6};
 
 export function projectedContributions(mesesPromedio, aniosProyeccion){
   const mesActual = todayISO().slice(0,7);
@@ -70,16 +75,15 @@ export function projectedContributions(mesesPromedio, aniosProyeccion){
   // Honest reference: only what was contributed, with no invented return %.
   const proyectadoSinRetorno = totalActual + aporteAnual*aniosProyeccion;
 
-  // Projection with return + inflation (real rate via Fisher), expressed in today's pesos.
+  // Projection with return, in nominal pesos -- straight compound growth on the return rate.
   const retornoAnual = PROJECTION_ASSUMPTIONS.retornoAnual;
-  const inflacionAnual = PROJECTION_ASSUMPTIONS.inflacionAnual;
-  const rReal = ((1+retornoAnual/100)/(1+inflacionAnual/100)) - 1;
-  const factor = Math.pow(1+rReal, aniosProyeccion);
+  const r = retornoAnual/100;
+  const factor = Math.pow(1+r, aniosProyeccion);
   const valorFuturoActual = totalActual*factor;
-  const valorFuturoAportes = Math.abs(rReal)<0.0001 ? aporteAnual*aniosProyeccion : aporteAnual*((factor-1)/rReal);
+  const valorFuturoAportes = Math.abs(r)<0.0001 ? aporteAnual*aniosProyeccion : aporteAnual*((factor-1)/r);
   const proyectadoConRetorno = valorFuturoActual + valorFuturoAportes;
 
-  return {promedioMensual, aporteMensualUsado, totalActual, proyectadoSinRetorno, proyectadoConRetorno, retornoAnual, inflacionAnual, rReal, meses:mesesConDatos, anios:aniosProyeccion};
+  return {promedioMensual, aporteMensualUsado, totalActual, proyectadoSinRetorno, proyectadoConRetorno, retornoAnual, meses:mesesConDatos, anios:aniosProyeccion};
 }
 
 export function buildSparkline(values, w, h, color){

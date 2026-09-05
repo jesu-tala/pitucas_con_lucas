@@ -492,7 +492,7 @@ export function renderPlanificadorSection(){
 }
 
 // Recomputes only the numbers on the projection card live, without re-rendering everything
-// (that way the return/inflation % inputs don't lose focus while typing).
+// (that way the return % input doesn't lose focus while typing).
 export function updateProyeccionCompute(){
   const proy = projectedContributions(3, 20);
   const totalEl = document.querySelector('[data-proj-total]');
@@ -615,10 +615,9 @@ export function renderInvestmentsView(){
     '<div class="card proyeccion-card">'+
       '<div class="proyeccion-head"><span class="proyeccion-icon">'+ICONS.sparkle+'</span><span class="proyeccion-title">Simulador</span></div>'+
       '<div class="proyeccion-value tabular" data-proj-total>'+money(proy.proyectadoConRetorno)+'</div>'+
-      '<div class="proyeccion-sub">en '+proy.anios+' años · pesos de hoy</div>'+
+      '<div class="proyeccion-sub">en '+proy.anios+' años · pesos nominales (sin descontar inflación)</div>'+
       '<div class="proyeccion-text">Aportando <input type="text" inputmode="numeric" class="proy-inline-input proy-aporte-input" data-proj-contribution-input placeholder="'+moneyPlain(Math.round(proy.promedioMensual))+'" value="'+(state.simulatedContribution!=null?moneyPlain(state.simulatedContribution):'')+'">/mes al '+
-        '<input type="text" inputmode="decimal" class="proy-inline-input" data-proj-return-input value="'+proy.retornoAnual+'">% anual, −'+
-        '<input type="text" inputmode="decimal" class="proy-inline-input" data-proj-inflation-input value="'+proy.inflacionAnual+'">% inflación.</div>'+
+        '<input type="text" inputmode="decimal" class="proy-inline-input" data-proj-return-input value="'+proy.retornoAnual+'">% anual.</div>'+
       '<div class="proyeccion-caption">Promedio de tus últimas 3 inversiones mensuales: <b class="tabular">'+money(proy.promedioMensual)+'</b></div>'+
     '</div>'
   ) : '';
