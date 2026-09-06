@@ -46,10 +46,15 @@ const { openApp, check, finish } = require('./lib/test_kit');
     estado: window.__debug.state.draftTx.estado,
     shareDraftTxId: window.__debug.state.shareDraft ? window.__debug.state.shareDraft.txId : null,
     tieneModalidad: !!document.querySelector('[data-seg="division-tipo"]'),
+    botonSeleccionado: document.querySelector('[data-action="porcobrar_persona"]').classList.contains('selected'),
   }));
   check('   tocar "Por cobrar a alguien" en el borrador abre el mismo editor de reparto compartido (state.shareDraft) que una transacción ya guardada',
     trasTocarPorCobrar.estado === 'por_cobrar' && trasTocarPorCobrar.shareDraftTxId === '__draft__' && trasTocarPorCobrar.tieneModalidad === true,
     trasTocarPorCobrar);
+  // Bug reportado: el botón no se pintaba morado ("selected") mientras el picker de reparto
+  // seguía abierto sin confirmar -- no era intuitivo saber si el click realmente "tomó" o no.
+  check('   y el botón queda pintado como seleccionado DESDE que se abre el picker, no recién al confirmar el reparto',
+    trasTocarPorCobrar.botonSeleccionado === true, trasTocarPorCobrar);
 
   // "Vincular a un depósito"/"dar por perdida"/"subir foto de la boleta" no tienen sentido antes
   // de que esta transacción exista de verdad -- deben estar ausentes mientras se arma el reparto.

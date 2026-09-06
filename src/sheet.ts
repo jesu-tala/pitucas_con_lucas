@@ -278,9 +278,16 @@ export function renderInvestGoalEmptyState(contextPlatformId?){
 // t.estado, so the same markup and event handling (routed through currentEditableTx() in
 // events.ts, not this function's own t) works unchanged for both.
 function renderQuickActionsBlock(t){
+  // "Por cobrar a alguien" abre el picker de reparto compartido (renderSplitDraftForm) SIN
+  // comprometer nada en t.porCobrar todavía -- eso solo pasa al confirmar "Guardar reparto".
+  // Mientras ese picker está abierto sin confirmar, hasReceivableType() da false, así que el
+  // botón se veía "sin seleccionar" pese a que ya está en medio de la acción (no intuitivo:
+  // no había forma de saber si el click "tomó" o no). Se pinta seleccionado también en ese
+  // estado intermedio, no solo después de confirmar.
+  const draftPersonaAbierto = !!(state.shareDraft && state.shareDraft.txId===t.id && !state.shareDraft.groupId);
   return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones rápidas</div><div class="quick-actions">'+
       '<button class="action-btn '+(t.estado==='confirmado'?'selected':'')+'" data-action="confirmar" data-tx="'+t.id+'">'+ICONS.checkCircle+' Confirmar gasto</button>'+
-      '<button class="action-btn '+(hasReceivableType(t,'persona')?'selected':'')+'" data-action="porcobrar_persona" data-tx="'+t.id+'">'+ICONS.users+' Por cobrar a alguien</button>'+
+      '<button class="action-btn '+((hasReceivableType(t,'persona')||draftPersonaAbierto)?'selected':'')+'" data-action="porcobrar_persona" data-tx="'+t.id+'">'+ICONS.users+' Por cobrar a alguien</button>'+
       '<button class="action-btn '+(hasReceivableType(t,'reembolso')?'selected':'')+'" data-action="porcobrar_reembolso" data-tx="'+t.id+'">'+ICONS.inbox+' Reembolso pendiente</button>'+
       '<button class="action-btn '+(t.estado==='no_es_gasto'?'selected':'')+'" data-action="noesgasto" data-tx="'+t.id+'">'+ICONS.ban+' No es gasto</button>'+
     '</div></div>'+

@@ -216,6 +216,64 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
 
+  // ---------- (b2) Bug reportado: cambiar de modalidad con un valor YA TIPEADO no convertía --
+  // el número crudo de la modalidad anterior se colaba tal cual a la nueva (un 60% mostrado
+  // como "$60" al pasar a "Monto fijo", en vez de los $12.000 reales que corresponden a ese %).
+  const txConv = await page.evaluate(() => {
+    const D = window.__debug;
+    const t = { id: 'test-split-conversion', fecha: D.todayISO(), hora: '12:00', comercio: 'Test Conversion Modalidad',
+      monto: 20000, medio: 'efectivo', tipo: 'gasto', recurrencia: 'variable', estado: 'confirmado',
+      categorias: [{ cat: 'otros', monto: 20000 }], porCobrar: [], reglaAuto: false, nota: '' };
+    D.TRANSACTIONS.push(t);
+    return t.id;
+  });
+  await page.evaluate((id) => {
+    window.__debug.state.openTxId = id;
+    document.getElementById('sheet-overlay').classList.add('open');
+    window.__debug.render();
+  }, txConv);
+  await page.waitForTimeout(150);
+  await page.click('[data-action="porcobrar_persona"]');
+  await page.waitForTimeout(150);
+  await page.click('[data-share-include="Cata"]');
+  await page.waitForTimeout(100);
+  await page.click('[data-seg="division-tipo"] [data-seg-val="pct"]');
+  await page.waitForTimeout(100);
+  // Cata a mano en 60% (Tú se queda en el 50% precargado) -- valor tipeado, no un default.
+  await page.fill('[data-share-value="Cata"]', '60');
+  await page.waitForTimeout(150);
+  // Cambiar a "Monto fijo": el 60%/50% tipeados deben convertirse a pesos reales de $20.000
+  // (Cata $12.000, Tú $10.000), no reaparecer como "60"/"50" reinterpretados como pesos.
+  await page.click('[data-seg="division-tipo"] [data-seg-val="montos"]');
+  await page.waitForTimeout(150);
+  const convAMontos = await page.evaluate(() => ({
+    cata: document.querySelector('[data-share-value="Cata"]').value,
+    tu: document.querySelector('[data-share-value="tu"]').value,
+  }));
+  check('(b2) Cambiar de "%" a "Monto fijo" con un % ya tipeado convierte a los pesos reales (Cata $12.000, no "60")',
+    convAMontos.cata === '12000' && convAMontos.tu === '10000', convAMontos);
+
+  // Y de vuelta a "Por partes": esos mismos pesos ($12.000/$10.000) pasan a ser el peso de cada
+  // parte -- el "número de partes" es una proporción, no un monto absoluto, así que lo que se
+  // preserva es la PROPORCIÓN entre las dos personas (Cata:Tú = 12000:10000 = 1,2), no las cifras
+  // exactas de antes (eso solo pasaría si los pesos sumaran justo el total, que no es el caso).
+  await page.click('[data-seg="division-tipo"] [data-seg-val="iguales"]');
+  await page.waitForTimeout(150);
+  const convAPartes = await page.evaluate(() => ({
+    cataPartes: document.querySelector('[data-share-value="Cata"]').value,
+    tuPartes: document.querySelector('[data-share-value="tu"]').value,
+    cataComputado: document.querySelector('[data-share-computed="Cata"]')?.textContent,
+    tuComputado: document.querySelector('[data-share-computed="tu"]')?.textContent,
+  }));
+  const proporcionOk = Math.abs(parseFloat(convAPartes.cataPartes)/parseFloat(convAPartes.tuPartes) - 1.2) < 0.001;
+  check('   y de "Monto fijo" a "Por partes" usa esos pesos como partes, preservando la proporción real entre personas (Cata:Tú = 1,2), no montos crudos al azar',
+    proporcionOk && convAPartes.cataPartes === '12000' && convAPartes.tuPartes === '10000', convAPartes);
+
+  await page.click('[data-share-cancel]');
+  await page.waitForTimeout(100);
+  await page.click('[data-close-sheet-done]');
+  await page.waitForTimeout(150);
+
   // "Monto fijo" — same mechanics, plain amounts instead of percentages.
   const txMontos = await page.evaluate(() => {
     const D = window.__debug;

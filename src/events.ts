@@ -194,23 +194,22 @@ phone.addEventListener('click', function(e: any){
       const d = state.shareDraft;
       const tipoAnterior = d.divisionTipo;
       d.divisionTipo = val;
-      // Seed each included participant's custom value from whatever the PREVIOUS modality was
-      // actually showing (its real computed split, "por partes" included -- not forced equal) so
-      // switching to "%"/"monto fijo" doesn't start everyone at a blank/zero — nice starting point
-      // to fine-tune rather than type from scratch (only fills in blanks, never overwrites
-      // something the user already typed if they flip back and forth between modalities).
-      if(val!=='iguales'){
-        const t = currentEditableTx();
-        if(t){
-          const base = computeShareAmounts(t.monto, {...d, divisionTipo: tipoAnterior});
-          d.participantesIncluidos.forEach(id=>{
-            if(d.customValues[id]==null || d.customValues[id]===''){
-              d.customValues[id] = val==='pct'
-                ? String(t.monto ? Math.round((base[id]||0)/t.monto*1000)/10 : 0)
-                : String(base[id]||0);
-            }
-          });
-        }
+      // Recompute each included participant's custom value FROM the previous modality's real
+      // computed split (its actual pesos), converting it into whatever unit the new modality
+      // expects. This must run UNCONDITIONALLY (not just "only if blank") -- the old version
+      // only filled in blanks, so a value already typed in one unit (say "50" as a %) carried
+      // over as-is when switching modality, and got silently reinterpreted in the NEW unit ("50"
+      // shown as $50 in "monto fijo" instead of the actual peso amount that 50% corresponds to).
+      // Since the raw string is always freshly derived from the real prior split, this is safe to
+      // overwrite even if the person already fine-tuned it in the modality they're leaving.
+      const t = currentEditableTx();
+      if(t){
+        const base = computeShareAmounts(t.monto, {...d, divisionTipo: tipoAnterior});
+        d.participantesIncluidos.forEach(id=>{
+          if(val==='pct') d.customValues[id] = String(t.monto ? Math.round((base[id]||0)/t.monto*1000)/10 : 0);
+          else if(val==='montos') d.customValues[id] = String(base[id]||0);
+          else d.customValues[id] = String(base[id]||0); // 'iguales' ("por partes"): pesos previos como peso/parte -- reproduce el mismo reparto
+        });
       }
       renderSheet();
       return;

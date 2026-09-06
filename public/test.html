@@ -4592,16 +4592,14 @@
         const d = state.shareDraft;
         const tipoAnterior = d.divisionTipo;
         d.divisionTipo = val;
-        if (val !== "iguales") {
-          const t2 = currentEditableTx();
-          if (t2) {
-            const base = computeShareAmounts(t2.monto, { ...d, divisionTipo: tipoAnterior });
-            d.participantesIncluidos.forEach((id) => {
-              if (d.customValues[id] == null || d.customValues[id] === "") {
-                d.customValues[id] = val === "pct" ? String(t2.monto ? Math.round((base[id] || 0) / t2.monto * 1e3) / 10 : 0) : String(base[id] || 0);
-              }
-            });
-          }
+        const t2 = currentEditableTx();
+        if (t2) {
+          const base = computeShareAmounts(t2.monto, { ...d, divisionTipo: tipoAnterior });
+          d.participantesIncluidos.forEach((id) => {
+            if (val === "pct") d.customValues[id] = String(t2.monto ? Math.round((base[id] || 0) / t2.monto * 1e3) / 10 : 0);
+            else if (val === "montos") d.customValues[id] = String(base[id] || 0);
+            else d.customValues[id] = String(base[id] || 0);
+          });
         }
         renderSheet();
         return;
@@ -7221,7 +7219,7 @@
       return;
     }
     if (!GROUPS.length) {
-      cont.innerHTML = '<div class="empty-state" style="padding:40px 20px;text-align:center;"><div style="font-size:38px;">\u{1F465}</div><p class="muted" style="margin:12px 0 20px;">Todav\xEDa no tienes ning\xFAn grupo. Crea uno para dividir gastos con tu pareja, tu familia, tus roomies o un viaje.</p><button class="save-tx-btn" data-group-create-open>' + ICONS.plus + ' Crear grupo</button><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);margin-top:10px;" data-group-join-open>Unirme con un c\xF3digo</button></div>';
+      cont.innerHTML = '<div class="empty-state" style="padding:40px 20px;text-align:center;"><div style="font-size:38px;">\u{1F465}</div><p class="muted" style="margin:12px 0 20px;">Todav\xEDa no tienes ning\xFAn grupo. Crea uno para dividir gastos con tu pareja, tu familia, tus roomies o un viaje.</p><div style="max-width:280px;margin:0 auto;"><button class="save-tx-btn" data-group-create-open>' + ICONS.plus + ' Crear grupo</button><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);margin-top:10px;" data-group-join-open>Unirme con un c\xF3digo</button></div></div>';
       return;
     }
     const cards = GROUPS.map((g) => {
@@ -7504,7 +7502,8 @@
   }
   __name(renderInvestGoalEmptyState, "renderInvestGoalEmptyState");
   function renderQuickActionsBlock(t) {
-    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones r\xE1pidas</div><div class="quick-actions"><button class="action-btn ' + (t.estado === "confirmado" ? "selected" : "") + '" data-action="confirmar" data-tx="' + t.id + '">' + ICONS.checkCircle + ' Confirmar gasto</button><button class="action-btn ' + (hasReceivableType(t, "persona") ? "selected" : "") + '" data-action="porcobrar_persona" data-tx="' + t.id + '">' + ICONS.users + ' Por cobrar a alguien</button><button class="action-btn ' + (hasReceivableType(t, "reembolso") ? "selected" : "") + '" data-action="porcobrar_reembolso" data-tx="' + t.id + '">' + ICONS.inbox + ' Reembolso pendiente</button><button class="action-btn ' + (t.estado === "no_es_gasto" ? "selected" : "") + '" data-action="noesgasto" data-tx="' + t.id + '">' + ICONS.ban + " No es gasto</button></div></div>" + (t.estado === "por_cobrar" ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>' + renderChargeSplitBlock(t) + "</div>" : "");
+    const draftPersonaAbierto = !!(state.shareDraft && state.shareDraft.txId === t.id && !state.shareDraft.groupId);
+    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones r\xE1pidas</div><div class="quick-actions"><button class="action-btn ' + (t.estado === "confirmado" ? "selected" : "") + '" data-action="confirmar" data-tx="' + t.id + '">' + ICONS.checkCircle + ' Confirmar gasto</button><button class="action-btn ' + (hasReceivableType(t, "persona") || draftPersonaAbierto ? "selected" : "") + '" data-action="porcobrar_persona" data-tx="' + t.id + '">' + ICONS.users + ' Por cobrar a alguien</button><button class="action-btn ' + (hasReceivableType(t, "reembolso") ? "selected" : "") + '" data-action="porcobrar_reembolso" data-tx="' + t.id + '">' + ICONS.inbox + ' Reembolso pendiente</button><button class="action-btn ' + (t.estado === "no_es_gasto" ? "selected" : "") + '" data-action="noesgasto" data-tx="' + t.id + '">' + ICONS.ban + " No es gasto</button></div></div>" + (t.estado === "por_cobrar" ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>' + renderChargeSplitBlock(t) + "</div>" : "");
   }
   __name(renderQuickActionsBlock, "renderQuickActionsBlock");
   function renderSheetContent(t) {
