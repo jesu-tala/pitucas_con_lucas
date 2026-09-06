@@ -80,7 +80,10 @@ var RULES = [
       // Los 4 dígitos pueden venir pegados al "****" (****0507) o con un espacio de por medio
       // (**** 0507), y algunos correos usan • en vez de asterisco — por eso [\*•]+\s* en vez
       // de \*\*\*\* a secas, y \d{4} (exactamente 4) en vez de \d+ (que podría comerse de más).
-      var re = /compra\s+por\s+\$([\d.,]+)\s+con\s+(?:Tarjeta\s+de\s+Cr[ée]dito\s+[\*•]+\s*(\d{4})|cargo\s+a\s+Cuenta\s+[\*•]+\s*(\d{4}))\s+en\s+([\s\S]+?)\s+el\s+(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/;
+      // Con /i: nada obliga a que el banco mande siempre "compra" en minúscula (ej. si la
+      // frase empieza mayúscula porque cambiaron la plantilla del correo) -- antes esto
+      // dependía de la mayúscula exacta y podía dejar de calzar en silencio.
+      var re = /compra\s+por\s+\$([\d.,]+)\s+con\s+(?:Tarjeta\s+de\s+Cr[ée]dito\s+[\*•]+\s*(\d{4})|cargo\s+a\s+Cuenta\s+[\*•]+\s*(\d{4}))\s+en\s+([\s\S]+?)\s+el\s+(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/i;
       var m = bodyText.match(re);
       if (!m) return null;
       var last4 = m[2] || m[3];
@@ -97,9 +100,9 @@ var RULES = [
     parse: function(bodyText){
       // Mismo cuidado que en banco_edwards_compra: cualquier espacio entre palabras puede
       // en realidad ser un salto de línea si Gmail cortó ahí el texto plano.
-      var montoM = bodyText.match(/Monto\s*\|?\s*\$([\d.,]+)/);
+      var montoM = bodyText.match(/Monto\s*\|?\s*\$([\d.,]+)/i);
       var fechaM = bodyText.match(/Fecha\s+y\s+Hora:\s*\w+\s+(\d{1,2})\s+de\s+(\wé\w+|\w+)\s+de\s+(\d{4})\s+(\d{2}:\d{2})/i);
-      var destM = bodyText.match(/Nombre\s+y\s+Apellido\s*\|?\s*([^\n|]+)/);
+      var destM = bodyText.match(/Nombre\s+y\s+Apellido\s*\|?\s*([^\n|]+)/i);
       if (!montoM || !fechaM) return null;
       var mesIdx = MESES.indexOf(fechaM[2].toLowerCase());
       if (mesIdx < 0) return null;
@@ -402,20 +405,30 @@ function revisarCorreos(){
   revisarCartolas();
 }
 
-// ---------- función de diagnóstico temporal — bórrala cuando ya no la necesites ----------
-// Trae el texto EXACTO (tal cual, con saltos de línea y caracteres invisibles marcados) del
-// correo más reciente de Banco Edwards que encuentre — el mismo texto que usa revisarCorreos
-// para leer los datos, no lo que se ve en tu pantalla al abrir el correo en el navegador
-// (esas dos versiones pueden ser distintas). Para usarla: en el desplegable de arriba junto
-// a "Ejecutar", elige "debugVerCuerpoCrudo" (en vez de "revisarCorreos") y aprieta Ejecutar.
-function debugVerCuerpoCrudo(){
-  var threads = GmailApp.search('from:enviodigital@bancoedwards.cl (subject:"Compra con Tarjeta de Crédito" OR subject:"Cargo en Cuenta") newer_than:' + WINDOW_DAYS + 'd', 0, 1);
-  if (!threads.length) { Logger.log('No encontró ningún correo — raro, hace un rato sí encontró 9.'); return; }
+// ---------- funciones de diagnóstico temporal — bórralas cuando ya no las necesites ----------
+// Traen el texto EXACTO (tal cual, con saltos de línea y caracteres invisibles marcados) del
+// correo más reciente que encuentren — el mismo texto que usa revisarCorreos para leer los
+// datos, no lo que se ve en tu pantalla al abrir el correo en el navegador (esas dos versiones
+// pueden ser distintas).
+function debugVerCuerpoCrudo_(query, etiqueta){
+  var threads = GmailApp.search(query + ' newer_than:' + WINDOW_DAYS + 'd', 0, 1);
+  if (!threads.length) { Logger.log(etiqueta + ' — no encontró ningún correo con esa búsqueda.'); return; }
   var msg = threads[0].getMessages()[threads[0].getMessages().length - 1];
   var body = msg.getPlainBody();
   var visible = body
     .replace(/\r\n|\r|\n/g, '[SALTO DE LINEA]\n')
     .replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, '[INVISIBLE]');
-  Logger.log('--- asunto ---\n' + msg.getSubject());
-  Logger.log('--- cuerpo (saltos de línea y caracteres invisibles marcados) ---\n' + visible);
+  Logger.log('--- ' + etiqueta + ' — asunto ---\n' + msg.getSubject());
+  Logger.log('--- ' + etiqueta + ' — cuerpo (saltos de línea y caracteres invisibles marcados) ---\n' + visible);
+}
+// Para diagnosticar un correo que "encontró pero no logró leer" -- en el desplegable de
+// arriba junto a "Ejecutar", elige la función del banco que está fallando y aprieta Ejecutar,
+// después revisa el log (Ver > Registros). Pega ese texto tal cual para poder ajustar el
+// regex a como realmente llega el correo (no como se ve al abrirlo en el navegador -- Gmail
+// puede mostrar una cosa y guardar el texto plano distinto).
+function debugVerCuerpoCrudoEdwards(){
+  debugVerCuerpoCrudo_('from:enviodigital@bancoedwards.cl (subject:"Compra con Tarjeta de Crédito" OR subject:"Cargo en Cuenta")', 'Banco Edwards (compra)');
+}
+function debugVerCuerpoCrudoBancoChile(){
+  debugVerCuerpoCrudo_('from:serviciodetransferencias@bancochile.cl subject:"Transferencia a Terceros"', 'Banco de Chile (transferencia)');
 }
