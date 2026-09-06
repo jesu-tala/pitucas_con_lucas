@@ -140,9 +140,14 @@ export function goalZoneRow(nombre, pct, monto, zones, sinIngresos, metaPct){
   '</div>';
 }
 
-export function renderGoalSummaryCard(monthTx, ingresos){
+// periodTx/ingresos can be a single month's or a full year's worth of data — this function
+// never assumes which; it just sums whatever it's handed and compares against metaInvPct,
+// which the CALLER computes appropriately for the period (see the note in
+// views/presupuesto.ts, renderBalanceView, for why the Investment target % can't just be
+// investmentGoalPct() unchanged in year mode).
+export function renderGoalSummaryCard(periodTx, ingresos, metaInvPct){
   let fijo=0, variable=0, inversion=0;
-  monthTx.forEach(t=>{
+  periodTx.forEach(t=>{
     if(t.estado==='no_es_gasto') return;
     if(t.tipo==='gasto'){
       if(t.recurrencia==='variable') variable += netExpenseTx(t);
@@ -153,7 +158,6 @@ export function renderGoalSummaryCard(monthTx, ingresos){
   });
   const sinIngresos = ingresos<=0;
   const pctFijo = sinIngresos?0:(fijo/ingresos)*100, pctVar = sinIngresos?0:(variable/ingresos)*100, pctInv = sinIngresos?0:(inversion/ingresos)*100;
-  const metaInvPct = investmentGoalPct();
   const sumaMetas = SPENDING_GOAL_PCT.fijo + SPENDING_GOAL_PCT.variable + metaInvPct;
   const avisoSuma = sumaMetas > 100
     ? '<div class="meta-caption warn">Ojo: tus 3 metas suman '+Math.round(sumaMetas)+'% de tus ingresos — eso es más del 100%, no calzan entre ellas. Ajusta Fijo/Variable en Presupuesto.</div>'
@@ -176,4 +180,11 @@ export function monthSwitcherHtml(){
       '<span class="m-label">'+MONTH_LABEL[month]+'</span>'+
       '<button data-month-nav="1" '+(state.monthIndex>=MONTHS.length-1?'disabled':'')+' aria-label="Mes siguiente">'+ICONS.chevR+'</button>'+
     '</div>';
+}
+// Balance's year mode has no prev/next navigation on purpose — it always shows the current
+// calendar year (same scope decision Evolución already made, which has no year-switcher either)
+// — so this is a plain label, not an interactive control, just reusing the same
+// .month-switcher/.m-label classes so it lines up visually with month mode.
+export function yearSwitcherHtml(year){
+  return '<div class="month-switcher"><span class="m-label">Año '+year+'</span></div>';
 }

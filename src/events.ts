@@ -9,7 +9,7 @@ import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from '.
 import { defaultShareDraft, renderGroupsView } from './views/grupos';
 import { activePlatformIds, generalCatIdFor, goalCapablePlatformIds, platformCurrentValue, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
 import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
-import { renderBudgetView } from './views/presupuesto';
+import { renderBalanceView, renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
 import { buildReconcileDiff } from './reconcile';
 /* ===================== EVENT HANDLING (delegated) ===================== */
@@ -168,6 +168,11 @@ phone.addEventListener('click', function(e: any){
     if(group==='platform-plazo'){
       state.platformDraft.plazo = val;
       renderInvestmentsView();
+      return;
+    }
+    if(group==='balance-periodo'){
+      state.balancePeriodo = val;
+      renderBalanceView();
       return;
     }
     if(group==='newplatform-plazo'){
@@ -795,6 +800,20 @@ phone.addEventListener('click', function(e: any){
     state.categoryFilterMonth = null;
     state.filter = 'todas';
     state.tab = 'transacciones';
+    render();
+    return;
+  }
+
+  // Bridge from Evolución's "Total del año" card into Balance's own year mode — same year, same
+  // numbers (see renderBalanceViewAnio in views/presupuesto.ts), just Balance's category
+  // breakdown instead of Evolución's month-by-month bars. Evolución itself never grows a donut
+  // of its own for this — "composition" belongs to Balance, "how things change over time" stays
+  // Evolución's job.
+  const gotoBalanceAnual = e.target.closest('[data-goto-balance-anual]');
+  if(gotoBalanceAnual){
+    state.tab = 'resumen';
+    state.summarySub = 'balance';
+    state.balancePeriodo = 'año';
     render();
     return;
   }

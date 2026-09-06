@@ -220,16 +220,17 @@ export function writeOffReceivable(expenseTxId, idx){
   expenseTx.porCobrar.splice(idx,1);
   return true;
 }
-// How much you got reimbursed in a given month — counted in the month the deposit arrived (not
-// the month of the original expense), because that's when that money actually came back into
-// your pocket.
-export function monthlyReimbursementTotal(monthKey){
+// How much you got reimbursed across a set of months — counted in the month the deposit arrived
+// (not the month of the original expense), because that's when that money actually came back
+// into your pocket. Takes an array of 'YYYY-MM' keys so a single month (Balance month mode) and
+// a full year's worth of months (Balance year mode) share the exact same counting logic.
+export function reimbursementTotalForMonths(monthKeys){
   let total = 0, count = 0;
   TRANSACTIONS.forEach(t=>{
     (t.porCobrar||[]).forEach(p=>{
       if(p.tipo==='reembolso' && p.pagado && p.linkedTxId){
         const incomeTx = getTx(p.linkedTxId);
-        if(incomeTx && incomeTx.fecha.slice(0,7)===monthKey){
+        if(incomeTx && monthKeys.includes(incomeTx.fecha.slice(0,7))){
           total += (p.montoRecibido!=null ? p.montoRecibido : 0);
           count++;
         }
@@ -237,6 +238,9 @@ export function monthlyReimbursementTotal(monthKey){
     });
   });
   return {total, count};
+}
+export function monthlyReimbursementTotal(monthKey){
+  return reimbursementTotalForMonths([monthKey]);
 }
 
 export function dayLabel(fecha){

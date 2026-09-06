@@ -160,6 +160,27 @@ function checkClose(label, a, b, tol){
   console.log(JSON.stringify(evoDetailByMonth,null,1));
   console.log('\n=== EVOLUCION year card ===\n', yearCardText);
 
+  // ---------- Balance view: año mode -- must show the EXACT same annual totals as Evolución ----------
+  // Both cards ultimately call the same yearTotals(year) (see renderBalanceViewAnio in
+  // views/presupuesto.ts) so this isn't just "close enough" -- it's a literal equality check,
+  // the explicit acceptance criterion for the year-mode Balance feature (Balance's annual total
+  // has to CUADRAR EXACTO with Evolución's, not merely be in the same ballpark).
+  await page.click('[data-summary-sub="balance"]');
+  await page.waitForTimeout(150);
+  await page.click('[data-seg="balance-periodo"] [data-seg-val="año"]');
+  await page.waitForTimeout(150);
+  const balanceAnioTiles = await page.evaluate(() => ({
+    ingresos: document.querySelector('.stat-ingresos .stat-value')?.textContent,
+    gastos: document.querySelector('.stat-gastos .stat-value')?.textContent,
+    inversiones: document.querySelector('.stat-inversiones .stat-value')?.textContent,
+  }));
+  console.log('\n=== BALANCE VIEW año mode ===');
+  console.log(JSON.stringify(balanceAnioTiles,null,1));
+  // Reset Balance back to month mode so it doesn't leak into whatever check runs after this file
+  // in the same page (this script closes the browser right after, but keep the habit anyway).
+  await page.click('[data-seg="balance-periodo"] [data-seg-val="mes"]');
+  await page.waitForTimeout(100);
+
   // ---------- Inversiones view: platform + meta cards ----------
   // Platforms are now an accordion closed by default (state.openPlatformId) -- their
   // figures (Total on this platform / Net contributed) and each one's goal summary only
@@ -238,6 +259,25 @@ function checkClose(label, a, b, tol){
   checkClose('Evolucion year Ingresos', pm(yearCardText.match(/Ingresos\n(\$[\d.]+)/)?.[1]), truth.year2026.ingresos);
   checkClose('Evolucion year Gastos', pm(yearCardText.match(/Gastos\n(\$[\d.]+)/)?.[1]), truth.year2026.gastos);
   checkClose('Evolucion year Inversiones', pm(yearCardText.match(/Inversiones\n(\$[\d.]+)/)?.[1]), truth.year2026.inversiones);
+
+  // Balance (año mode) vs. Evolución "Total del año" -- EXACT equality (===), not checkClose's
+  // tolerance-of-1: this is the literal "cuadra exacto" acceptance criterion for the year-mode
+  // Balance feature, not merely "in the same ballpark".
+  const evoIngresos = pm(yearCardText.match(/Ingresos\n(\$[\d.]+)/)?.[1]);
+  const evoGastos = pm(yearCardText.match(/Gastos\n(\$[\d.]+)/)?.[1]);
+  const evoInversiones = pm(yearCardText.match(/Inversiones\n(\$[\d.]+)/)?.[1]);
+  check('Balance (año) Ingresos == Evolución "Total del año" Ingresos, EXACTO',
+    pm(balanceAnioTiles.ingresos) === evoIngresos, { balance: balanceAnioTiles.ingresos, evolucion: evoIngresos });
+  check('Balance (año) Gastos == Evolución "Total del año" Gastos, EXACTO',
+    pm(balanceAnioTiles.gastos) === evoGastos, { balance: balanceAnioTiles.gastos, evolucion: evoGastos });
+  check('Balance (año) Inversiones == Evolución "Total del año" Inversiones, EXACTO',
+    pm(balanceAnioTiles.inversiones) === evoInversiones, { balance: balanceAnioTiles.inversiones, evolucion: evoInversiones });
+  // Also against the from-scratch truth (yearTotals called directly, not scraped from either
+  // view's DOM) -- so this doesn't just prove the two views agree with EACH OTHER while both
+  // being wrong the same way.
+  check('Balance (año) Ingresos == yearTotals(2026).ingresos, EXACTO', pm(balanceAnioTiles.ingresos) === truth.year2026.ingresos);
+  check('Balance (año) Gastos == yearTotals(2026).gastos, EXACTO', pm(balanceAnioTiles.gastos) === truth.year2026.gastos);
+  check('Balance (año) Inversiones == yearTotals(2026).inversiones, EXACTO', pm(balanceAnioTiles.inversiones) === truth.year2026.inversiones);
 
   Object.keys(truth.platformData).forEach(id=>{
     checkClose('Platform '+id+' valorEstimado', platformCardData[id].valorEstimado, truth.platformData[id].valorActual);

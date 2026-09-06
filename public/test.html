@@ -1449,13 +1449,13 @@
     return true;
   }
   __name(writeOffReceivable, "writeOffReceivable");
-  function monthlyReimbursementTotal(monthKey) {
+  function reimbursementTotalForMonths(monthKeys) {
     let total = 0, count = 0;
     TRANSACTIONS.forEach((t) => {
       (t.porCobrar || []).forEach((p) => {
         if (p.tipo === "reembolso" && p.pagado && p.linkedTxId) {
           const incomeTx = getTx(p.linkedTxId);
-          if (incomeTx && incomeTx.fecha.slice(0, 7) === monthKey) {
+          if (incomeTx && monthKeys.includes(incomeTx.fecha.slice(0, 7))) {
             total += p.montoRecibido != null ? p.montoRecibido : 0;
             count++;
           }
@@ -1463,6 +1463,10 @@
       });
     });
     return { total, count };
+  }
+  __name(reimbursementTotalForMonths, "reimbursementTotalForMonths");
+  function monthlyReimbursementTotal(monthKey) {
+    return reimbursementTotalForMonths([monthKey]);
   }
   __name(monthlyReimbursementTotal, "monthlyReimbursementTotal");
   function dayLabel(fecha) {
@@ -1636,9 +1640,9 @@
     return '<div class="meta-row"><div class="meta-row-head"><span class="meta-row-name">' + nombre + '</span><span class="meta-row-figs"><span class="meta-row-pct tabular">' + pctText + '</span><span class="meta-row-amt tabular">' + money(monto) + '</span></span></div><div class="meta-track-wrap">' + goalMarker + '<div class="meta-track" style="background:' + gradient + '">' + marker + "</div></div>" + statusHtml + "</div>";
   }
   __name(goalZoneRow, "goalZoneRow");
-  function renderGoalSummaryCard(monthTx, ingresos) {
+  function renderGoalSummaryCard(periodTx, ingresos, metaInvPct) {
     let fijo = 0, variable = 0, inversion = 0;
-    monthTx.forEach((t) => {
+    periodTx.forEach((t) => {
       if (t.estado === "no_es_gasto") return;
       if (t.tipo === "gasto") {
         if (t.recurrencia === "variable") variable += netExpenseTx(t);
@@ -1649,7 +1653,6 @@
     });
     const sinIngresos = ingresos <= 0;
     const pctFijo = sinIngresos ? 0 : fijo / ingresos * 100, pctVar = sinIngresos ? 0 : variable / ingresos * 100, pctInv = sinIngresos ? 0 : inversion / ingresos * 100;
-    const metaInvPct = investmentGoalPct();
     const sumaMetas = SPENDING_GOAL_PCT.fijo + SPENDING_GOAL_PCT.variable + metaInvPct;
     const avisoSuma = sumaMetas > 100 ? '<div class="meta-caption warn">Ojo: tus 3 metas suman ' + Math.round(sumaMetas) + "% de tus ingresos \u2014 eso es m\xE1s del 100%, no calzan entre ellas. Ajusta Fijo/Variable en Presupuesto.</div>" : "";
     return '<div class="card meta-card"><div class="donut-card-title">Fijo \xB7 Variable \xB7 Inversi\xF3n</div><div class="donut-card-sub">Como porcentaje de tus ingresos del mes, contra tus propias metas</div>' + goalZoneRow("Gasto fijo", pctFijo, fijo, goalZones(SPENDING_GOAL_PCT.fijo, false), sinIngresos, SPENDING_GOAL_PCT.fijo) + goalZoneRow("Gasto variable", pctVar, variable, goalZones(SPENDING_GOAL_PCT.variable, false), sinIngresos, SPENDING_GOAL_PCT.variable) + goalZoneRow("Inversi\xF3n", pctInv, inversion, goalZones(metaInvPct, true), sinIngresos, metaInvPct) + '<div class="meta-caption">"Fijo" = tus gastos con recurrencia mensual o anual \xB7 "Variable" = el resto \xB7 tu meta de Inversi\xF3n (' + Math.round(metaInvPct) + "%) sale sola de lo que ya definiste en Inversiones. Edita Fijo/Variable en Presupuesto.</div>" + avisoSuma + "</div>";
@@ -1660,6 +1663,10 @@
     return '<div class="month-switcher"><button data-month-nav="-1" ' + (state.monthIndex <= 0 ? "disabled" : "") + ' aria-label="Mes anterior">' + ICONS.chevL + '</button><span class="m-label">' + MONTH_LABEL[month] + '</span><button data-month-nav="1" ' + (state.monthIndex >= MONTHS.length - 1 ? "disabled" : "") + ' aria-label="Mes siguiente">' + ICONS.chevR + "</button></div>";
   }
   __name(monthSwitcherHtml, "monthSwitcherHtml");
+  function yearSwitcherHtml(year) {
+    return '<div class="month-switcher"><span class="m-label">A\xF1o ' + year + "</span></div>";
+  }
+  __name(yearSwitcherHtml, "yearSwitcherHtml");
 
   // src/reconcile.ts
   function isAutomaticOrigin(t) {
@@ -1951,7 +1958,15 @@
     document.getElementById("resumen-content").innerHTML = monthSwitcherHtml() + renderBudgetTotalCard(month) + renderMetasGastoCard() + '<div class="section-title">Categor\xEDas con presupuesto</div>' + conHtml + (sinPresupuesto.length ? '<div class="section-title">Sin presupuesto</div>' + sinHtml : "") + '<div style="height:12px;"></div>';
   }
   __name(renderBudgetView, "renderBudgetView");
+  function balancePeriodoSelectorHtml() {
+    return segmentedHtml("balance-periodo", [{ id: "mes", label: "Mes" }, { id: "a\xF1o", label: "A\xF1o" }], state.balancePeriodo);
+  }
+  __name(balancePeriodoSelectorHtml, "balancePeriodoSelectorHtml");
   function renderBalanceView() {
+    if (state.balancePeriodo === "a\xF1o") {
+      renderBalanceViewAnio();
+      return;
+    }
     const month = MONTHS[state.monthIndex];
     const monthTx = txsOfMonth(month);
     let ingresos = 0, gastos = 0, inversiones = 0;
@@ -1963,14 +1978,25 @@
       else if (t.tipo === "inversion") inversiones += monto;
     });
     const balance = ingresos - gastos - inversiones;
-    const html = monthSwitcherHtml() + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">' + money(ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(balance) + "</div></div></div>" + renderReembolsoCard(month) + renderGoalSummaryCard(monthTx, ingresos) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este mes", "ingreso", monthTx) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este mes", "gasto", monthTx) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este mes", "inversion", monthTx);
+    const html = balancePeriodoSelectorHtml() + monthSwitcherHtml() + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">' + money(ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(balance) + "</div></div></div>" + renderReembolsoCard(monthlyReimbursementTotal(month), "Reembolsado este mes") + renderGoalSummaryCard(monthTx, ingresos, investmentGoalPct()) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este mes", "ingreso", monthTx) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este mes", "gasto", monthTx) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este mes", "inversion", monthTx);
     document.getElementById("resumen-content").innerHTML = html;
   }
   __name(renderBalanceView, "renderBalanceView");
-  function renderReembolsoCard(month) {
-    const r = monthlyReimbursementTotal(month);
+  function renderBalanceViewAnio() {
+    const year = todayISO().slice(0, 4);
+    const yr = yearTotals(year);
+    const yearTx = fullYearMonths(year).flatMap((m) => txsOfMonth(m));
+    const balance = yr.ingresos - yr.gastos - yr.inversiones;
+    const mesesTranscurridos = fullYearMonths(year).filter((m) => m <= todayISO().slice(0, 7));
+    const objetivoInversionAcumulado = monthlyInvestmentGoalCLP() * mesesTranscurridos.length;
+    const metaInvPctAnio = yr.ingresos > 0 ? objetivoInversionAcumulado / yr.ingresos * 100 : 0;
+    const html = balancePeriodoSelectorHtml() + yearSwitcherHtml(year) + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">' + money(yr.ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(yr.gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(yr.inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(balance) + "</div></div></div>" + renderReembolsoCard(reimbursementTotalForMonths(fullYearMonths(year)), "Reembolsado este a\xF1o") + renderGoalSummaryCard(yearTx, yr.ingresos, metaInvPctAnio) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este a\xF1o", "ingreso", yearTx) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este a\xF1o", "gasto", yearTx) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este a\xF1o", "inversion", yearTx);
+    document.getElementById("resumen-content").innerHTML = html;
+  }
+  __name(renderBalanceViewAnio, "renderBalanceViewAnio");
+  function renderReembolsoCard(r, label) {
     if (r.count === 0) return "";
-    return '<div class="card reembolso-card"><span class="reembolso-icon">' + ICONS.checkCircle + '</span><div><div class="reembolso-label">Reembolsado este mes</div><div class="reembolso-value tabular">' + money(r.total) + "</div></div></div>";
+    return '<div class="card reembolso-card"><span class="reembolso-icon">' + ICONS.checkCircle + '</span><div><div class="reembolso-label">' + label + '</div><div class="reembolso-value tabular">' + money(r.total) + "</div></div></div>";
   }
   __name(renderReembolsoCard, "renderReembolsoCard");
   function renderComingSoon(sub) {
@@ -4173,7 +4199,10 @@
     const detailRow = '<div class="evo-detail-row"><div class="evo-detail-item"><span class="evo-detail-label">Ingresos</span><span class="evo-detail-value tabular">' + money(sel.ingresos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Gastos</span><span class="evo-detail-value tabular">' + money(sel.gastos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Inversiones</span><span class="evo-detail-value tabular">' + money(sel.inversiones) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de ahorro</span><span class="evo-detail-value tabular">' + Math.round(sel.tasaAhorro) + '%</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de gastos</span><span class="evo-detail-value tabular">' + Math.round(sel.tasaGastos) + "%</span></div></div>";
     const yr = yearTotals(selMonth.slice(0, 4));
     const yearRow = '<div class="evo-detail-row"><div class="evo-detail-item"><span class="evo-detail-label">Ingresos</span><span class="evo-detail-value tabular">' + money(yr.ingresos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Gastos</span><span class="evo-detail-value tabular">' + money(yr.gastos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Inversiones</span><span class="evo-detail-value tabular">' + money(yr.inversiones) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de ahorro</span><span class="evo-detail-value tabular">' + Math.round(yr.tasaAhorro) + '%</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de gastos</span><span class="evo-detail-value tabular">' + Math.round(yr.tasaGastos) + "%</span></div></div>";
-    const html = '<div class="section-title" style="margin-top:4px;">Ingresos, gastos e inversiones por mes</div><div class="card evo-card">' + legendRow + buildEvolutionBars(months, selMonth) + '<div class="evo-caption muted">Toca un mes para ver el detalle</div><div class="evo-detail-month">' + MONTH_LABEL[selMonth] + "</div>" + detailRow + '</div><div class="section-title">Total del a\xF1o ' + yr.year + '</div><div class="card evo-card"><div class="evo-detail-month">Enero \u2013 Diciembre ' + yr.year + "</div>" + yearRow + '</div><div class="evo-caption muted" style="padding:0 4px;">\xBFBuscas tus metas de inversi\xF3n y tus plataformas? Ahora viven juntas en <b>Inversiones</b>.</div><div style="height:12px;"></div>';
+    const html = '<div class="section-title" style="margin-top:4px;">Ingresos, gastos e inversiones por mes</div><div class="card evo-card">' + legendRow + buildEvolutionBars(months, selMonth) + '<div class="evo-caption muted">Toca un mes para ver el detalle</div><div class="evo-detail-month">' + MONTH_LABEL[selMonth] + "</div>" + detailRow + '</div><div class="section-title">Total del a\xF1o ' + yr.year + '</div><div class="card evo-card"><div class="evo-detail-month">Enero \u2013 Diciembre ' + yr.year + "</div>" + yearRow + // Composition (donut by category, Fijo/Variable/Inversión) lives in Balance, not here --
+    // this is just a text link out, never a duplicated chart (Evolución stays "how things
+    // change over time", Balance stays "composition").
+    '<button class="budget-ver-mas" data-goto-balance-anual>Ver desglose del a\xF1o \u2192</button></div><div class="evo-caption muted" style="padding:0 4px;">\xBFBuscas tus metas de inversi\xF3n y tus plataformas? Ahora viven juntas en <b>Inversiones</b>.</div><div style="height:12px;"></div>';
     document.getElementById("resumen-content").innerHTML = html;
   }
   __name(renderEvolutionView, "renderEvolutionView");
@@ -4537,6 +4566,11 @@
       if (group === "platform-plazo") {
         state.platformDraft.plazo = val;
         renderInvestmentsView();
+        return;
+      }
+      if (group === "balance-periodo") {
+        state.balancePeriodo = val;
+        renderBalanceView();
         return;
       }
       if (group === "newplatform-plazo") {
@@ -5160,6 +5194,14 @@
       state.categoryFilterMonth = null;
       state.filter = "todas";
       state.tab = "transacciones";
+      render();
+      return;
+    }
+    const gotoBalanceAnual = e.target.closest("[data-goto-balance-anual]");
+    if (gotoBalanceAnual) {
+      state.tab = "resumen";
+      state.summarySub = "balance";
+      state.balancePeriodo = "a\xF1o";
       render();
       return;
     }
@@ -8577,6 +8619,8 @@
     categoryFilterMonth: null,
     // 'YYYY-MM' or null, set together with categoryFilter from a Balance drill-down
     monthIndex: currentMonthIndex(),
+    balancePeriodo: "mes",
+    // mes | año — Resumen > Balance shows the current month or the full current year (never a past/future year)
     openTxId: null,
     creatingNew: false,
     draftTx: null,
