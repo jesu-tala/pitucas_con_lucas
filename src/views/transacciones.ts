@@ -120,7 +120,7 @@ export function renderTxItem(t){
     '</span>'+
     '<span class="tx-right">'+
       '<span class="tx-amount tabular '+amountClass+'">'+amtDisplay+'</span>'+
-      '<div class="tx-right-sub">'+(paymentMethodTagIcon(medio)?'<span class="medio-tag-icon">'+paymentMethodTagIcon(medio)+'</span>':'')+medio.corto+'</div>'+
+      '<div class="tx-right-sub"><span class="tx-hora">'+t.hora+'</span><span>·</span>'+(paymentMethodTagIcon(medio)?'<span class="medio-tag-icon">'+paymentMethodTagIcon(medio)+'</span>':'')+medio.corto+'</div>'+
     '</span>'+
   '</button>';
 }
