@@ -85,6 +85,13 @@ create policy "agregar participante a mi grupo" on grupo_participantes
   for insert with check (is_grupo_member(grupo_id));
 create policy "editar participante de mi grupo" on grupo_participantes
   for update using (is_grupo_member(grupo_id));
+-- Sin esto, eliminar un grupo (schema arriba: "on delete cascade" en grupo_participantes.grupo_id)
+-- fallaba SIEMPRE: la cascada hacia una tabla referenciada sigue necesitando permiso de DELETE
+-- sobre esa tabla para el rol que borra, y grupo_participantes nunca lo tuvo (ver el grant más
+-- abajo) -- todo grupo tiene al menos un participante, así que "eliminar mi grupo" nunca
+-- lograba completar la cascada y devolvía un error genérico ("revisa tu conexión").
+create policy "eliminar participante de mi grupo" on grupo_participantes
+  for delete using (is_grupo_member(grupo_id));
 
 -- Unirse a un grupo con el código de invitación — mismo patrón que importar_transaccion()
 -- en schema_importar_correo.sql: security definer + verificación manual del código, porque
@@ -197,6 +204,11 @@ create policy "ver saldos de mis grupos" on saldos_pagados
   for select using (is_grupo_member(grupo_id));
 create policy "crear saldo en mi grupo" on saldos_pagados
   for insert with check (is_grupo_member(grupo_id));
+-- Mismo motivo que en grupo_participantes: la cascada de "eliminar mi grupo" también pasa por
+-- acá una vez que el grupo tiene alguna transferencia registrada (tab Transferencias), y sin
+-- policy/grant de delete la cascada fallaba igual.
+create policy "eliminar saldos de mi grupo" on saldos_pagados
+  for delete using (is_grupo_member(grupo_id));
 
 create policy "ver mi propio mapeo" on mapeo_categorias
   for select using (user_id = auth.uid());
@@ -206,10 +218,10 @@ create policy "actualizar mi propio mapeo" on mapeo_categorias
   for update using (user_id = auth.uid());
 
 grant select, insert, update, delete on grupos to authenticated;
-grant select, insert, update on grupo_participantes to authenticated;
+grant select, insert, update, delete on grupo_participantes to authenticated;
 grant select, insert, update, delete on gastos_compartidos to authenticated;
 grant select, insert, update, delete on gasto_reparto to authenticated;
-grant select, insert on saldos_pagados to authenticated;
+grant select, insert, delete on saldos_pagados to authenticated;
 grant select, insert, update on mapeo_categorias to authenticated;
 
 -- ---------- sincronización en vivo entre miembros del grupo ----------
