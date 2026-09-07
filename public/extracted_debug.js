@@ -669,7 +669,7 @@
     const cat = catInfo(catId);
     const d = state.budgetDraft;
     const alertChip = /* @__PURE__ */ __name((t) => '<button class="alert-chip' + (d.alertas[t] ? " active" : "") + '" data-toggle-alert="' + t + '">' + t + "%</button>", "alertChip");
-    return '<div class="card budget-cat-card editing"><div class="budget-cat-head"><span class="budget-cat-icon" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + cat.nombre + '</span></div><label class="draft-label">Meta mensual</label><input type="text" inputmode="decimal" class="draft-input tabular" data-budget-goal-input value="' + d.meta + '" placeholder="0"><label class="draft-label" style="margin-top:12px;">Avisarme al</label><div class="alert-chip-row">' + alertChip(80) + alertChip(90) + alertChip(100) + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-budget-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-budget="' + catId + '">Guardar</button></div>' + (cfg ? '<button class="budget-delete-link" data-delete-budget="' + catId + '">Eliminar presupuesto</button>' : "") + "</div>";
+    return '<div class="card budget-cat-card editing"><div class="budget-cat-head"><span class="budget-cat-icon" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + cat.nombre + '</span></div><label class="draft-label">Meta mensual</label><input type="text" inputmode="decimal" class="draft-input tabular" data-budget-goal-input value="' + d.meta + '" placeholder="0"><label class="draft-label" style="margin-top:12px;">Avisarme al</label><div class="alert-chip-row">' + alertChip(80) + alertChip(90) + alertChip(100) + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-budget-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-budget="' + catId + '">Guardar</button></div>' + (cfg ? state.confirmDeleteBudgetCatId === catId ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar el presupuesto de "' + cat.nombre + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-budget>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-budget="' + catId + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-budget="' + catId + '">Eliminar presupuesto</button>' : "") + "</div>";
   }
   __name(renderBudgetEditForm, "renderBudgetEditForm");
   function renderBudgetCatCard(catId) {
@@ -1039,7 +1039,7 @@
       const excludeId = isNew ? null : state.editingCategoryId;
       const colision = categoriesWithColor(d.tipo, d.color, excludeId);
       return colision.length ? '<div class="file-format-hint" style="color:var(--expense-ink);">Ese color ya lo usa "' + colision.join('", "') + '" -- en los gr\xE1ficos de torta se van a ver como un solo bloque. Prueba otro color.</div>' : "";
-    })() + '<div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-cat-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-cat="' + (isNew ? "nueva" : state.editingCategoryId) + '">Guardar</button></div>' + (!isNew && !isCategoryInUse(state.editingCategoryId) ? '<button class="budget-delete-link" data-delete-cat="' + state.editingCategoryId + '">Eliminar categor\xEDa</button>' : "") + (!isNew && isCategoryInUse(state.editingCategoryId) ? '<div class="file-format-hint">No se puede eliminar: tiene transacciones asociadas.</div>' : "") + "</div>";
+    })() + '<div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-cat-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-cat="' + (isNew ? "nueva" : state.editingCategoryId) + '">Guardar</button></div>' + (!isNew && !isCategoryInUse(state.editingCategoryId) ? state.confirmDeleteCatId === state.editingCategoryId ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar la categor\xEDa "' + d.nombre + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-cat>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-cat="' + state.editingCategoryId + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-cat="' + state.editingCategoryId + '">Eliminar categor\xEDa</button>' : "") + (!isNew && isCategoryInUse(state.editingCategoryId) ? '<div class="file-format-hint">No se puede eliminar: tiene transacciones asociadas.</div>' : "") + "</div>";
   }
   __name(renderMenuCatEditForm, "renderMenuCatEditForm");
   function renderMenuCategorias() {
@@ -1066,7 +1066,7 @@
   function renderMenuPaymentMethodEditForm() {
     const d = state.medioDraft;
     const isNew = state.editingPaymentMethodId === "nueva";
-    return '<div class="card" style="padding:16px;"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-payment-method-draft-field="nombre" value="' + d.nombre + '" placeholder="Ej: Mastercard Falabella"><label class="draft-label" style="margin-top:12px;">Detalle (opcional)</label><input type="text" class="draft-input" data-payment-method-draft-field="corto" value="' + d.corto + '" placeholder="Ej: \u2022\u2022\u2022\u2022 1234"><label class="draft-label" style="margin-top:12px;">\xCDcono</label><div class="icon-picker" style="grid-template-columns:repeat(4,1fr);">' + MEDIO_ICON_CHOICES.map((ic) => '<button type="button" data-payment-method-draft-icon="' + ic + '" class="' + (d.icon === ic ? "active" : "") + '">' + ICONS[ic] + "</button>").join("") + '</div><div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-payment-method-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-payment-method="' + (isNew ? "nueva" : state.editingPaymentMethodId) + '">Guardar</button></div>' + (!isNew && !isPaymentMethodInUse(state.editingPaymentMethodId) ? '<button class="budget-delete-link" data-delete-payment-method="' + state.editingPaymentMethodId + '">Eliminar medio de pago</button>' : "") + (!isNew && isPaymentMethodInUse(state.editingPaymentMethodId) ? '<div class="file-format-hint">No se puede eliminar: tiene transacciones asociadas.</div>' : "") + "</div>";
+    return '<div class="card" style="padding:16px;"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-payment-method-draft-field="nombre" value="' + d.nombre + '" placeholder="Ej: Mastercard Falabella"><label class="draft-label" style="margin-top:12px;">Detalle (opcional)</label><input type="text" class="draft-input" data-payment-method-draft-field="corto" value="' + d.corto + '" placeholder="Ej: \u2022\u2022\u2022\u2022 1234"><label class="draft-label" style="margin-top:12px;">\xCDcono</label><div class="icon-picker" style="grid-template-columns:repeat(4,1fr);">' + MEDIO_ICON_CHOICES.map((ic) => '<button type="button" data-payment-method-draft-icon="' + ic + '" class="' + (d.icon === ic ? "active" : "") + '">' + ICONS[ic] + "</button>").join("") + '</div><div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-payment-method-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-payment-method="' + (isNew ? "nueva" : state.editingPaymentMethodId) + '">Guardar</button></div>' + (!isNew && !isPaymentMethodInUse(state.editingPaymentMethodId) ? state.confirmDeletePaymentMethodId === state.editingPaymentMethodId ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar el medio de pago "' + d.nombre + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-payment-method>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-payment-method="' + state.editingPaymentMethodId + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-payment-method="' + state.editingPaymentMethodId + '">Eliminar medio de pago</button>' : "") + (!isNew && isPaymentMethodInUse(state.editingPaymentMethodId) ? '<div class="file-format-hint">No se puede eliminar: tiene transacciones asociadas.</div>' : "") + "</div>";
   }
   __name(renderMenuPaymentMethodEditForm, "renderMenuPaymentMethodEditForm");
   function renderMenuMedios() {
@@ -1085,7 +1085,8 @@
     const reglas = groupedRules();
     document.getElementById("view-root").innerHTML = menuScreenHead("Reglas de clasificaci\xF3n") + '<p class="muted" style="font-size:12.5px;margin:0 0 14px;line-height:1.5;">Cuando activas el candado dentro del detalle de una transacci\xF3n, esa categor\xEDa, tipo y recurrencia se aplican a futuras compras del mismo comercio. Ac\xE1 puedes revisarlas y eliminarlas.</p>' + (reglas.length === 0 ? '<div class="card placeholder-card">' + ICONS.lockSmall + "<h3>Todav\xEDa no tienes reglas</h3><p>Act\xEDvalas desde el detalle de cualquier transacci\xF3n, con el \xEDcono de candado.</p></div>" : reglas.map((r) => {
       const cat = r.cat ? catInfo(r.cat) : null;
-      return '<div class="card rule-card"><div class="rule-card-head"><span class="rule-card-comercio">' + r.comercio + '</span><span class="rule-card-count">' + r.count + ' transac.</span><button class="budget-edit-btn" data-delete-rule="' + encodeURIComponent(r.comercio) + '" aria-label="Eliminar regla de ' + r.comercio + '">' + ICONS.trash + '</button></div><div class="rule-card-detail">' + (cat ? '<span class="rule-card-catchip" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + " " + cat.nombre + "</span>" : "") + "<span>" + (r.tipo === "gasto" ? "Gasto" : r.tipo === "ingreso" ? "Ingreso" : "Inversi\xF3n") + "</span><span>\xB7</span><span>" + (r.recurrencia === "mensual" ? "Fijo mensual" : "Variable") + "</span></div></div>";
+      const confirmando = state.confirmDeleteRuleComercio === r.comercio;
+      return '<div class="card rule-card"><div class="rule-card-head"><span class="rule-card-comercio">' + r.comercio + '</span><span class="rule-card-count">' + r.count + " transac.</span>" + (confirmando ? "" : '<button class="budget-edit-btn" data-ask-delete-rule="' + encodeURIComponent(r.comercio) + '" aria-label="Eliminar regla de ' + r.comercio + '">' + ICONS.trash + "</button>") + '</div><div class="rule-card-detail">' + (cat ? '<span class="rule-card-catchip" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + " " + cat.nombre + "</span>" : "") + "<span>" + (r.tipo === "gasto" ? "Gasto" : r.tipo === "ingreso" ? "Ingreso" : "Inversi\xF3n") + "</span><span>\xB7</span><span>" + (r.recurrencia === "mensual" ? "Fijo mensual" : "Variable") + "</span></div>" + (confirmando ? '<div class="file-format-hint" style="margin:10px 0 8px;">\xBFSeguro que quieres eliminar la regla de "' + r.comercio + '"? Las transacciones ya clasificadas no cambian, pero las nuevas de este comercio dejar\xE1n de clasificarse solas.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-rule>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-rule="' + encodeURIComponent(r.comercio) + '">S\xED, eliminar</button></div>' : "") + "</div>";
     }).join(""));
   }
   __name(renderMenuReglas, "renderMenuReglas");
@@ -2001,26 +2002,6 @@
     if (!tx) return null;
     const miParticipanteId = participantIdForUser(groupId, currentUser.id);
     const soyYoQuienPago = miParticipanteId != null && miParticipanteId === pagadoPorId;
-    const otrosSplits = Object.keys(reparto).filter((pid) => pid !== miParticipanteId).map((pid) => ({
-      persona: (GROUP_PARTICIPANTS.find((p) => p.id === pid) || {}).nombre || "",
-      monto: reparto[pid],
-      pagado: false,
-      tipo: "persona",
-      montoRecibido: null,
-      linkedTxId: null,
-      groupId,
-      participanteId: pid
-    }));
-    if (soyYoQuienPago) {
-      tx.porCobrar = tx.porCobrar.concat(otrosSplits);
-      if (otrosSplits.length) tx.estado = "por_cobrar";
-    } else {
-      tx.categorias = [];
-      tx.porCobrar = [];
-      tx.estado = "no_es_gasto";
-      tx.nota = (tx.nota ? tx.nota + " \u2014 " : "") + "Compartido con el grupo, pero lo pag\xF3 otra persona \u2014 no cuenta en tu presupuesto.";
-    }
-    tx.groupId = groupId;
     const { data: gasto, error } = await sb.from("gastos_compartidos").insert({
       grupo_id: groupId,
       descripcion: tx.comercio,
@@ -2036,10 +2017,28 @@
       console.error("Pitucas sin lucas \u2014 error compartiendo la transacci\xF3n:", error);
       return null;
     }
+    const otrosSplits = Object.keys(reparto).filter((pid) => pid !== miParticipanteId).map((pid) => ({
+      persona: (GROUP_PARTICIPANTS.find((p) => p.id === pid) || {}).nombre || "",
+      monto: reparto[pid],
+      pagado: false,
+      tipo: "persona",
+      montoRecibido: null,
+      linkedTxId: null,
+      groupId,
+      participanteId: pid,
+      sharedExpenseId: gasto.id
+    }));
+    if (soyYoQuienPago) {
+      tx.porCobrar = tx.porCobrar.concat(otrosSplits);
+      if (otrosSplits.length) tx.estado = "por_cobrar";
+    } else {
+      tx.categorias = [];
+      tx.porCobrar = [];
+      tx.estado = "no_es_gasto";
+      tx.nota = (tx.nota ? tx.nota + " \u2014 " : "") + "Compartido con el grupo, pero lo pag\xF3 otra persona \u2014 no cuenta en tu presupuesto.";
+    }
+    tx.groupId = groupId;
     tx.sharedExpenseId = gasto.id;
-    tx.porCobrar.forEach((p) => {
-      if (p.groupId === groupId && p.sharedExpenseId === void 0) p.sharedExpenseId = gasto.id;
-    });
     const filas = Object.keys(reparto).map((pid) => ({ gasto_compartido_id: gasto.id, participante_id: pid, monto: Math.round(reparto[pid]) }));
     const { error: eR } = await sb.from("gasto_reparto").insert(filas);
     if (eR) console.error("Pitucas sin lucas \u2014 error creando el reparto del gasto:", eR);
@@ -2353,6 +2352,24 @@
     return months.length ? PLATFORM_DATA[id].valorHistorial[months[months.length - 1]] : 0;
   }
   __name(platformCurrentValue, "platformCurrentValue");
+  function platformIdForInvestmentCat(catId) {
+    if (!catId) return null;
+    const goal = INVESTMENT_GOALS.find((g) => g.id === catId);
+    if (goal) return goal.plataformaId;
+    const GENERAL_SUFFIX = "__general";
+    return catId.slice(-GENERAL_SUFFIX.length) === GENERAL_SUFFIX ? catId.slice(0, -GENERAL_SUFFIX.length) : null;
+  }
+  __name(platformIdForInvestmentCat, "platformIdForInvestmentCat");
+  function bumpPlatformValueForContribution(platformId, deltaMonto) {
+    if (!platformId || !deltaMonto) return;
+    const plat = PLATFORM_DATA[platformId];
+    if (!plat || plat.sinValuacion) return;
+    const mesActual = todayISO().slice(0, 7);
+    ensureMonthExists(mesActual);
+    const base = plat.valorHistorial[mesActual] != null ? plat.valorHistorial[mesActual] : platformCurrentValue(platformId);
+    plat.valorHistorial[mesActual] = base + deltaMonto;
+  }
+  __name(bumpPlatformValueForContribution, "bumpPlatformValueForContribution");
   function platformDiasDesdeActualizacion(id) {
     const hoy = /* @__PURE__ */ new Date(todayISO() + "T00:00:00");
     const fecha = /* @__PURE__ */ new Date(PLATFORM_DATA[id].fechaActualizacion + "T00:00:00");
@@ -2933,7 +2950,7 @@
     const d = state.goalDraft;
     const ctxId = meta ? meta.plataformaId : plataformaId || state.addGoalPlatformId;
     const ctxNombre = ctxId ? catInfo(ctxId).nombre : "";
-    return '<div class="card meta-goal-card editing">' + (ctxNombre ? '<div class="meta-goal-ctx muted">' + (meta ? "Meta en " : "Nueva meta en ") + ctxNombre + "</div>" : "") + '<label class="draft-label">Nombre de la meta</label><input type="text" class="draft-input" data-goal-field="nombre" value="' + d.nombre.replace(/"/g, "&quot;") + '" placeholder="Ej: Fondo de emergencia"><label class="draft-label" style="margin-top:12px;">Monto objetivo (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="' + d.montoObjetivo + '" placeholder="D\xE9jalo vac\xEDo si no juntas un total"><div class="platform-hint muted">Ponlo solo si esta meta es juntar un total (ej. el pie de un depto) \u2014 muestra una barra de progreso hacia ese monto. Si es una meta de aporte mensual sin un total fijo, d\xE9jalo vac\xEDo.</div><label class="draft-label" style="margin-top:12px;">Aporte mensual meta (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aporteMensualMeta" value="' + d.aporteMensualMeta + '" placeholder="D\xE9jalo vac\xEDo si aportas lo que puedas"><div class="platform-hint muted">Si tienes un monto fijo que aportas cada mes, ponlo ac\xE1 \u2014 suma al objetivo de inversi\xF3n del a\xF1o y a tu meta de Inversi\xF3n en Balance. Si prefieres aportar "lo que m\xE1s puedas" sin comprometerte a un monto, d\xE9jalo vac\xEDo: igual cuenta como inversi\xF3n real cuando aportes.</div><label class="draft-label" style="margin-top:12px;">\xBFCu\xE1nto tienes ahorrado hasta ahora?</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aportadoInicial" value="' + d.aportadoInicial + '" placeholder="0"><div class="platform-hint muted">Lo que ya ten\xEDas guardado para esta meta antes de empezar a registrarla ac\xE1. Se suma a lo que categorices desde el mes de inicio de abajo.</div><label class="draft-label" style="margin-top:12px;">\xBFDesde qu\xE9 mes partiste con esta meta?</label><input type="month" class="draft-input" data-goal-field="mesInicio" value="' + d.mesInicio + '"><div class="platform-hint muted">Si empezaste antes de usar la app, hazla partir en ese mes \u2014 as\xED tus transacciones antiguas de ese per\xEDodo tambi\xE9n cuentan para el progreso.</div><label class="draft-label" style="margin-top:12px;">Plazo</label>' + segmentedHtml("meta-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<label class="draft-label" style="margin-top:12px;">Comisi\xF3n anual / TAC (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="comision" value="' + d.comision + '" placeholder="Ej: 1.1"><div class="platform-hint muted">El % que te cobra el fondo espec\xEDfico de esta meta \u2014 ponlo t\xFA, la app no te sugiere ning\xFAn n\xFAmero. Se calcula sobre tu ganancia, no sobre el total ahorrado.</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-goal-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-goal="' + (meta ? meta.id : "nueva") + '">Guardar</button></div>' + (meta ? '<button class="budget-delete-link" data-delete-goal="' + meta.id + '">Eliminar meta</button>' : "") + "</div>";
+    return '<div class="card meta-goal-card editing">' + (ctxNombre ? '<div class="meta-goal-ctx muted">' + (meta ? "Meta en " : "Nueva meta en ") + ctxNombre + "</div>" : "") + '<label class="draft-label">Nombre de la meta</label><input type="text" class="draft-input" data-goal-field="nombre" value="' + d.nombre.replace(/"/g, "&quot;") + '" placeholder="Ej: Fondo de emergencia"><label class="draft-label" style="margin-top:12px;">Monto objetivo (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="' + d.montoObjetivo + '" placeholder="D\xE9jalo vac\xEDo si no juntas un total"><div class="platform-hint muted">Ponlo solo si esta meta es juntar un total (ej. el pie de un depto) \u2014 muestra una barra de progreso hacia ese monto. Si es una meta de aporte mensual sin un total fijo, d\xE9jalo vac\xEDo.</div><label class="draft-label" style="margin-top:12px;">Aporte mensual meta (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aporteMensualMeta" value="' + d.aporteMensualMeta + '" placeholder="D\xE9jalo vac\xEDo si aportas lo que puedas"><div class="platform-hint muted">Si tienes un monto fijo que aportas cada mes, ponlo ac\xE1 \u2014 suma al objetivo de inversi\xF3n del a\xF1o y a tu meta de Inversi\xF3n en Balance. Si prefieres aportar "lo que m\xE1s puedas" sin comprometerte a un monto, d\xE9jalo vac\xEDo: igual cuenta como inversi\xF3n real cuando aportes.</div><label class="draft-label" style="margin-top:12px;">\xBFCu\xE1nto tienes ahorrado hasta ahora?</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aportadoInicial" value="' + d.aportadoInicial + '" placeholder="0"><div class="platform-hint muted">Lo que ya ten\xEDas guardado para esta meta antes de empezar a registrarla ac\xE1. Se suma a lo que categorices desde el mes de inicio de abajo.</div><label class="draft-label" style="margin-top:12px;">\xBFDesde qu\xE9 mes partiste con esta meta?</label><input type="month" class="draft-input" data-goal-field="mesInicio" value="' + d.mesInicio + '"><div class="platform-hint muted">Si empezaste antes de usar la app, hazla partir en ese mes \u2014 as\xED tus transacciones antiguas de ese per\xEDodo tambi\xE9n cuentan para el progreso.</div><label class="draft-label" style="margin-top:12px;">Plazo</label>' + segmentedHtml("meta-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<label class="draft-label" style="margin-top:12px;">Comisi\xF3n anual / TAC (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="comision" value="' + d.comision + '" placeholder="Ej: 1.1"><div class="platform-hint muted">El % que te cobra el fondo espec\xEDfico de esta meta \u2014 ponlo t\xFA, la app no te sugiere ning\xFAn n\xFAmero. Se calcula sobre tu ganancia, no sobre el total ahorrado.</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-goal-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-goal="' + (meta ? meta.id : "nueva") + '">Guardar</button></div>' + (meta ? state.confirmDeleteGoalId === meta.id ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar la meta "' + meta.nombre + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-goal>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-goal="' + meta.id + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-goal="' + meta.id + '">Eliminar meta</button>' : "") + "</div>";
   }
   __name(renderGoalEditForm, "renderGoalEditForm");
   function metaChecksMonths(meta) {
@@ -3204,6 +3221,10 @@
     const confirmDeleteTxBtn = e.target.closest("[data-confirm-delete-tx]");
     if (confirmDeleteTxBtn) {
       const delId = confirmDeleteTxBtn.getAttribute("data-confirm-delete-tx");
+      const txAEliminar = getTx(delId);
+      if (txAEliminar && txAEliminar.tipo === "inversion" && txAEliminar.categorias[0]) {
+        bumpPlatformValueForContribution(platformIdForInvestmentCat(txAEliminar.categorias[0].cat), -txAEliminar.monto);
+      }
       setTransactions(TRANSACTIONS.filter(function(t) {
         return t.id !== delId;
       }));
@@ -3392,6 +3413,9 @@
       const t = getTx(state.openTxId);
       if (t) {
         if (group === "tipo" && t.tipo !== val) {
+          if (t.tipo === "inversion" && t.categorias[0]) {
+            bumpPlatformValueForContribution(platformIdForInvestmentCat(t.categorias[0].cat), -t.monto);
+          }
           t.tipo = val;
           t.categorias = [];
         }
@@ -3429,6 +3453,14 @@
           });
         } else {
           const wasClassified = t.categorias.length > 0;
+          if (t.tipo === "inversion") {
+            const oldPlatform = t.categorias[0] ? platformIdForInvestmentCat(t.categorias[0].cat) : null;
+            const newPlatform = platformIdForInvestmentCat(catId);
+            if (oldPlatform !== newPlatform) {
+              if (oldPlatform) bumpPlatformValueForContribution(oldPlatform, -t.categorias[0].monto);
+              if (newPlatform) bumpPlatformValueForContribution(newPlatform, t.monto);
+            }
+          }
           t.categorias = [{ cat: catId, monto: t.monto }];
           if (t.estado === "pendiente") t.estado = "confirmado";
           state.categoryEditMode[t.id] = false;
@@ -3517,6 +3549,7 @@
       const catId = editBudgetBtn.getAttribute("data-edit-budget");
       const cfg = BUDGETS[catId];
       state.editingBudgetCat = catId;
+      state.confirmDeleteBudgetCatId = null;
       state.budgetDraft = cfg ? { meta: String(cfg.meta), alertas: Object.assign({}, cfg.alertas) } : { meta: "", alertas: { 80: true, 90: true, 100: true } };
       renderBudgetView();
       return;
@@ -3524,6 +3557,7 @@
     const cancelBudgetEdit = e.target.closest("[data-cancel-budget-edit]");
     if (cancelBudgetEdit) {
       state.editingBudgetCat = null;
+      state.confirmDeleteBudgetCatId = null;
       renderBudgetView();
       return;
     }
@@ -3548,11 +3582,24 @@
       }
       return;
     }
-    const deleteBudget = e.target.closest("[data-delete-budget]");
+    const askDeleteBudgetBtn = e.target.closest("[data-ask-delete-budget]");
+    if (askDeleteBudgetBtn) {
+      state.confirmDeleteBudgetCatId = askDeleteBudgetBtn.getAttribute("data-ask-delete-budget");
+      renderBudgetView();
+      return;
+    }
+    const cancelDeleteBudgetBtn = e.target.closest("[data-cancel-delete-budget]");
+    if (cancelDeleteBudgetBtn) {
+      state.confirmDeleteBudgetCatId = null;
+      renderBudgetView();
+      return;
+    }
+    const deleteBudget = e.target.closest("[data-confirm-delete-budget]");
     if (deleteBudget) {
-      const catId = deleteBudget.getAttribute("data-delete-budget");
+      const catId = deleteBudget.getAttribute("data-confirm-delete-budget");
       delete BUDGETS[catId];
       state.editingBudgetCat = null;
+      state.confirmDeleteBudgetCatId = null;
       toast("Presupuesto eliminado");
       renderBudgetView();
       return;
@@ -3675,6 +3722,7 @@
       const id = editGoalBtn.getAttribute("data-edit-goal");
       const meta = INVESTMENT_GOALS.find((m) => m.id === id);
       state.editingGoalId = id;
+      state.confirmDeleteGoalId = null;
       state.goalDraft = meta ? { nombre: meta.nombre, montoObjetivo: meta.montoObjetivo != null ? String(meta.montoObjetivo) : "", aporteMensualMeta: meta.aporteMensualMeta != null ? String(meta.aporteMensualMeta) : "", aportadoInicial: String(meta.startingAmount || 0), mesInicio: meta.startMonth || todayISO().slice(0, 7), plazo: meta.plazo || "", comision: meta.comision != null ? String(meta.comision) : "" } : { nombre: "", montoObjetivo: "", aporteMensualMeta: "", aportadoInicial: "", mesInicio: todayISO().slice(0, 7), plazo: "", comision: "" };
       renderInvestmentsView();
       return;
@@ -3693,6 +3741,7 @@
     if (cancelMetaEdit) {
       state.editingGoalId = null;
       state.addGoalPlatformId = null;
+      state.confirmDeleteGoalId = null;
       renderInvestmentsView();
       return;
     }
@@ -3743,11 +3792,24 @@
       }
       return;
     }
-    const deleteGoalBtn = e.target.closest("[data-delete-goal]");
+    const askDeleteGoalBtn = e.target.closest("[data-ask-delete-goal]");
+    if (askDeleteGoalBtn) {
+      state.confirmDeleteGoalId = askDeleteGoalBtn.getAttribute("data-ask-delete-goal");
+      renderInvestmentsView();
+      return;
+    }
+    const cancelDeleteGoalBtn = e.target.closest("[data-cancel-delete-goal]");
+    if (cancelDeleteGoalBtn) {
+      state.confirmDeleteGoalId = null;
+      renderInvestmentsView();
+      return;
+    }
+    const deleteGoalBtn = e.target.closest("[data-confirm-delete-goal]");
     if (deleteGoalBtn) {
-      const id = deleteGoalBtn.getAttribute("data-delete-goal");
+      const id = deleteGoalBtn.getAttribute("data-confirm-delete-goal");
       setInvestmentGoals(INVESTMENT_GOALS.filter((m) => m.id !== id));
       state.editingGoalId = null;
+      state.confirmDeleteGoalId = null;
       toast("Meta eliminada");
       renderInvestmentsView();
       return;
@@ -4571,6 +4633,7 @@
       const id = editCatBtn.getAttribute("data-edit-cat");
       const c = CATEGORIES[id];
       state.editingCategoryId = id;
+      state.confirmDeleteCatId = null;
       state.catDraft = { nombre: c.nombre, tipo: c.tipo, color: c.color, icon: c.icon };
       renderMenuView();
       return;
@@ -4578,6 +4641,7 @@
     const cancelCatEditBtn = e.target.closest("[data-cancel-cat-edit]");
     if (cancelCatEditBtn) {
       state.editingCategoryId = null;
+      state.confirmDeleteCatId = null;
       renderMenuView();
       return;
     }
@@ -4614,9 +4678,21 @@
       renderMenuView();
       return;
     }
-    const deleteCatBtn = e.target.closest("[data-delete-cat]");
+    const askDeleteCatBtn = e.target.closest("[data-ask-delete-cat]");
+    if (askDeleteCatBtn) {
+      state.confirmDeleteCatId = askDeleteCatBtn.getAttribute("data-ask-delete-cat");
+      renderMenuView();
+      return;
+    }
+    const cancelDeleteCatBtn = e.target.closest("[data-cancel-delete-cat]");
+    if (cancelDeleteCatBtn) {
+      state.confirmDeleteCatId = null;
+      renderMenuView();
+      return;
+    }
+    const deleteCatBtn = e.target.closest("[data-confirm-delete-cat]");
     if (deleteCatBtn) {
-      const id = deleteCatBtn.getAttribute("data-delete-cat");
+      const id = deleteCatBtn.getAttribute("data-confirm-delete-cat");
       if (isCategoryInUse(id)) {
         toast("No puedes eliminar una categor\xEDa con transacciones");
         return;
@@ -4624,6 +4700,7 @@
       delete CATEGORIES[id];
       delete BUDGETS[id];
       state.editingCategoryId = null;
+      state.confirmDeleteCatId = null;
       toast("Categor\xEDa eliminada");
       renderMenuView();
       return;
@@ -4640,6 +4717,7 @@
       const id = editPaymentMethodBtn.getAttribute("data-edit-payment-method");
       const m = PAYMENT_METHODS[id];
       state.editingPaymentMethodId = id;
+      state.confirmDeletePaymentMethodId = null;
       state.medioDraft = { nombre: m.nombre, corto: m.corto, icon: m.icon };
       renderMenuView();
       return;
@@ -4647,6 +4725,7 @@
     const cancelPaymentMethodEditBtn = e.target.closest("[data-cancel-payment-method-edit]");
     if (cancelPaymentMethodEditBtn) {
       state.editingPaymentMethodId = null;
+      state.confirmDeletePaymentMethodId = null;
       renderMenuView();
       return;
     }
@@ -4677,25 +4756,51 @@
       renderMenuView();
       return;
     }
-    const deletePaymentMethodBtn = e.target.closest("[data-delete-payment-method]");
+    const askDeletePaymentMethodBtn = e.target.closest("[data-ask-delete-payment-method]");
+    if (askDeletePaymentMethodBtn) {
+      state.confirmDeletePaymentMethodId = askDeletePaymentMethodBtn.getAttribute("data-ask-delete-payment-method");
+      renderMenuView();
+      return;
+    }
+    const cancelDeletePaymentMethodBtn = e.target.closest("[data-cancel-delete-payment-method]");
+    if (cancelDeletePaymentMethodBtn) {
+      state.confirmDeletePaymentMethodId = null;
+      renderMenuView();
+      return;
+    }
+    const deletePaymentMethodBtn = e.target.closest("[data-confirm-delete-payment-method]");
     if (deletePaymentMethodBtn) {
-      const id = deletePaymentMethodBtn.getAttribute("data-delete-payment-method");
+      const id = deletePaymentMethodBtn.getAttribute("data-confirm-delete-payment-method");
       if (isPaymentMethodInUse(id)) {
         toast("No puedes eliminar un medio de pago con transacciones");
         return;
       }
       delete PAYMENT_METHODS[id];
       state.editingPaymentMethodId = null;
+      state.confirmDeletePaymentMethodId = null;
       toast("Medio de pago eliminado");
       renderMenuView();
       return;
     }
-    const deleteRuleBtn = e.target.closest("[data-delete-rule]");
+    const askDeleteRuleBtn = e.target.closest("[data-ask-delete-rule]");
+    if (askDeleteRuleBtn) {
+      state.confirmDeleteRuleComercio = decodeURIComponent(askDeleteRuleBtn.getAttribute("data-ask-delete-rule"));
+      renderMenuView();
+      return;
+    }
+    const cancelDeleteRuleBtn = e.target.closest("[data-cancel-delete-rule]");
+    if (cancelDeleteRuleBtn) {
+      state.confirmDeleteRuleComercio = null;
+      renderMenuView();
+      return;
+    }
+    const deleteRuleBtn = e.target.closest("[data-confirm-delete-rule]");
     if (deleteRuleBtn) {
-      const comercio = decodeURIComponent(deleteRuleBtn.getAttribute("data-delete-rule"));
+      const comercio = decodeURIComponent(deleteRuleBtn.getAttribute("data-confirm-delete-rule"));
       TRANSACTIONS.forEach((t) => {
         if (t.comercio === comercio) t.reglaAuto = false;
       });
+      state.confirmDeleteRuleComercio = null;
       toast("Regla eliminada para " + comercio);
       renderMenuView();
       return;
@@ -4878,6 +4983,8 @@
       const t = getTx(state.openTxId);
       const idx = parseInt(sel.getAttribute("data-cat-select"), 10);
       if (t) {
+        const oldCat = t.categorias[idx] ? t.categorias[idx].cat : null;
+        const oldMontoRow = t.categorias[idx] ? t.categorias[idx].monto : 0;
         if (sel.value === "") {
           if (t.categorias[idx]) {
             const removedMonto = t.categorias[idx].monto;
@@ -4888,6 +4995,15 @@
           t.categorias[idx].cat = sel.value;
         } else {
           t.categorias[idx] = { cat: sel.value, monto: t.monto };
+        }
+        if (t.tipo === "inversion") {
+          const newCat = sel.value || null;
+          const oldPlatform = platformIdForInvestmentCat(oldCat);
+          const newPlatform = platformIdForInvestmentCat(newCat);
+          if (oldPlatform !== newPlatform) {
+            if (oldPlatform) bumpPlatformValueForContribution(oldPlatform, -oldMontoRow);
+            if (newPlatform) bumpPlatformValueForContribution(newPlatform, t.monto);
+          }
         }
         renderSheet();
         renderIfListVisible();
@@ -5141,6 +5257,7 @@
     if (txFieldMonto) {
       const tx = getTx(txFieldMonto.getAttribute("data-tx"));
       if (tx) {
+        const oldMonto = tx.monto;
         const newMonto = parseInt(txFieldMonto.value.replace(/\D/g, ""), 10) || 0;
         tx.monto = newMonto;
         if (tx.categorias.length === 1) {
@@ -5158,6 +5275,9 @@
               }
             });
           }
+        }
+        if (tx.tipo === "inversion" && tx.categorias[0] && newMonto !== oldMonto) {
+          bumpPlatformValueForContribution(platformIdForInvestmentCat(tx.categorias[0].cat), newMonto - oldMonto);
         }
         liveFormatThousands(txFieldMonto);
         const echoEl = txFieldMonto.closest(".edit-amount-row").querySelector(".edit-amount-echo");
@@ -6659,6 +6779,9 @@
     if (d.divisionTipo) tx.divisionTipo = d.divisionTipo;
     TRANSACTIONS.push(tx);
     ensureMonthExists(tx.fecha.slice(0, 7));
+    if (tx.tipo === "inversion" && tx.categorias[0]) {
+      bumpPlatformValueForContribution(platformIdForInvestmentCat(tx.categorias[0].cat), tx.monto);
+    }
     if (state.createExpenseFromGroupId) {
       state.openTxId = id;
       state.creatingNew = false;
@@ -7425,6 +7548,8 @@
     newPaymentMethodDraft: { nombre: "", ultimos4: "" },
     editingBudgetCat: null,
     // catId being edited inline, or null
+    confirmDeleteBudgetCatId: null,
+    // catId showing "are you sure?" before actually deleting its budget
     budgetDraft: { meta: "", alertas: { 80: true, 90: true, 100: true } },
     editingBudgetTotal: false,
     budgetTotalDraft: "",
@@ -7437,6 +7562,8 @@
     goalDraft: { nombre: "", montoObjetivo: "", aporteMensualMeta: "", plazo: "", comision: "" },
     addGoalPlatformId: null,
     // platform a new goal will end up associated with
+    confirmDeleteGoalId: null,
+    // id of the goal showing "are you sure?" before actually deleting it
     evolutionSelectedMonth: null,
     // month tapped on the Evolution chart, or null (= latest month)
     openPlatformId: null,
@@ -7486,10 +7613,16 @@
     // 'YYYY-MM' of the month "Not now" was tapped on the salary suggestion
     editingCategoryId: null,
     // catId being edited, 'nueva', or null
+    confirmDeleteCatId: null,
+    // catId showing "are you sure?" before actually deleting it
     catDraft: { nombre: "", tipo: "gasto", color: "sage", icon: "more" },
     editingPaymentMethodId: null,
     // medioId being edited, 'nueva', or null (different from the mini-form inside the new-transaction sheet)
+    confirmDeletePaymentMethodId: null,
+    // medioId showing "are you sure?" before actually deleting it
     medioDraft: { nombre: "", corto: "", icon: "card" },
+    confirmDeleteRuleComercio: null,
+    // comercio (rule key) showing "are you sure?" before actually deleting it
     demoMode: false,
     importSummary: null,
     // result of the last CSV imported, to show on screen

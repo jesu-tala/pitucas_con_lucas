@@ -327,7 +327,14 @@ export function renderGoalEditForm(meta, plataformaId?){
       '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-goal-edit>Cancelar</button>'+
       '<button class="save-tx-btn" style="flex:1;" data-save-goal="'+(meta?meta.id:'nueva')+'">Guardar</button>'+
     '</div>'+
-    (meta ? '<button class="budget-delete-link" data-delete-goal="'+meta.id+'">Eliminar meta</button>' : '')+
+    (meta ? (state.confirmDeleteGoalId===meta.id
+      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar la meta "'+meta.nombre+'"? No se puede deshacer.</div>'+
+        '<div style="display:flex;gap:10px;">'+
+          '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-goal>Cancelar</button>'+
+          '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-goal="'+meta.id+'">Sí, eliminar</button>'+
+        '</div>'
+      : '<button class="budget-delete-link" data-ask-delete-goal="'+meta.id+'">Eliminar meta</button>')
+      : '')+
   '</div>';
 }
 

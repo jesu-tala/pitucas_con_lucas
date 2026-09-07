@@ -59,7 +59,14 @@ export function renderBudgetEditForm(catId, cfg){
       '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-budget-edit>Cancelar</button>'+
       '<button class="save-tx-btn" style="flex:1;" data-save-budget="'+catId+'">Guardar</button>'+
     '</div>'+
-    (cfg ? '<button class="budget-delete-link" data-delete-budget="'+catId+'">Eliminar presupuesto</button>' : '')+
+    (cfg ? (state.confirmDeleteBudgetCatId===catId
+      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar el presupuesto de "'+cat.nombre+'"? No se puede deshacer.</div>'+
+        '<div style="display:flex;gap:10px;">'+
+          '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-budget>Cancelar</button>'+
+          '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-budget="'+catId+'">Sí, eliminar</button>'+
+        '</div>'
+      : '<button class="budget-delete-link" data-ask-delete-budget="'+catId+'">Eliminar presupuesto</button>')
+      : '')+
   '</div>';
 }
 export function renderBudgetCatCard(catId){

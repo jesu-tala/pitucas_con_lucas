@@ -1,6 +1,7 @@
 import { GOAL_TERM, catInfo, aggregatedTxAmount, termChip } from '../helpers';
 import { ICONS, catIconMarkup } from '../icons';
 import { segmentedHtml } from '../sheet';
+import { ensureMonthExists } from '../shared-expenses';
 import { CATEGORIES, UPDATE_THRESHOLD_DAYS, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, PLANNER, PLATFORM_DATA, TRANSACTIONS, computeDefaultPlanBase, money, moneyPlain, moneyPlainMasked, moneyShort, monthAbbr, state, todayISO } from '../state';
 import { monthlyInvestmentGoalCLP, investmentGoalPct } from '../ui/donut';
 import { annualInvestmentGoalProgress, goalsForPlatform, metaAportadoNeto, metaHistorialAt, platformGoalsSummary, projectedContributions, renderEvolutionView, renderGoalEditForm, renderGoalCard, renderTotalChecksGrid } from './evolucion';
@@ -82,6 +83,44 @@ export function platformCurrentValue(id){
   if(PLATFORM_DATA[id].sinValuacion) return platformAportadoNeto(id);
   const months = platformValorMonths(id);
   return months.length ? PLATFORM_DATA[id].valorHistorial[months[months.length-1]] : 0;
+}
+// Given an investment-transaction category id (either one of a platform's Goals, or its
+// generalCatIdFor(...) catch-all bucket -- the only two shapes investmentCatOptions ever
+// produces), finds which platform it belongs to. Returns null for an unclassified/unknown id
+// (e.g. the transaction hasn't been categorized yet) -- callers treat that as "nothing to bump".
+export function platformIdForInvestmentCat(catId){
+  if(!catId) return null;
+  const goal = INVESTMENT_GOALS.find(g=>g.id===catId);
+  if(goal) return goal.plataformaId;
+  const GENERAL_SUFFIX = '__general';
+  return catId.slice(-GENERAL_SUFFIX.length)===GENERAL_SUFFIX ? catId.slice(0, -GENERAL_SUFFIX.length) : null;
+}
+// Least-surprising-baseline fix: valorHistorial is a MANUALLY-entered value curve (see the header
+// comment on PLATFORM_DATA in state.ts) -- before this, adding/editing/deleting an inversión
+// transaction only ever moved platformAportadoNeto (fully derived from transactions), never
+// platformCurrentValue/valorHistorial, so "Total en esta plataforma" could silently lag behind
+// money you'd just put in until you remembered to open "Actualizar valor" by hand. Every call
+// site that changes how much a platform has been contributed (see platformAportadoNeto/
+// metaAportadoNeto) now also calls this with the delta, so the platform's CURRENT MONTH entry
+// moves by the same amount, immediately -- a floor on top of whatever was already there, never a
+// replacement for a real manual update: the user can still open "Actualizar valor" any time to
+// correct the number for an actual market gain/loss, and the next contribution's delta applies
+// on top of THAT corrected number, not on top of some value this function remembers separately.
+// fechaActualizacion (the "stale value" nag) is deliberately left untouched here -- this isn't a
+// real check of what the platform is actually worth today, just a floor so the number is never
+// obviously wrong; the nag should still fire on its own schedule regardless.
+// sinValuacion platforms (e.g. "Otros") are skipped: platformCurrentValue already defines their
+// value as exactly their aportado (see above), so bumping valorHistorial here too would either
+// do nothing useful or double-count once that early-return path is hit.
+export function bumpPlatformValueForContribution(platformId, deltaMonto){
+  if(!platformId || !deltaMonto) return;
+  const plat = PLATFORM_DATA[platformId];
+  if(!plat || plat.sinValuacion) return;
+  const mesActual = todayISO().slice(0,7);
+  ensureMonthExists(mesActual); // valorHistorial[mesActual] would otherwise be invisible to
+                                 // platformValorMonths/platformCurrentValue, both filtered by MONTHS.
+  const base = plat.valorHistorial[mesActual]!=null ? plat.valorHistorial[mesActual] : platformCurrentValue(platformId);
+  plat.valorHistorial[mesActual] = base + deltaMonto;
 }
 export function platformDiasDesdeActualizacion(id){
   const hoy = new Date(todayISO()+'T00:00:00');

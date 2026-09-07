@@ -384,6 +384,7 @@ export const state: AppState = {
   addingPaymentMethod:false,  // true while the "add card" mini-form is shown
   newPaymentMethodDraft:{nombre:'', ultimos4:''},
   editingBudgetCat:null,       // catId being edited inline, or null
+  confirmDeleteBudgetCatId:null, // catId showing "are you sure?" before actually deleting its budget
   budgetDraft:{meta:'', alertas:{80:true,90:true,100:true}},
   editingBudgetTotal:false,
   budgetTotalDraft:'',
@@ -394,6 +395,7 @@ export const state: AppState = {
   editingGoalId:null,          // id of the goal being edited, or 'nueva', or null
   goalDraft:{nombre:'', montoObjetivo:'', aporteMensualMeta:'', plazo:'', comision:''},
   addGoalPlatformId:null,      // platform a new goal will end up associated with
+  confirmDeleteGoalId:null,    // id of the goal showing "are you sure?" before actually deleting it
   evolutionSelectedMonth:null, // month tapped on the Evolution chart, or null (= latest month)
   openPlatformId:null,         // id of the platform with its accordion expanded in Investments, or null (all closed)
   editingPlatformId:null,      // id of the platform being edited ("update value"), or null
@@ -425,9 +427,12 @@ export const state: AppState = {
   confirmDeleteTxId:null,       // id of the transaction showing "are you sure you want to delete it?"
   salaryBannerDismissedMonth:null, // 'YYYY-MM' of the month "Not now" was tapped on the salary suggestion
   editingCategoryId:null,      // catId being edited, 'nueva', or null
+  confirmDeleteCatId:null,     // catId showing "are you sure?" before actually deleting it
   catDraft:{nombre:'', tipo:'gasto', color:'sage', icon:'more'},
   editingPaymentMethodId:null, // medioId being edited, 'nueva', or null (different from the mini-form inside the new-transaction sheet)
+  confirmDeletePaymentMethodId:null, // medioId showing "are you sure?" before actually deleting it
   medioDraft:{nombre:'', corto:'', icon:'card'},
+  confirmDeleteRuleComercio:null, // comercio (rule key) showing "are you sure?" before actually deleting it
   demoMode:false,
   importSummary:null,          // result of the last CSV imported, to show on screen
   reconciliar:{

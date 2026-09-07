@@ -6,7 +6,7 @@ import { CATEGORIES, CONTACTS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, 
 import { ReceivableItem, Transaction } from './types';
 import { toast } from './ui/toasts';
 import { renderShareGroupSection, renderSplitDraftForm } from './views/grupos';
-import { goalCapablePlatformIds, investmentCatOptions, isPlatformArchived, platformIds } from './views/inversiones';
+import { bumpPlatformValueForContribution, goalCapablePlatformIds, investmentCatOptions, isPlatformArchived, platformIdForInvestmentCat, platformIds } from './views/inversiones';
 import { advFilterCount } from './views/transacciones';
 /* ===================== DETAIL SHEET ===================== */
 export function getTx(id){ return TRANSACTIONS.find(t=>t.id===id); }
@@ -900,6 +900,12 @@ export function saveDraftTx(){
   if(d.divisionTipo) tx.divisionTipo = d.divisionTipo;
   TRANSACTIONS.push(tx);
   ensureMonthExists(tx.fecha.slice(0,7));
+  // See bumpPlatformValueForContribution (views/inversiones.ts) -- a brand new inversión
+  // transaction already classified to a Goal/General bucket counts as money landing in that
+  // platform right now, same as any other creation/edit/delete of one.
+  if(tx.tipo==='inversion' && tx.categorias[0]){
+    bumpPlatformValueForContribution(platformIdForInvestmentCat(tx.categorias[0].cat), tx.monto);
+  }
   if(state.createExpenseFromGroupId){
     // Comes from "Add an expense" inside a group -- events.ts sets up the rest (leaves
     // state.shareDraft preloaded with this group) as soon as we get back with the transaction

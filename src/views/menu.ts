@@ -209,7 +209,14 @@ export function renderMenuCatEditForm(){
       '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-cat-edit>Cancelar</button>'+
       '<button class="save-tx-btn" style="flex:1;" data-save-cat="'+(isNew?'nueva':state.editingCategoryId)+'">Guardar</button>'+
     '</div>'+
-    (!isNew && !isCategoryInUse(state.editingCategoryId) ? '<button class="budget-delete-link" data-delete-cat="'+state.editingCategoryId+'">Eliminar categoría</button>' : '')+
+    (!isNew && !isCategoryInUse(state.editingCategoryId) ? (state.confirmDeleteCatId===state.editingCategoryId
+      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar la categoría "'+d.nombre+'"? No se puede deshacer.</div>'+
+        '<div style="display:flex;gap:10px;">'+
+          '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-cat>Cancelar</button>'+
+          '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-cat="'+state.editingCategoryId+'">Sí, eliminar</button>'+
+        '</div>'
+      : '<button class="budget-delete-link" data-ask-delete-cat="'+state.editingCategoryId+'">Eliminar categoría</button>')
+      : '')+
     (!isNew && isCategoryInUse(state.editingCategoryId) ? '<div class="file-format-hint">No se puede eliminar: tiene transacciones asociadas.</div>' : '')+
   '</div>';
 }
@@ -263,7 +270,14 @@ export function renderMenuPaymentMethodEditForm(){
       '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-payment-method-edit>Cancelar</button>'+
       '<button class="save-tx-btn" style="flex:1;" data-save-payment-method="'+(isNew?'nueva':state.editingPaymentMethodId)+'">Guardar</button>'+
     '</div>'+
-    (!isNew && !isPaymentMethodInUse(state.editingPaymentMethodId) ? '<button class="budget-delete-link" data-delete-payment-method="'+state.editingPaymentMethodId+'">Eliminar medio de pago</button>' : '')+
+    (!isNew && !isPaymentMethodInUse(state.editingPaymentMethodId) ? (state.confirmDeletePaymentMethodId===state.editingPaymentMethodId
+      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar el medio de pago "'+d.nombre+'"? No se puede deshacer.</div>'+
+        '<div style="display:flex;gap:10px;">'+
+          '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-payment-method>Cancelar</button>'+
+          '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-payment-method="'+state.editingPaymentMethodId+'">Sí, eliminar</button>'+
+        '</div>'
+      : '<button class="budget-delete-link" data-ask-delete-payment-method="'+state.editingPaymentMethodId+'">Eliminar medio de pago</button>')
+      : '')+
     (!isNew && isPaymentMethodInUse(state.editingPaymentMethodId) ? '<div class="file-format-hint">No se puede eliminar: tiene transacciones asociadas.</div>' : '')+
   '</div>';
 }
@@ -293,17 +307,25 @@ export function renderMenuReglas(){
       '<div class="card placeholder-card">'+ICONS.lockSmall+'<h3>Todavía no tienes reglas</h3><p>Actívalas desde el detalle de cualquier transacción, con el ícono de candado.</p></div>'
     : reglas.map(r=>{
         const cat = r.cat ? catInfo(r.cat) : null;
+        const confirmando = state.confirmDeleteRuleComercio===r.comercio;
         return '<div class="card rule-card">'+
           '<div class="rule-card-head">'+
             '<span class="rule-card-comercio">'+r.comercio+'</span>'+
             '<span class="rule-card-count">'+r.count+' transac.</span>'+
-            '<button class="budget-edit-btn" data-delete-rule="'+encodeURIComponent(r.comercio)+'" aria-label="Eliminar regla de '+r.comercio+'">'+ICONS.trash+'</button>'+
+            (confirmando ? '' : '<button class="budget-edit-btn" data-ask-delete-rule="'+encodeURIComponent(r.comercio)+'" aria-label="Eliminar regla de '+r.comercio+'">'+ICONS.trash+'</button>')+
           '</div>'+
           '<div class="rule-card-detail">'+
             (cat ? '<span class="rule-card-catchip" style="--fill:var(--cat-'+cat.color+'-fill);--ink:var(--cat-'+cat.color+'-ink)">'+catIconMarkup(cat.icon)+' '+cat.nombre+'</span>' : '')+
             '<span>'+(r.tipo==='gasto'?'Gasto':r.tipo==='ingreso'?'Ingreso':'Inversión')+'</span>'+
             '<span>·</span><span>'+(r.recurrencia==='mensual'?'Fijo mensual':'Variable')+'</span>'+
           '</div>'+
+          (confirmando
+            ? '<div class="file-format-hint" style="margin:10px 0 8px;">¿Seguro que quieres eliminar la regla de "'+r.comercio+'"? Las transacciones ya clasificadas no cambian, pero las nuevas de este comercio dejarán de clasificarse solas.</div>'+
+              '<div style="display:flex;gap:10px;">'+
+                '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-rule>Cancelar</button>'+
+                '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-rule="'+encodeURIComponent(r.comercio)+'">Sí, eliminar</button>'+
+              '</div>'
+            : '')+
         '</div>';
       }).join('')
     );
@@ -1428,9 +1450,27 @@ export async function shareExistingTransaction(txId, groupId, pagadoPorId, divis
   if(!tx) return null;
   const miParticipanteId = participantIdForUser(groupId, currentUser.id);
   const soyYoQuienPago = miParticipanteId!=null && miParticipanteId===pagadoPorId;
+
+  // Bug fix: this used to mutate tx.groupId/tx.porCobrar/tx.estado/tx.categorias UP FRONT,
+  // before ever talking to Supabase, with no rollback if the insert below failed (offline, an
+  // RLS/permission error, etc. -- exactly what this sandbox's own fixture-based tests hit). That
+  // left the transaction stuck forever: renderShareGroupSection (views/grupos.ts) shows its
+  // permanent read-only "ya se compartió, edita el reparto desde el grupo" card the instant
+  // tx.groupId is set, regardless of whether tx.sharedExpenseId ever got assigned -- so a failed
+  // share blocked editing the split from the transaction's own detail view AND left nothing on
+  // the group side to edit it from either (the insert never landed), a dead end matching the
+  // reported "creo un gasto en un grupo y después no puedo editarlo". Now the Supabase insert
+  // happens FIRST and the transaction is left completely untouched on failure.
+  const { data: gasto, error } = await sb.from('gastos_compartidos').insert({
+    grupo_id: groupId, descripcion: tx.comercio, categoria_origen: tx.categorias[0] ? catInfo(tx.categorias[0].cat).nombre : null,
+    monto: Math.round(tx.monto), fecha: tx.fecha, pagado_por: pagadoPorId,
+    registrado_por: currentUser.id, division_tipo: divisionTipo||'iguales', tx_origen_id: tx.id
+  }).select().single();
+  if(error){ console.error('Pitucas sin lucas — error compartiendo la transacción:', error); return null; }
+
   const otrosSplits = Object.keys(reparto).filter(pid=>pid!==miParticipanteId).map(pid=>({
     persona: (GROUP_PARTICIPANTS.find(p=>p.id===pid)||{}).nombre||'', monto: reparto[pid], pagado:false,
-    tipo:'persona' as const, montoRecibido:null, linkedTxId:null, groupId, participanteId:pid
+    tipo:'persona' as const, montoRecibido:null, linkedTxId:null, groupId, participanteId:pid, sharedExpenseId: gasto.id
   }));
 
   if(soyYoQuienPago){
@@ -1444,15 +1484,7 @@ export async function shareExistingTransaction(txId, groupId, pagadoPorId, divis
     tx.nota = (tx.nota?tx.nota+' — ':'')+'Compartido con el grupo, pero lo pagó otra persona — no cuenta en tu presupuesto.';
   }
   tx.groupId = groupId;
-
-  const { data: gasto, error } = await sb.from('gastos_compartidos').insert({
-    grupo_id: groupId, descripcion: tx.comercio, categoria_origen: tx.categorias[0] ? catInfo(tx.categorias[0].cat).nombre : null,
-    monto: Math.round(tx.monto), fecha: tx.fecha, pagado_por: pagadoPorId,
-    registrado_por: currentUser.id, division_tipo: divisionTipo||'iguales', tx_origen_id: tx.id
-  }).select().single();
-  if(error){ console.error('Pitucas sin lucas — error compartiendo la transacción:', error); return null; }
   tx.sharedExpenseId = gasto.id;
-  tx.porCobrar.forEach(p=>{ if(p.groupId===groupId && p.sharedExpenseId===undefined) p.sharedExpenseId = gasto.id; });
 
   const filas = Object.keys(reparto).map(pid=>({gasto_compartido_id:gasto.id, participante_id:pid, monto:Math.round(reparto[pid])}));
   const { error: eR } = await sb.from('gasto_reparto').insert(filas);
