@@ -101,7 +101,12 @@ var RULES = [
       // Mismo cuidado que en banco_edwards_compra: cualquier espacio entre palabras puede
       // en realidad ser un salto de línea si Gmail cortó ahí el texto plano.
       var montoM = bodyText.match(/Monto\s*\|?\s*\$([\d.,]+)/i);
-      var fechaM = bodyText.match(/Fecha\s+y\s+Hora:\s*\w+\s+(\d{1,2})\s+de\s+(\wé\w+|\w+)\s+de\s+(\d{4})\s+(\d{2}:\d{2})/i);
+      // El día de la semana ("sábado", "miércoles") lleva tilde -- \w en JS NO matchea letras
+      // con tilde, así que un \w+ ahí se cortaba a mitad de la palabra y rompía TODO el regex
+      // (encontrado con debugVerCuerpoCrudoBancoChile: un correo real de "sábado 05 de..."
+      // nunca calzaba). \S+ (cualquier cosa que no sea espacio) sortea el problema sin
+      // necesitar enumerar cada día de la semana a mano.
+      var fechaM = bodyText.match(/Fecha\s+y\s+Hora:\s*\S+\s+(\d{1,2})\s+de\s+(\wé\w+|\w+)\s+de\s+(\d{4})\s+(\d{2}:\d{2})/i);
       var destM = bodyText.match(/Nombre\s+y\s+Apellido\s*\|?\s*([^\n|]+)/i);
       if (!montoM || !fechaM) return null;
       var mesIdx = MESES.indexOf(fechaM[2].toLowerCase());
