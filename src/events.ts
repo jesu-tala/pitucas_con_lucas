@@ -7,7 +7,7 @@ import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
 import { defaultShareDraft, renderGroupsView } from './views/grupos';
-import { activePlatformIds, generalCatIdFor, goalCapablePlatformIds, platformCurrentValue, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
+import { activePlatformIds, bumpPlatformValueForContribution, generalCatIdFor, goalCapablePlatformIds, platformCurrentValue, platformIdForInvestmentCat, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
 import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
 import { renderBalanceView, renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
@@ -43,6 +43,13 @@ phone.addEventListener('click', function(e: any){
   const confirmDeleteTxBtn = e.target.closest('[data-confirm-delete-tx]');
   if(confirmDeleteTxBtn){
     const delId = confirmDeleteTxBtn.getAttribute('data-confirm-delete-tx');
+    const txAEliminar = getTx(delId);
+    // See bumpPlatformValueForContribution (views/inversiones.ts) -- deleting a classified
+    // inversión transaction takes that money back out of its platform, same reasoning as
+    // creating/editing one, just with the opposite sign.
+    if(txAEliminar && txAEliminar.tipo==='inversion' && txAEliminar.categorias[0]){
+      bumpPlatformValueForContribution(platformIdForInvestmentCat(txAEliminar.categorias[0].cat), -txAEliminar.monto);
+    }
     setTransactions(TRANSACTIONS.filter(function(t){ return t.id!==delId; }));
     state.confirmDeleteTxId = null;
     closeSheet();
@@ -222,6 +229,13 @@ phone.addEventListener('click', function(e: any){
         // an "orphaned" category that no longer matches this type. That used to make Balance
         // count wrong: an expense transaction with an old category from another type would
         // sneak in (or get lost) in the category breakdown.
+        // Leaving 'inversion' for another type takes this transaction's money back out of
+        // whatever platform it was classified to (see bumpPlatformValueForContribution) --
+        // switching INTO 'inversion' doesn't add anything symmetrically since categorias is
+        // reset to [] right below either way, so there's no platform to attribute money to yet.
+        if(t.tipo==='inversion' && t.categorias[0]){
+          bumpPlatformValueForContribution(platformIdForInvestmentCat(t.categorias[0].cat), -t.monto);
+        }
         t.tipo = val;
         t.categorias = [];
       }
@@ -262,6 +276,19 @@ phone.addEventListener('click', function(e: any){
         });
       } else {
         const wasClassified = t.categorias.length>0;
+        // See bumpPlatformValueForContribution -- classifying an inversión transaction for the
+        // first time (or re-picking it from this grid) counts as money landing in whatever
+        // platform catId belongs to; if it was already pointing at a different platform (rare
+        // here, since this grid is normally only shown while still unclassified), take the old
+        // amount back out of that one first.
+        if(t.tipo==='inversion'){
+          const oldPlatform = t.categorias[0] ? platformIdForInvestmentCat(t.categorias[0].cat) : null;
+          const newPlatform = platformIdForInvestmentCat(catId);
+          if(oldPlatform!==newPlatform){
+            if(oldPlatform) bumpPlatformValueForContribution(oldPlatform, -t.categorias[0].monto);
+            if(newPlatform) bumpPlatformValueForContribution(newPlatform, t.monto);
+          }
+        }
         t.categorias = [{cat:catId, monto:t.monto}];
         if(t.estado==='pendiente') t.estado='confirmado';
         state.categoryEditMode[t.id] = false;
@@ -350,6 +377,7 @@ phone.addEventListener('click', function(e: any){
     const catId = editBudgetBtn.getAttribute('data-edit-budget');
     const cfg = BUDGETS[catId];
     state.editingBudgetCat = catId;
+    state.confirmDeleteBudgetCatId = null; // a stale "are you sure?" from a different category shouldn't carry over
     state.budgetDraft = cfg
       ? {meta:String(cfg.meta), alertas:Object.assign({},cfg.alertas)}
       : {meta:'', alertas:{80:true,90:true,100:true}};
@@ -359,6 +387,7 @@ phone.addEventListener('click', function(e: any){
   const cancelBudgetEdit = e.target.closest('[data-cancel-budget-edit]');
   if(cancelBudgetEdit){
     state.editingBudgetCat = null;
+    state.confirmDeleteBudgetCatId = null;
     renderBudgetView();
     return;
   }
@@ -383,11 +412,16 @@ phone.addEventListener('click', function(e: any){
     }
     return;
   }
-  const deleteBudget = e.target.closest('[data-delete-budget]');
+  const askDeleteBudgetBtn = e.target.closest('[data-ask-delete-budget]');
+  if(askDeleteBudgetBtn){ state.confirmDeleteBudgetCatId = askDeleteBudgetBtn.getAttribute('data-ask-delete-budget'); renderBudgetView(); return; }
+  const cancelDeleteBudgetBtn = e.target.closest('[data-cancel-delete-budget]');
+  if(cancelDeleteBudgetBtn){ state.confirmDeleteBudgetCatId = null; renderBudgetView(); return; }
+  const deleteBudget = e.target.closest('[data-confirm-delete-budget]');
   if(deleteBudget){
-    const catId = deleteBudget.getAttribute('data-delete-budget');
+    const catId = deleteBudget.getAttribute('data-confirm-delete-budget');
     delete BUDGETS[catId];
     state.editingBudgetCat = null;
+    state.confirmDeleteBudgetCatId = null;
     toast('Presupuesto eliminado');
     renderBudgetView();
     return;
@@ -507,6 +541,7 @@ phone.addEventListener('click', function(e: any){
     const id = editGoalBtn.getAttribute('data-edit-goal');
     const meta = INVESTMENT_GOALS.find(m=>m.id===id);
     state.editingGoalId = id;
+    state.confirmDeleteGoalId = null; // a stale "are you sure?" from a different goal shouldn't carry over
     state.goalDraft = meta
       ? {nombre:meta.nombre, montoObjetivo:meta.montoObjetivo!=null?String(meta.montoObjetivo):'', aporteMensualMeta:meta.aporteMensualMeta!=null?String(meta.aporteMensualMeta):'', aportadoInicial:String(meta.startingAmount||0), mesInicio:meta.startMonth||todayISO().slice(0,7), plazo:meta.plazo||'', comision:meta.comision!=null?String(meta.comision):''}
       : {nombre:'', montoObjetivo:'', aporteMensualMeta:'', aportadoInicial:'', mesInicio:todayISO().slice(0,7), plazo:'', comision:''};
@@ -530,6 +565,7 @@ phone.addEventListener('click', function(e: any){
   if(cancelMetaEdit){
     state.editingGoalId = null;
     state.addGoalPlatformId = null;
+    state.confirmDeleteGoalId = null;
     renderInvestmentsView();
     return;
   }
@@ -584,11 +620,16 @@ phone.addEventListener('click', function(e: any){
     }
     return;
   }
-  const deleteGoalBtn = e.target.closest('[data-delete-goal]');
+  const askDeleteGoalBtn = e.target.closest('[data-ask-delete-goal]');
+  if(askDeleteGoalBtn){ state.confirmDeleteGoalId = askDeleteGoalBtn.getAttribute('data-ask-delete-goal'); renderInvestmentsView(); return; }
+  const cancelDeleteGoalBtn = e.target.closest('[data-cancel-delete-goal]');
+  if(cancelDeleteGoalBtn){ state.confirmDeleteGoalId = null; renderInvestmentsView(); return; }
+  const deleteGoalBtn = e.target.closest('[data-confirm-delete-goal]');
   if(deleteGoalBtn){
-    const id = deleteGoalBtn.getAttribute('data-delete-goal');
+    const id = deleteGoalBtn.getAttribute('data-confirm-delete-goal');
     setInvestmentGoals(INVESTMENT_GOALS.filter(m=>m.id!==id));
     state.editingGoalId = null;
+    state.confirmDeleteGoalId = null;
     toast('Meta eliminada');
     renderInvestmentsView();
     return;
@@ -1376,12 +1417,13 @@ phone.addEventListener('click', function(e: any){
     const id = editCatBtn.getAttribute('data-edit-cat');
     const c = CATEGORIES[id];
     state.editingCategoryId = id;
+    state.confirmDeleteCatId = null; // a stale "are you sure?" from a different category shouldn't carry over
     state.catDraft = {nombre:c.nombre, tipo:c.tipo, color:c.color, icon:c.icon};
     renderMenuView();
     return;
   }
   const cancelCatEditBtn = e.target.closest('[data-cancel-cat-edit]');
-  if(cancelCatEditBtn){ state.editingCategoryId = null; renderMenuView(); return; }
+  if(cancelCatEditBtn){ state.editingCategoryId = null; state.confirmDeleteCatId = null; renderMenuView(); return; }
   const catDraftIconBtn = e.target.closest('[data-cat-draft-icon]');
   if(catDraftIconBtn){ state.catDraft.icon = catDraftIconBtn.getAttribute('data-cat-draft-icon'); renderMenuView(); return; }
   const catDraftColorBtn = e.target.closest('[data-cat-draft-color]');
@@ -1404,13 +1446,18 @@ phone.addEventListener('click', function(e: any){
     renderMenuView();
     return;
   }
-  const deleteCatBtn = e.target.closest('[data-delete-cat]');
+  const askDeleteCatBtn = e.target.closest('[data-ask-delete-cat]');
+  if(askDeleteCatBtn){ state.confirmDeleteCatId = askDeleteCatBtn.getAttribute('data-ask-delete-cat'); renderMenuView(); return; }
+  const cancelDeleteCatBtn = e.target.closest('[data-cancel-delete-cat]');
+  if(cancelDeleteCatBtn){ state.confirmDeleteCatId = null; renderMenuView(); return; }
+  const deleteCatBtn = e.target.closest('[data-confirm-delete-cat]');
   if(deleteCatBtn){
-    const id = deleteCatBtn.getAttribute('data-delete-cat');
+    const id = deleteCatBtn.getAttribute('data-confirm-delete-cat');
     if(isCategoryInUse(id)){ toast('No puedes eliminar una categoría con transacciones'); return; }
     delete CATEGORIES[id];
     delete BUDGETS[id];
     state.editingCategoryId = null;
+    state.confirmDeleteCatId = null;
     toast('Categoría eliminada');
     renderMenuView();
     return;
@@ -1428,12 +1475,13 @@ phone.addEventListener('click', function(e: any){
     const id = editPaymentMethodBtn.getAttribute('data-edit-payment-method');
     const m = PAYMENT_METHODS[id];
     state.editingPaymentMethodId = id;
+    state.confirmDeletePaymentMethodId = null; // a stale "are you sure?" from a different medio shouldn't carry over
     state.medioDraft = {nombre:m.nombre, corto:m.corto, icon:m.icon};
     renderMenuView();
     return;
   }
   const cancelPaymentMethodEditBtn = e.target.closest('[data-cancel-payment-method-edit]');
-  if(cancelPaymentMethodEditBtn){ state.editingPaymentMethodId = null; renderMenuView(); return; }
+  if(cancelPaymentMethodEditBtn){ state.editingPaymentMethodId = null; state.confirmDeletePaymentMethodId = null; renderMenuView(); return; }
   const paymentMethodDraftIconBtn = e.target.closest('[data-payment-method-draft-icon]');
   if(paymentMethodDraftIconBtn){ state.medioDraft.icon = paymentMethodDraftIconBtn.getAttribute('data-payment-method-draft-icon'); renderMenuView(); return; }
   const savePaymentMethodBtn = e.target.closest('[data-save-payment-method]');
@@ -1454,21 +1502,31 @@ phone.addEventListener('click', function(e: any){
     renderMenuView();
     return;
   }
-  const deletePaymentMethodBtn = e.target.closest('[data-delete-payment-method]');
+  const askDeletePaymentMethodBtn = e.target.closest('[data-ask-delete-payment-method]');
+  if(askDeletePaymentMethodBtn){ state.confirmDeletePaymentMethodId = askDeletePaymentMethodBtn.getAttribute('data-ask-delete-payment-method'); renderMenuView(); return; }
+  const cancelDeletePaymentMethodBtn = e.target.closest('[data-cancel-delete-payment-method]');
+  if(cancelDeletePaymentMethodBtn){ state.confirmDeletePaymentMethodId = null; renderMenuView(); return; }
+  const deletePaymentMethodBtn = e.target.closest('[data-confirm-delete-payment-method]');
   if(deletePaymentMethodBtn){
-    const id = deletePaymentMethodBtn.getAttribute('data-delete-payment-method');
+    const id = deletePaymentMethodBtn.getAttribute('data-confirm-delete-payment-method');
     if(isPaymentMethodInUse(id)){ toast('No puedes eliminar un medio de pago con transacciones'); return; }
     delete PAYMENT_METHODS[id];
     state.editingPaymentMethodId = null;
+    state.confirmDeletePaymentMethodId = null;
     toast('Medio de pago eliminado');
     renderMenuView();
     return;
   }
 
-  const deleteRuleBtn = e.target.closest('[data-delete-rule]');
+  const askDeleteRuleBtn = e.target.closest('[data-ask-delete-rule]');
+  if(askDeleteRuleBtn){ state.confirmDeleteRuleComercio = decodeURIComponent(askDeleteRuleBtn.getAttribute('data-ask-delete-rule')); renderMenuView(); return; }
+  const cancelDeleteRuleBtn = e.target.closest('[data-cancel-delete-rule]');
+  if(cancelDeleteRuleBtn){ state.confirmDeleteRuleComercio = null; renderMenuView(); return; }
+  const deleteRuleBtn = e.target.closest('[data-confirm-delete-rule]');
   if(deleteRuleBtn){
-    const comercio = decodeURIComponent(deleteRuleBtn.getAttribute('data-delete-rule'));
+    const comercio = decodeURIComponent(deleteRuleBtn.getAttribute('data-confirm-delete-rule'));
     TRANSACTIONS.forEach(t=>{ if(t.comercio===comercio) t.reglaAuto = false; });
+    state.confirmDeleteRuleComercio = null;
     toast('Regla eliminada para '+comercio);
     renderMenuView();
     return;
@@ -1630,6 +1688,8 @@ phone.addEventListener('change', function(e: any){
     const t = getTx(state.openTxId);
     const idx = parseInt(sel.getAttribute('data-cat-select'),10);
     if(t){
+      const oldCat = t.categorias[idx] ? t.categorias[idx].cat : null;
+      const oldMontoRow = t.categorias[idx] ? t.categorias[idx].monto : 0;
       if(sel.value===''){
         // "Sin categoría": if it's the only row, the transaction is left unclassified (the
         // empty row shows again); if there are more rows, this one is removed and its amount
@@ -1643,6 +1703,20 @@ phone.addEventListener('change', function(e: any){
         t.categorias[idx].cat = sel.value;
       } else {
         t.categorias[idx] = {cat: sel.value, monto: t.monto};
+      }
+      // See bumpPlatformValueForContribution -- an inversión transaction only ever has one
+      // category row (allowSplit is off for it, see renderCategoryRows' caller), so re-picking
+      // it here is really "move this money from platform A to platform B" (or take it out
+      // entirely for "Sin categoría"), not a genuine split -- shift the row's own amount across
+      // whichever platforms actually changed.
+      if(t.tipo==='inversion'){
+        const newCat = sel.value || null;
+        const oldPlatform = platformIdForInvestmentCat(oldCat);
+        const newPlatform = platformIdForInvestmentCat(newCat);
+        if(oldPlatform!==newPlatform){
+          if(oldPlatform) bumpPlatformValueForContribution(oldPlatform, -oldMontoRow);
+          if(newPlatform) bumpPlatformValueForContribution(newPlatform, t.monto);
+        }
       }
       renderSheet(); renderIfListVisible();
     }
@@ -1913,6 +1987,7 @@ phone.addEventListener('input', function(e: any){
   if(txFieldMonto){
     const tx = getTx(txFieldMonto.getAttribute('data-tx'));
     if(tx){
+      const oldMonto = tx.monto;
       const newMonto = parseInt(txFieldMonto.value.replace(/\D/g,''),10) || 0;
       tx.monto = newMonto;
       // catTotalAmount() -- lo que usan Balance/Presupuesto/Evolución para sus agregados --
@@ -1932,6 +2007,13 @@ phone.addEventListener('input', function(e: any){
             else { c.monto = Math.round(c.monto/oldTotal*newMonto); asignado += c.monto; }
           });
         }
+      }
+      // See bumpPlatformValueForContribution -- an inversión transaction always has at most one
+      // category (allowSplit is off for it, see renderCategoryRows' caller), so its monto and
+      // its single categorias[0].monto are always the same number; the delta between old/new is
+      // exactly how much more (or less) landed in whatever platform it's classified to.
+      if(tx.tipo==='inversion' && tx.categorias[0] && newMonto!==oldMonto){
+        bumpPlatformValueForContribution(platformIdForInvestmentCat(tx.categorias[0].cat), newMonto-oldMonto);
       }
       liveFormatThousands(txFieldMonto);
       const echoEl = txFieldMonto.closest('.edit-amount-row').querySelector('.edit-amount-echo');
