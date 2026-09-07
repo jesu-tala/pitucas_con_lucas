@@ -65,7 +65,10 @@ const { openApp, check, finish } = require('./lib/test_kit');
     };
   });
   check('(1a) Meta sin montoObjetivo ni aporteMensualMeta: se encuentra la tarjeta', !!flowCard, flowCard);
-  check('(1b) ...no muestra la barra de progreso de stock (figs+track)', flowCard && !flowCard.hasStockFigs && !flowCard.hasTrack, flowCard);
+  // Sin NINGÚN objetivo (ni real ni estimable), no hay barra -- pero sí se sigue mostrando lo
+  // acumulado (a pedido explícito: "quiero que igual muestres cuánto llevo").
+  check('(1b) ...no muestra la barra de progreso de stock (sin .budget-track)', flowCard && !flowCard.hasTrack, flowCard);
+  check('   ...pero sí muestra lo acumulado hasta ahora (sin "de $X"/%, solo el monto)', flowCard && flowCard.hasStockFigs, flowCard);
   check('(1c) ...no muestra "Meta de aporte" (no tiene aporteMensualMeta)', flowCard && !flowCard.hasAporteBlock, flowCard);
   check('(1d) ...pero sí sigue mostrando sparkline y la fila de checks (racha/hábito intactos)', flowCard && flowCard.hasSparkRow && flowCard.hasCheckRow, flowCard);
 
@@ -75,6 +78,35 @@ const { openApp, check, finish } = require('./lib/test_kit');
   });
   check('(1e) Una meta sin aporteMensualMeta no suma al aporte mensual objetivo de Balance', afterAddingFlowGoal.monthlyObj === baseline.monthlyObj, { baseline, afterAddingFlowGoal });
   check('   ...ni a la meta de Inversión % de Balance', Math.abs(afterAddingFlowGoal.pct - baseline.pct) < 0.001, { baseline, afterAddingFlowGoal });
+
+  // ---------- 1f) meta CON aporteMensualMeta pero SIN montoObjetivo: el objetivo se estima
+  // como 12 meses de ese aporte (a pedido explícito), y sí muestra barra -- marcada "(estimado)"
+  // para no confundirla con un monto que la usuaria puso a mano ----------
+  await page.evaluate(() => {
+    const D = window.__debug;
+    D.INVESTMENT_GOALS.push({
+      id: 'mAporteSinObjetivo', nombre: 'Ahorro mensual sin meta final', aporteMensualMeta: 100000,
+      plataformaId: 'banco_chile', plazo: null, comision: null,
+      startMonth: '2026-04', startingAmount: 0, checks: {}
+      // deliberadamente sin montoObjetivo
+    });
+    D.render();
+  });
+  await page.waitForTimeout(150);
+  const estimadoCard = await page.evaluate(() => {
+    const btn = document.querySelector('[data-edit-goal="mAporteSinObjetivo"]');
+    const card = btn ? btn.closest('.meta-goal-card') : null;
+    if (!card) return null;
+    const figs = card.querySelector('.meta-goal-figs');
+    return {
+      hasTrack: !!card.querySelector('.budget-track'),
+      figsText: figs ? figs.textContent : null,
+    };
+  });
+  check('(1f) Meta con aporte mensual ($100.000) pero sin montoObjetivo: sí muestra barra, hacia 12×aporte ($1.200.000)',
+    estimadoCard && estimadoCard.hasTrack && estimadoCard.figsText.includes('1.200.000'), estimadoCard);
+  check('   ...y queda marcado como estimado, para no confundirlo con un monto puesto a mano',
+    estimadoCard && /estimado/i.test(estimadoCard.figsText), estimadoCard);
 
   // ---------- 2) a big contribution to that flow-only goal: counts as real investment, never as "objetivo" ----------
   const CONTRIB_FLOW = 5000000;

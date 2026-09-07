@@ -355,8 +355,15 @@ export function renderGoalCard(meta){
 
   const trackedMonths = metaMonths(meta);
   const acumulado = metaAcumuladoActual(meta);
-  const tieneObjetivo = meta.montoObjetivo!=null;
-  const pct = (tieneObjetivo && meta.montoObjetivo>0) ? (acumulado/meta.montoObjetivo)*100 : 0;
+  // Sin montoObjetivo explícito pero CON un aporte mensual fijo, el objetivo final se estima
+  // como 12 meses de ese aporte (a pedido explícito) -- así igual se ve una barra de progreso,
+  // marcada como estimada para no confundirla con un monto que la usuaria realmente puso. Solo
+  // cuando falta AMBOS (ni monto objetivo ni aporte mensual, el caso "lo que pueda" puro) no hay
+  // ningún objetivo -- ahí no se muestra barra, solo lo acumulado (ver bloque de abajo).
+  const objetivoEsEstimado = meta.montoObjetivo==null && meta.aporteMensualMeta!=null;
+  const objetivoEfectivo = meta.montoObjetivo!=null ? meta.montoObjetivo : (objetivoEsEstimado ? meta.aporteMensualMeta*12 : null);
+  const tieneObjetivo = objetivoEfectivo!=null;
+  const pct = (tieneObjetivo && objetivoEfectivo>0) ? (acumulado/objetivoEfectivo)*100 : 0;
   const racha = metaRacha(meta);
   const comision = meta.comision;
   const gananciaMeta = metaGananciaEstimada(meta);
@@ -375,14 +382,17 @@ export function renderGoalCard(meta){
     '</button>';
   }).join('');
 
-  // Stock progress (figs + bar) only applies to a goal with a total to save up to
-  // (montoObjetivo) -- a flow goal (no total, whether or not it has a fixed monthly amount) has
-  // nothing to show 0%/100% against, so this block is skipped entirely instead of rendering a
-  // misleading "$X de $0 · 0%" (see the note on InvestmentGoal in types.ts).
+  // Stock progress (figs + bar): con montoObjetivo explícito, o con uno estimado (12 meses del
+  // aporte mensual) cuando no hay uno puesto a mano. Solo una meta "lo que pueda" pura (sin
+  // ninguno de los dos) no tiene nada que mostrar como objetivo -- ahí se muestra solo lo
+  // acumulado, sin barra ni "de $X" (ver el bloque de abajo), en vez de un "$X de $0 · 0%"
+  // engañoso (ver la nota sobre InvestmentGoal en types.ts).
   const stockBlock = tieneObjetivo ? (
-    '<div class="meta-goal-figs"><span class="tabular gastado">'+money(acumulado)+'</span><span class="of-text"> de '+money(meta.montoObjetivo)+'</span><span class="budget-pct tabular">'+Math.round(pct)+'%</span></div>'+
+    '<div class="meta-goal-figs"><span class="tabular gastado">'+money(acumulado)+'</span><span class="of-text"> de '+money(objetivoEfectivo)+(objetivoEsEstimado?' (estimado)':'')+'</span><span class="budget-pct tabular">'+Math.round(pct)+'%</span></div>'+
     '<div class="budget-track"><div class="budget-fill" style="width:'+Math.max(0,Math.min(100,pct))+'%;background:var(--accent);"></div></div>'
-  ) : '';
+  ) : (
+    '<div class="meta-goal-figs"><span class="tabular gastado">'+money(acumulado)+'</span><span class="of-text"> aportado hasta ahora</span></div>'
+  );
   // "Meta de aporte" only applies to a goal with a fixed monthly target -- a "contribute whatever
   // I can" goal (no aporteMensualMeta) has no such figure to show.
   const aporteBlock = meta.aporteMensualMeta!=null
