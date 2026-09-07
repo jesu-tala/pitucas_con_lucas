@@ -443,10 +443,16 @@ año.
 - **Mis plataformas**: acordeón de una sola apertura por plataforma. Colapsada solo muestra
   nombre + hace cuánto se actualizó + valor total (o, si `sinValuacion`, directamente lo
   aportado — ver "Otros" más abajo, sin la etiqueta de actualización). Abierta muestra
-  valor/aportado, comisión (si no tiene metas propias), y sus metas (cada una con progreso —
-  omitido si la meta no tiene `montoObjetivo`, ver sección 3 —, comisión, sparkline, "Meta de
-  aporte" —omitida si no tiene `aporteMensualMeta`— y checks mensuales que se extienden desde
-  `startMonth` hasta diciembre del año en curso, no solo hasta el último mes con transacciones).
+  valor/aportado, comisión (si no tiene metas propias), y sus metas (cada una con progreso,
+  comisión, sparkline, "Meta de aporte" —omitida si no tiene `aporteMensualMeta`— y checks
+  mensuales que se extienden desde `startMonth` hasta diciembre del año en curso, no solo hasta
+  el último mes con transacciones). La barra de progreso de cada meta (`renderGoalCard` en
+  `views/evolucion.ts`) usa `montoObjetivo` si está puesto; si no, pero SÍ hay `aporteMensualMeta`,
+  el objetivo se estima como 12 meses de ese aporte (a pedido explícito) y se marca "(estimado)"
+  para no confundirlo con un monto que la usuaria puso a mano — nunca se guarda ese número
+  inventado en el dato de la meta, se calcula al vuelo cada vez. Solo si faltan AMBOS (meta de
+  flujo pura, "aporta lo que puedas", sin ni siquiera un aporte mensual fijo) no hay barra —
+  ahí se muestra solo lo acumulado ("$X aportado hasta ahora"), sin "de $Y" ni %.
   El resumen combinado de metas de una plataforma (`platformGoalsSummary`) solo se muestra si al
   menos una de sus metas tiene `montoObjetivo` — si todas son de flujo puro, no tiene sentido un
   "$X de $0". Crear/editar una meta (`renderGoalEditForm`) pide nombre, **monto objetivo
