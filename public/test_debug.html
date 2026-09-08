@@ -2969,6 +2969,12 @@
         ensureMonthExists(row.fecha.slice(0, 7));
       });
       render();
+      clearTimeout(saveTimer);
+      const guardado = await writeStateToSupabase();
+      if (!guardado) {
+        toast("No se pudo guardar la transacci\xF3n importada \u2014 revisa tu conexi\xF3n, se reintentar\xE1 m\xE1s tarde");
+        return;
+      }
       toast(rows.length === 1 ? "Se agreg\xF3 1 transacci\xF3n desde tu correo" : "Se agregaron " + rows.length + " transacciones desde tu correo");
       const ids = rows.map(function(r) {
         return r.id;
@@ -4228,12 +4234,7 @@
   __name(renderEvolutionView, "renderEvolutionView");
 
   // src/views/transacciones.ts
-  function filteredTx() {
-    let list = TRANSACTIONS.slice().sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
-    if (state.filter === "entradas") list = list.filter((t) => t.tipo === "ingreso");
-    else if (state.filter === "porcobrar") list = list.filter((t) => t.estado === "por_cobrar" && hasReceivableType(t, "persona") && !allCollected(t));
-    else if (state.filter === "reembolso") list = list.filter((t) => t.estado === "por_cobrar" && hasReceivableType(t, "reembolso") && !allCollected(t));
-    else if (state.filter === "pendientes") list = list.filter((t) => t.estado === "pendiente");
+  function applyCommonFilters(list) {
     if (state.categoryFilter) {
       list = list.filter((t) => t.categorias.some((c) => categoryFilterMatches(c.cat, state.categoryFilter)));
     }
@@ -4259,9 +4260,18 @@
     }
     return list;
   }
+  __name(applyCommonFilters, "applyCommonFilters");
+  function filteredTx() {
+    let list = TRANSACTIONS.slice().sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
+    if (state.filter === "entradas") list = list.filter((t) => t.tipo === "ingreso");
+    else if (state.filter === "porcobrar") list = list.filter((t) => t.estado === "por_cobrar" && hasReceivableType(t, "persona") && !allCollected(t));
+    else if (state.filter === "reembolso") list = list.filter((t) => t.estado === "por_cobrar" && hasReceivableType(t, "reembolso") && !allCollected(t));
+    else if (state.filter === "pendientes") list = list.filter((t) => t.estado === "pendiente");
+    return applyCommonFilters(list);
+  }
   __name(filteredTx, "filteredTx");
   function renderFilterSummary() {
-    const base = state.categoryFilter ? filteredTx() : TRANSACTIONS;
+    const base = applyCommonFilters(TRANSACTIONS.slice());
     if (state.filter === "entradas") {
       const ingresos = base.filter((t) => t.tipo === "ingreso").reduce((s, t) => s + netIncomeTx(t), 0);
       const reembolsos = base.reduce((s, t) => s + t.porCobrar.filter((p) => p.pagado && p.tipo === "reembolso").reduce((ss, p) => ss + pendingEffectiveAmount(p), 0), 0);
@@ -4513,9 +4523,9 @@
       renderSheet();
       return;
     }
-    const toggleFilterMedio = e.target.closest("[data-toggle-filter-payment-method]");
+    const toggleFilterMedio = e.target.closest("[data-toggle-filter-medio]");
     if (toggleFilterMedio) {
-      const mid = toggleFilterMedio.getAttribute("data-toggle-filter-payment-method");
+      const mid = toggleFilterMedio.getAttribute("data-toggle-filter-medio");
       const arr = state.advFilters.medios;
       const i = arr.indexOf(mid);
       if (i >= 0) arr.splice(i, 1);
@@ -6963,9 +6973,9 @@
   }
   __name(updateSyncIndicator, "updateSyncIndicator");
   async function writeStateToSupabase() {
-    if (!sb || !currentHouseholdId) return;
+    if (!sb || !currentHouseholdId) return true;
     const blobJSON = JSON.stringify(buildFullStateBlob());
-    if (blobJSON === lastSavedBlobJSON) return;
+    if (blobJSON === lastSavedBlobJSON) return true;
     updateSyncIndicator("saving");
     try {
       const { error } = await sb.from("app_state").update({
@@ -6976,14 +6986,16 @@
       if (error) {
         console.error("Pitucas sin lucas \u2014 error guardando en Supabase:", error);
         updateSyncIndicator("error");
-        return;
+        return false;
       }
       lastSavedBlobJSON = blobJSON;
       updateSyncIndicator("saved");
       checkBudgetPushAlerts();
+      return true;
     } catch (err) {
       console.error("Pitucas sin lucas \u2014 error de red guardando en Supabase:", err);
       updateSyncIndicator("error");
+      return false;
     }
   }
   __name(writeStateToSupabase, "writeStateToSupabase");
@@ -7363,7 +7375,7 @@
   __name(renderCreateGroupForm, "renderCreateGroupForm");
   function renderJoinGroupForm() {
     const d = state.joinDraft;
-    return groupScreenHead("Unirme a un grupo") + '<div class="sheet-block card" style="padding:16px;"><div class="platform-hint muted" style="margin-bottom:12px;">Pide el c\xF3digo de invitaci\xF3n a quien cre\xF3 el grupo (Men\xFA del grupo -> Invitar).</div><label class="draft-label">C\xF3digo de invitaci\xF3n</label><input type="text" class="draft-input" data-join-draft-field="inviteCode" value="' + d.inviteCode + '" placeholder="Pega el c\xF3digo ac\xE1"><label class="draft-label" style="margin-top:12px;">Tu nombre en este grupo</label><input type="text" class="draft-input" data-join-draft-field="nombre" value="' + d.nombre + '" placeholder="Como quieres que te vean los dem\xE1s"><div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-group-join-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-group-join-confirm>Unirme</button></div></div>';
+    return groupScreenHead("Unirme a un grupo") + '<div class="sheet-block card" style="padding:16px;"><div class="platform-hint muted" style="margin-bottom:12px;">Pide el c\xF3digo de invitaci\xF3n a alg\xFAn miembro del grupo (lo ve al entrar al grupo, m\xE1s abajo).</div><label class="draft-label">C\xF3digo de invitaci\xF3n</label><input type="text" class="draft-input" data-join-draft-field="inviteCode" value="' + d.inviteCode + '" placeholder="Pega el c\xF3digo ac\xE1"><label class="draft-label" style="margin-top:12px;">Tu nombre en este grupo</label><input type="text" class="draft-input" data-join-draft-field="nombre" value="' + d.nombre + '" placeholder="Como quieres que te vean los dem\xE1s"><div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-group-join-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-group-join-confirm>Unirme</button></div></div>';
   }
   __name(renderJoinGroupForm, "renderJoinGroupForm");
   var GROUP_TABS_META = {
@@ -7473,9 +7485,10 @@
     const tab = state.groupDetailTab || "gastos";
     const subtabsHtml = '<div class="subtabs">' + renderGroupSubtabsInner() + "</div>";
     const contentHtml = tab === "balances" ? renderGroupBalancesTab(groupId) : tab === "transferencias" ? renderGroupTransferenciasTab(groupId) : renderGroupGastosTab(groupId);
+    const inviteBlock = '<div class="card" style="padding:14px 16px;margin-top:12px;"><div class="sheet-block-title" style="margin-bottom:8px;">C\xF3digo de invitaci\xF3n</div><p class="muted" style="margin-bottom:10px;font-size:12px;">Comp\xE1rtelo con quien quieras que se una a "' + g.nombre + '".</p><div style="display:flex;gap:8px;"><input class="draft-input" readonly value="' + g.invite_code + '" style="font-size:11.5px;"><button class="budget-edit-btn" data-copy-text="' + g.invite_code + '" aria-label="Copiar c\xF3digo de invitaci\xF3n">' + ICONS.copy + "</button></div></div>";
     const canDelete = !!(currentUser && g.creado_por === currentUser.id);
     const deleteBlock = !canDelete ? "" : state.confirmDeleteGroupId === groupId ? '<div class="sheet-block card" style="padding:16px;margin-top:14px;"><p class="muted" style="font-size:12.5px;margin:0 0 10px;">\xBFSeguro que quieres eliminar "' + g.nombre + '"? Se borran todos sus gastos y saldos, para todos los participantes. No se puede deshacer.</p><div style="display:flex;gap:8px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-group>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-group="' + groupId + '">S\xED, eliminar</button></div></div>' : '<button class="split-add" style="color:var(--expense-ink);margin-top:14px;" data-ask-delete-group="' + groupId + '">' + ICONS.trash + " Eliminar grupo</button>";
-    cont.innerHTML = groupScreenHead(g.nombre) + subtabsHtml + contentHtml + deleteBlock;
+    cont.innerHTML = groupScreenHead(g.nombre) + subtabsHtml + contentHtml + inviteBlock + deleteBlock;
   }
   __name(renderGroupDetail, "renderGroupDetail");
   function renderAddParticipantForm(groupId) {
@@ -9079,6 +9092,9 @@
     classifySharedExpenseFromOthers: classifySharedExpenseFromOthers, ensureSharedExpensePaymentMethod: ensureSharedExpensePaymentMethod,
     registerPaidBalance: registerPaidBalance, categoryForSharedExpense: categoryForSharedExpense,
     get currentUser(){ return currentUser; }, set currentUser(v){ currentUser = v; },
+    get currentHouseholdId(){ return currentHouseholdId; }, set currentHouseholdId(v){ currentHouseholdId = v; },
+    get sb(){ return sb; }, set sb(v){ sb = v; },
+    absorbImportedRows: absorbImportedRows, writeStateToSupabase: writeStateToSupabase,
     buildReconcileDiff: buildReconcileDiff, matchConfidence: matchConfidence, movementLineId: movementLineId,
     normalizeComercio: normalizeComercio, isAutomaticOrigin: isAutomaticOrigin, isProtectedOrigin: isProtectedOrigin,
     statementPeriod: statementPeriod, regenerateInstallmentsFor: regenerateInstallmentsFor

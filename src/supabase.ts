@@ -145,8 +145,14 @@ export function updateSyncIndicator(status){
 }
 
 /* ---------- save to Supabase (with a short wait so it doesn't write on every keystroke) ---------- */
+// Devuelve true si el estado quedó guardado en Supabase (o ya estaba al día), false si el
+// guardado falló -- absorbImportedRows() necesita saber esto explícitamente: si marcara como
+// "procesado" un correo importado sin haber confirmado que la transacción nueva de verdad se
+// guardó, y el guardado fallaba (sin conexión, error de Supabase), esa transacción se perdía
+// para siempre en silencio -- quedaba en memoria pero nunca escrita, y como el correo ya
+// figuraba procesado, jamás se reintentaba.
 export async function writeStateToSupabase(){
-  if(!sb || !currentHouseholdId) return;
+  if(!sb || !currentHouseholdId) return true;
   const blobJSON = JSON.stringify(buildFullStateBlob());
   // Almost everything that happens in the app (switching tabs, opening a transaction, filtering)
   // ends up in a repaint of the phone, and that's why it schedules a save (see autoSaveObserver
@@ -154,7 +160,7 @@ export async function writeStateToSupabase(){
   // screen. If the state is identical to the last one saved, there's nothing to write:
   // no call to Supabase and no "Saving…/Saved" on screen. That way the indicator appears
   // only when something new was actually saved.
-  if(blobJSON === lastSavedBlobJSON) return;
+  if(blobJSON === lastSavedBlobJSON) return true;
   updateSyncIndicator('saving');
   try{
     const { error } = await sb.from('app_state').update({
@@ -162,16 +168,18 @@ export async function writeStateToSupabase(){
       updated_at: new Date().toISOString(),
       updated_by: currentUser ? currentUser.id : null
     }).eq('household_id', currentHouseholdId);
-    if(error){ console.error('Pitucas sin lucas — error guardando en Supabase:', error); updateSyncIndicator('error'); return; }
+    if(error){ console.error('Pitucas sin lucas — error guardando en Supabase:', error); updateSyncIndicator('error'); return false; }
     lastSavedBlobJSON = blobJSON;
     updateSyncIndicator('saved');
     // Right after an actual save (not just any repaint) is the only moment when
     // a category's spending could have changed -- that's why it's checked here whether some
     // budget just crossed a threshold, not on every render.
     checkBudgetPushAlerts();
+    return true;
   }catch(err){
     console.error('Pitucas sin lucas — error de red guardando en Supabase:', err);
     updateSyncIndicator('error');
+    return false;
   }
 }
 export function scheduleSave(){
