@@ -5720,8 +5720,9 @@
       return isNaN(n) ? mx : Math.max(mx, n);
     }, 0));
     setImportIdCounter(TRANSACTIONS.reduce(function(mx, t) {
-      if (!/^timp/.test(t.id)) return mx;
-      const n = parseInt(t.id.replace("timp", ""), 10);
+      const m = /^(?:timp|trec|temail)(\d+)$/.exec(t.id);
+      if (!m) return mx;
+      const n = parseInt(m[1], 10);
       return isNaN(n) ? mx : Math.max(mx, n);
     }, 0));
     state.monthIndex = currentMonthIndex();
@@ -7879,6 +7880,7 @@
     get currentHouseholdId(){ return currentHouseholdId; }, set currentHouseholdId(v){ currentHouseholdId = v; },
     get sb(){ return sb; }, set sb(v){ sb = v; },
     absorbImportedRows: absorbImportedRows, writeStateToSupabase: writeStateToSupabase,
+    applyStateBlob: applyStateBlob, nextImportId: nextImportId,
     buildReconcileDiff: buildReconcileDiff, matchConfidence: matchConfidence, movementLineId: movementLineId,
     normalizeComercio: normalizeComercio, isAutomaticOrigin: isAutomaticOrigin, isProtectedOrigin: isProtectedOrigin,
     statementPeriod: statementPeriod, regenerateInstallmentsFor: regenerateInstallmentsFor
