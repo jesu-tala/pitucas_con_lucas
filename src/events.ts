@@ -98,9 +98,9 @@ phone.addEventListener('click', function(e: any){
     renderSheet();
     return;
   }
-  const toggleFilterMedio = e.target.closest('[data-toggle-filter-payment-method]');
+  const toggleFilterMedio = e.target.closest('[data-toggle-filter-medio]');
   if(toggleFilterMedio){
-    const mid = toggleFilterMedio.getAttribute('data-toggle-filter-payment-method');
+    const mid = toggleFilterMedio.getAttribute('data-toggle-filter-medio');
     const arr = state.advFilters.medios;
     const i = arr.indexOf(mid);
     if(i>=0) arr.splice(i,1); else arr.push(mid);

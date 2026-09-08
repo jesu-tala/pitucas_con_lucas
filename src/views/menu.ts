@@ -5,7 +5,7 @@ import { buildReconcileDiff, movementLineId } from '../reconcile';
 import { ensureMonthExists, participantIdForUser } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
 import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO } from '../state';
-import { PUSH_WORKER_URL, VAPID_PUBLIC_KEY, buildFullStateBlob, currentHouseholdId, currentUser, sb, translateAuthError } from '../supabase';
+import { PUSH_WORKER_URL, VAPID_PUBLIC_KEY, buildFullStateBlob, currentHouseholdId, currentUser, saveTimer, sb, translateAuthError, writeStateToSupabase } from '../supabase';
 import { CategoryMapping, Transaction } from '../types';
 import { toast } from '../ui/toasts';
 import { generalCatIdFor, isPlatformArchived } from './inversiones';
@@ -1206,6 +1206,18 @@ export async function absorbImportedRows(){
       ensureMonthExists(row.fecha.slice(0,7));
     });
     render();
+    // Antes esto marcaba "procesado" apenas se pintaba en pantalla, confiando en el guardado
+    // automático debounced (que recién escribe a Supabase ~1.2s después, ver scheduleSave en
+    // supabase.ts) -- si ese guardado fallaba (sin conexión, error de Supabase) o la app se
+    // cerraba antes de que corriera, la transacción quedaba solo en memoria, nunca se guardaba,
+    // y como el correo ya figuraba procesado, no se volvía a importar: se perdía en silencio.
+    // Por eso ahora se espera la confirmación real del guardado antes de marcar procesado.
+    clearTimeout(saveTimer);
+    const guardado = await writeStateToSupabase();
+    if(!guardado){
+      toast('No se pudo guardar la transacción importada — revisa tu conexión, se reintentará más tarde');
+      return;
+    }
     toast(rows.length===1 ? 'Se agregó 1 transacción desde tu correo' : 'Se agregaron '+rows.length+' transacciones desde tu correo');
     const ids = rows.map(function(r){ return r.id; });
     await sb.from('transacciones_importadas').update({procesado:true}).in('id', ids);

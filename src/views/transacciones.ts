@@ -3,14 +3,12 @@ import { ICONS, catIconMarkup } from '../icons';
 import { getTx, openNewTxSheet, renderSheet } from '../sheet';
 import { MONTH_LABEL, TRANSACTIONS, money, normalize, state, todayISO } from '../state';
 /* ===================== TRANSACTIONS VIEW ===================== */
-export function filteredTx(){
-  // View 1 shows all transactions (not filtered by month, unlike Balance),
-  // except when arriving via a category "drill-down" from Balance (which does bring a month).
-  let list = TRANSACTIONS.slice().sort((a,b)=> (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
-  if(state.filter==='entradas') list = list.filter(t=>t.tipo==='ingreso');
-  else if(state.filter==='porcobrar') list = list.filter(t=>t.estado==='por_cobrar' && hasReceivableType(t,'persona') && !allCollected(t));
-  else if(state.filter==='reembolso') list = list.filter(t=>t.estado==='por_cobrar' && hasReceivableType(t,'reembolso') && !allCollected(t));
-  else if(state.filter==='pendientes') list = list.filter(t=>t.estado==='pendiente');
+// Filters shared between the list and the summary cards above it: category/month drill-down,
+// the search box, and the "Filtros" sheet (categoría/tarjeta/fecha) -- but NOT the top chip
+// row (Todas/Entradas/Por cobrar/...), which each summary block applies on its own with its
+// own nuances (e.g. "Por cobrar"'s summary wants both paid and unpaid rows to show the
+// saldado/pendiente split, while the list itself only shows the unpaid ones).
+function applyCommonFilters(list){
   if(state.categoryFilter){
     // categoryFilter can be a plain category, a Goal's id, or (from a platform's "Ver
     // transacciones →") a platform id -- in which case it should match every transaction that
@@ -38,10 +36,25 @@ export function filteredTx(){
   return list;
 }
 
+export function filteredTx(){
+  // View 1 shows all transactions (not filtered by month, unlike Balance),
+  // except when arriving via a category "drill-down" from Balance (which does bring a month).
+  let list = TRANSACTIONS.slice().sort((a,b)=> (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
+  if(state.filter==='entradas') list = list.filter(t=>t.tipo==='ingreso');
+  else if(state.filter==='porcobrar') list = list.filter(t=>t.estado==='por_cobrar' && hasReceivableType(t,'persona') && !allCollected(t));
+  else if(state.filter==='reembolso') list = list.filter(t=>t.estado==='por_cobrar' && hasReceivableType(t,'reembolso') && !allCollected(t));
+  else if(state.filter==='pendientes') list = list.filter(t=>t.estado==='pendiente');
+  return applyCommonFilters(list);
+}
+
 export function renderFilterSummary(){
-  // Aggregated summary over ALL transactions (the whole year), unless there's already an
-  // active category/month filter — in that case it's computed over that same subset.
-  const base = state.categoryFilter ? filteredTx() : TRANSACTIONS;
+  // Antes esto solo reaccionaba al drill-down de categoría (state.categoryFilter) -- los
+  // totales se quedaban fijos aunque se aplicaran filtros de tarjeta/fecha/búsqueda desde el
+  // botón de Filtros, lo que hacía parecer que esos filtros no afectaban nada. Ahora la base
+  // pasa por los mismos filtros "comunes" que ve la lista (categoría/mes/búsqueda/filtros
+  // avanzados), sin el filtro de chip de arriba -- ese lo sigue aplicando cada bloque por su
+  // cuenta más abajo, con sus propias reglas.
+  const base = applyCommonFilters(TRANSACTIONS.slice());
   if(state.filter==='entradas'){
     const ingresos = base.filter(t=>t.tipo==='ingreso').reduce((s,t)=>s+netIncomeTx(t),0);
     const reembolsos = base.reduce((s,t)=> s + t.porCobrar.filter(p=>p.pagado && p.tipo==='reembolso').reduce((ss,p)=>ss+pendingEffectiveAmount(p),0), 0);

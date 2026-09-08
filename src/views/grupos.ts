@@ -213,7 +213,7 @@ export function renderJoinGroupForm(){
   const d = state.joinDraft;
   return groupScreenHead('Unirme a un grupo')+
     '<div class="sheet-block card" style="padding:16px;">'+
-      '<div class="platform-hint muted" style="margin-bottom:12px;">Pide el código de invitación a quien creó el grupo (Menú del grupo -> Invitar).</div>'+
+      '<div class="platform-hint muted" style="margin-bottom:12px;">Pide el código de invitación a algún miembro del grupo (lo ve al entrar al grupo, más abajo).</div>'+
       '<label class="draft-label">Código de invitación</label>'+
       '<input type="text" class="draft-input" data-join-draft-field="inviteCode" value="'+d.inviteCode+'" placeholder="Pega el código acá">'+
       '<label class="draft-label" style="margin-top:12px;">Tu nombre en este grupo</label>'+
@@ -421,6 +421,20 @@ export function renderGroupDetail(groupId){
     : tab==='transferencias' ? renderGroupTransferenciasTab(groupId)
     : renderGroupGastosTab(groupId);
 
+  // "Unirme con un código" (renderJoinGroupForm) le decía que pidiera el código en "Menú del
+  // grupo -> Invitar", pero ese botón nunca se construyó -- el grupo sí tenía un invite_code
+  // (columna uuid generada sola al crear el grupo, ver schema_gastos_compartidos.sql) pero
+  // nada en la app lo mostraba en ninguna parte, así que no había forma de compartirlo.
+  const inviteBlock =
+    '<div class="card" style="padding:14px 16px;margin-top:12px;">'+
+      '<div class="sheet-block-title" style="margin-bottom:8px;">Código de invitación</div>'+
+      '<p class="muted" style="margin-bottom:10px;font-size:12px;">Compártelo con quien quieras que se una a "'+g.nombre+'".</p>'+
+      '<div style="display:flex;gap:8px;">'+
+        '<input class="draft-input" readonly value="'+g.invite_code+'" style="font-size:11.5px;">'+
+        '<button class="budget-edit-btn" data-copy-text="'+g.invite_code+'" aria-label="Copiar código de invitación">'+ICONS.copy+'</button>'+
+      '</div>'+
+    '</div>';
+
   // Delete group: only whoever created it can do it (same rule as the delete policy in
   // Supabase) -- it deletes the group and, in cascade, all its expenses/balances/participants
   // for everyone, so it's not offered to just any member by mistake. Rendered on every tab
@@ -437,7 +451,7 @@ export function renderGroupDetail(groupId){
         '</div>'
       : '<button class="split-add" style="color:var(--expense-ink);margin-top:14px;" data-ask-delete-group="'+groupId+'">'+ICONS.trash+' Eliminar grupo</button>');
 
-  cont.innerHTML = groupScreenHead(g.nombre)+subtabsHtml+contentHtml+deleteBlock;
+  cont.innerHTML = groupScreenHead(g.nombre)+subtabsHtml+contentHtml+inviteBlock+deleteBlock;
 }
 
 export function renderAddParticipantForm(groupId){
