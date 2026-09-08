@@ -121,6 +121,7 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  get currentHouseholdId(){ return currentHouseholdId; }, set currentHouseholdId(v){ currentHouseholdId = v; },
 """ + indent + """  get sb(){ return sb; }, set sb(v){ sb = v; },
 """ + indent + """  absorbImportedRows: absorbImportedRows, writeStateToSupabase: writeStateToSupabase,
+""" + indent + """  applyStateBlob: applyStateBlob, nextImportId: nextImportId,
 """ + indent + """  buildReconcileDiff: buildReconcileDiff, matchConfidence: matchConfidence, movementLineId: movementLineId,
 """ + indent + """  normalizeComercio: normalizeComercio, isAutomaticOrigin: isAutomaticOrigin, isProtectedOrigin: isProtectedOrigin,
 """ + indent + """  statementPeriod: statementPeriod, regenerateInstallmentsFor: regenerateInstallmentsFor

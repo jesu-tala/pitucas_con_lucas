@@ -110,9 +110,21 @@ export function applyStateBlob(blob){
     const n = parseInt(String(m.id).replace(/[^0-9]/g,''),10);
     return isNaN(n) ? mx : Math.max(mx,n);
   }, 0));
+  // nextImportId() (state.ts) es UN SOLO contador compartido por tres orígenes de transacción
+  // distintos -- 'timp'+n (importar cartola CSV), 'trec'+n (reconciliar con cartola) y
+  // 'temail'+n (importar desde el correo, ver txFromEmailImport en views/menu.ts) -- pero esto
+  // solo restauraba el máximo ya usado mirando ids 'timp', ignorando 'trec'/'temail' por
+  // completo. Para cualquier hogar donde la mayoría de las transacciones vienen del correo (como
+  // el suyo), esto hacía que el contador SIEMPRE se restaurara en 0 al recargar la app, así que
+  // la siguiente tanda de correos importados volvía a generar ids ya usados por transacciones
+  // viejas ("temail1", "temail2"...) -- dos transacciones distintas terminaban con el MISMO id,
+  // y como getTx()/TRANSACTIONS.find(t=>t.id===id) devuelve la primera que encuentra, tocar una
+  // en la lista podía abrir el detalle de la OTRA (bug real reportado: tocar un gasto de
+  // Clínica Alemana de $1.600 mostraba los datos de otra transacción de $9.000).
   setImportIdCounter(TRANSACTIONS.reduce(function(mx,t){
-    if(!/^timp/.test(t.id)) return mx;
-    const n = parseInt(t.id.replace('timp',''),10);
+    const m = /^(?:timp|trec|temail)(\d+)$/.exec(t.id);
+    if(!m) return mx;
+    const n = parseInt(m[1],10);
     return isNaN(n) ? mx : Math.max(mx,n);
   }, 0));
 

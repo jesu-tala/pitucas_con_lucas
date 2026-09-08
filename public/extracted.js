@@ -5720,8 +5720,9 @@
       return isNaN(n) ? mx : Math.max(mx, n);
     }, 0));
     setImportIdCounter(TRANSACTIONS.reduce(function(mx, t) {
-      if (!/^timp/.test(t.id)) return mx;
-      const n = parseInt(t.id.replace("timp", ""), 10);
+      const m = /^(?:timp|trec|temail)(\d+)$/.exec(t.id);
+      if (!m) return mx;
+      const n = parseInt(m[1], 10);
       return isNaN(n) ? mx : Math.max(mx, n);
     }, 0));
     state.monthIndex = currentMonthIndex();
