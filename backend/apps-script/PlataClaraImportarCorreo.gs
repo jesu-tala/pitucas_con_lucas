@@ -193,6 +193,34 @@ var RULES = [
     }
   },
   {
+    id: 'banco_chile_transferencia_persona',
+    // Plata que le transfiere OTRA PERSONA natural directo a su cuenta (ej. le devuelven algo,
+    // le pagan su parte de un gasto) -- asunto propio y fijo ("Aviso de transferencia de
+    // fondos"), distinto del de "Pago de tu corredor" (empresa, sin asunto fijo, cubierto por
+    // banco_chile_transferencia_recibida) y del de "Transferencia a Terceros" (ella enviando,
+    // cubierto por banco_chile_transferencia) -- se filtra por asunto para no cruzarse con
+    // ninguna de esas dos.
+    query: 'from:serviciodetransferencias@bancochile.cl subject:"Aviso de transferencia de fondos"',
+    parse: function(bodyText){
+      // Misma negrita-como-asteriscos de siempre en el nombre de quien envía ("*Javier Ignacio
+      // Espinoza*").
+      var t = bodyText.replace(/\*/g, '');
+      var origenM = t.match(/nuestro\(a\)\s+cliente\s+(.+?)\s+ha efectuado/i);
+      var montoM = t.match(/Monto\s*\$([\d.,]+)/i);
+      // Mismo formato de fecha (día de la semana + fecha + hora) que banco_chile_transferencia.
+      var fechaM = t.match(/Fecha\s+y\s+Hora:\s*\S+\s+(\d{1,2})\s+de\s+(\wé\w+|\w+)\s+de\s+(\d{4})\s+(\d{2}:\d{2})/i);
+      if (!montoM || !fechaM) return null;
+      var mesIdx = MESES.indexOf(fechaM[2].toLowerCase());
+      if (mesIdx < 0) return null;
+      return {
+        fecha: fechaM[3] + '-' + pad2_(mesIdx + 1) + '-' + pad2_(fechaM[1]), hora: fechaM[4],
+        comercio: 'Transferencia de ' + (origenM ? origenM[1].trim() : 'un tercero'),
+        // Le llega a su cuenta corriente/vista, no a una tarjeta ni a efectivo.
+        monto: montoCLP_(montoM[1]), tipo: 'ingreso', medio_sugerido: 'cuenta_vista'
+      };
+    }
+  },
+  {
     id: 'racional_orden',
     query: 'from:racional@racional.cl (subject:"Invertiste en" OR subject:"Vendiste")',
     // Este correo viene armado en una tabla HTML de dos columnas (vista compra / vista
