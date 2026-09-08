@@ -136,10 +136,18 @@ var RULES = [
     // logró leer los datos", es que ese correo tiene alguna etiqueta distinta a las de abajo.
     query: 'from:serviciodetransferencias@bancochile.cl',
     parse: function(bodyText){
-      if (!/Datos\s+de\s+Destino/i.test(bodyText) || !/Nombre\s+Beneficiario/i.test(bodyText)) return null;
-      var origenM = bodyText.match(/Te informamos que\s+(.+?)\s+ha instruido/i);
-      var montoM = bodyText.match(/Monto\s+Operaci[oó]n\s*\|?\s*\$([\d.,]+)/i);
-      var fechaM = bodyText.match(/Fecha\s+y\s+hora:\s*(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/i);
+      // Esta plantilla (cuenta de empresa) escribe varias etiquetas en negrita -- Gmail guarda
+      // esa negrita como asteriscos literales en el texto plano ("*Datos de Destino*",
+      // "* Monto Operación* $354.835", "*Fecha y hora: *"), y esos asteriscos quedan pegados
+      // justo donde el regex esperaba el valor, rompiendo el match. Se sacan ANTES de leer nada,
+      // pero solo acá (no globalmente en stripInvisibles_/bodyText): otras reglas, como
+      // banco_edwards_compra, sí usan el asterisco con significado real (enmascara los dígitos
+      // de la tarjeta, "****0507").
+      var t = bodyText.replace(/\*/g, '');
+      if (!/Datos\s+de\s+Destino/i.test(t) || !/Nombre\s+Beneficiario/i.test(t)) return null;
+      var origenM = t.match(/Te informamos que\s+(.+?)\s+ha instruido/i);
+      var montoM = t.match(/Monto\s+Operaci[oó]n\s*\|?\s*\$([\d.,]+)/i);
+      var fechaM = t.match(/Fecha\s+y\s+hora:\s*(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/i);
       if (!montoM || !fechaM) return null;
       return {
         fecha: fechaM[3] + '-' + fechaM[2] + '-' + fechaM[1], hora: fechaM[4],
