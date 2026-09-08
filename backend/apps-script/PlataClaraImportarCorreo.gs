@@ -169,16 +169,21 @@ var RULES = [
   {
     id: 'banco_chile_transferencia_movired',
     // Transferencia que ELLA manda a Movired/Fintoc (ej. para recargar bip! desde la cuenta
-    // corriente) -- mismo remitente que las dos reglas de arriba, pero con su propia plantilla
-    // de campos ("Datos del Destinatario" / "Datos de la Transferencia", "Nombre Movired") que
-    // no calza con "Datos de Destino"/"Nombre Beneficiario" (transferencia_recibida) ni con el
-    // asunto fijo "Transferencia a Terceros" (transferencia) -- por eso necesita su propia
-    // regla en vez de intentar meterla en alguna de las otras dos.
+    // corriente) -- mismo remitente que las dos reglas de arriba.
+    // OJO: "Datos del Destinatario" / "Datos de la Transferencia" NO son etiquetas exclusivas
+    // de esta plantilla -- Banco de Chile también las usa en transferencias comunes a terceros
+    // (personas), así que exigir solo esos encabezados hacía que esta regla matcheara TAMBIÉN
+    // transferencias normales y las importara duplicadas (una vez bien, con el nombre correcto,
+    // vía otra regla; otra vez mal, con el nombre "Movired" puesto por el fallback cuando el
+    // regex de "Nombre" no encontraba nada). Por eso ahora se exige además que el correo
+    // mencione "Movired" o "fintoc" en alguna parte -- algo que un correo a un tercero
+    // cualquiera nunca tendría -- y el comercio queda fijo en "Transferencia a Movired" en vez
+    // de intentar leer el destinatario (esta regla es solo para Movired, no genérica).
     query: 'from:serviciodetransferencias@bancochile.cl',
     parse: function(bodyText){
       var t = bodyText.replace(/\*/g, '');
+      if (!/Movired|fintoc/i.test(t)) return null;
       if (!/Datos\s+del\s+Destinatario/i.test(t) || !/Datos\s+de\s+la\s+Transferencia/i.test(t)) return null;
-      var destM = t.match(/Nombre\s+([^\n]+)/i);
       var montoM = t.match(/Monto\s*\$([\d.,]+)/i);
       var fechaM = t.match(/Fecha\s+(\d{2})\/(\d{2})\/(\d{4})/i);
       if (!montoM || !fechaM) return null;
@@ -187,7 +192,7 @@ var RULES = [
         // en null en vez de rellenarla con la hora de llegada del correo (que podría no
         // coincidir con la de la transferencia misma).
         fecha: fechaM[3] + '-' + fechaM[2] + '-' + fechaM[1], hora: null,
-        comercio: 'Transferencia a ' + (destM ? destM[1].trim() : 'Movired'),
+        comercio: 'Transferencia a Movired',
         monto: montoCLP_(montoM[1]), tipo: 'gasto', medio_sugerido: 'cuenta_vista'
       };
     }
