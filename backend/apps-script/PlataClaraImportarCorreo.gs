@@ -340,14 +340,30 @@ function callImportarCartola_(tipo, msgId, filename, bytes){
   }
 }
 
+// GmailApp.search() filtra QUÉ THREADS califican con newer_than, pero thread.getMessages()
+// después trae TODOS los mensajes de esos threads, sin importar su fecha -- si los correos de
+// un banco se van acumulando en un mismo thread (pasa seguido cuando el asunto se repite igual,
+// ej. "Compra con Tarjeta de Crédito"), cada corrida terminaba reprocesando el historial
+// COMPLETO de ese thread, por viejo que fuera. Con un thread de cientos/miles de mensajes
+// acumulados, eso arriesgaba pasarse del límite de 6 minutos que tiene una ejecución de Apps
+// Script a mitad de camino, dejando afuera silenciosamente los correos más nuevos (sin ningún
+// error visible en el log -- una ejecución cortada por tiempo no se reporta como falla). Este
+// filtro por fecha, mensaje por mensaje, evita reprocesar ese historial viejo cada vez.
+function mensajeEstaEnVentana_(message, dias){
+  var corte = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+  return message.getDate() >= corte;
+}
+
 function revisarCartolas(){
   CARTOLA_RULES.forEach(function(rule){
     var busqueda = rule.query + ' newer_than:' + CARTOLA_WINDOW_DAYS + 'd';
     var threads = GmailApp.search(busqueda, 0, 20);
-    var totalMensajes = threads.reduce(function(n, t){ return n + t.getMessageCount(); }, 0);
-    Logger.log(rule.id + ' — búsqueda: [' + busqueda + '] — correos encontrados: ' + totalMensajes);
-    threads.forEach(function(thread){
-      thread.getMessages().forEach(function(message){
+    var mensajesEnVentana = [];
+    threads.forEach(function(t){
+      t.getMessages().forEach(function(m){ if (mensajeEstaEnVentana_(m, CARTOLA_WINDOW_DAYS)) mensajesEnVentana.push(m); });
+    });
+    Logger.log(rule.id + ' — búsqueda: [' + busqueda + '] — correos encontrados: ' + mensajesEnVentana.length);
+    mensajesEnVentana.forEach(function(message){
         try {
           var attachments = message.getAttachments();
           if (!attachments.length) {
@@ -363,7 +379,6 @@ function revisarCartolas(){
         } catch (e) {
           Logger.log('Error procesando cartola de ' + rule.id + ': ' + e);
         }
-      });
     });
   });
 }
@@ -373,12 +388,14 @@ function revisarCorreos(){
   RULES.forEach(function(rule){
     var busqueda = rule.query + ' newer_than:' + WINDOW_DAYS + 'd';
     var threads = GmailApp.search(busqueda, 0, 50);
-    var totalMensajes = threads.reduce(function(n, t){ return n + t.getMessageCount(); }, 0);
+    var mensajesEnVentana = [];
+    threads.forEach(function(t){
+      t.getMessages().forEach(function(m){ if (mensajeEstaEnVentana_(m, WINDOW_DAYS)) mensajesEnVentana.push(m); });
+    });
     // Diagnóstico: esto te dice si el problema es la búsqueda (0 correos encontrados) o el
     // parseo (encontró correos pero no logró sacarles los datos) — antes esto quedaba mudo.
-    Logger.log(rule.id + ' — búsqueda: [' + busqueda + '] — correos encontrados: ' + totalMensajes);
-    threads.forEach(function(thread){
-      thread.getMessages().forEach(function(message){
+    Logger.log(rule.id + ' — búsqueda: [' + busqueda + '] — correos encontrados: ' + mensajesEnVentana.length);
+    mensajesEnVentana.forEach(function(message){
         try {
           var bodyText = stripInvisibles_(rule.bodyMode === 'html' ? stripTags_(message.getBody()) : message.getPlainBody());
           var subject = stripInvisibles_(message.getSubject());
@@ -401,7 +418,6 @@ function revisarCorreos(){
         } catch (e) {
           Logger.log('Error procesando mensaje de ' + rule.id + ': ' + e);
         }
-      });
     });
   });
 
