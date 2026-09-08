@@ -397,11 +397,15 @@ function revisarCorreos(){
     Logger.log(rule.id + ' — búsqueda: [' + busqueda + '] — correos encontrados: ' + mensajesEnVentana.length);
     mensajesEnVentana.forEach(function(message){
         try {
-          var bodyText = stripInvisibles_(rule.bodyMode === 'html' ? stripTags_(message.getBody()) : message.getPlainBody());
+          var rawBody = rule.bodyMode === 'html' ? stripTags_(message.getBody()) : message.getPlainBody();
+          var bodyText = stripInvisibles_(rawBody);
           var subject = stripInvisibles_(message.getSubject());
           var parsed = rule.parse(bodyText, subject);
           if (!parsed) {
+            // Antes había que ir a correr una función de debug aparte para ver esto -- ahora
+            // el texto crudo queda directo en el log apenas falla, sin un paso extra.
             Logger.log(rule.id + ' — encontró el correo pero NO logró leer los datos (revisar el formato). Asunto: "' + subject + '"');
+            Logger.log(rule.id + ' — cuerpo del correo que falló (saltos de línea y caracteres invisibles marcados):\n' + textoVisible_(rawBody));
             return;
           }
           if (!parsed.fecha) {
@@ -426,21 +430,26 @@ function revisarCorreos(){
   revisarCartolas();
 }
 
+// Compartida por revisarCorreos() (cuando un correo "se encontró pero no se pudo leer") y
+// las funciones de debug de más abajo -- deja ver el texto EXACTO tal como lo procesa el
+// script (con saltos de línea y caracteres invisibles marcados), que no siempre es igual a
+// lo que se ve al abrir el correo en el navegador.
+function textoVisible_(body){
+  return String(body)
+    .replace(/\r\n|\r|\n/g, '[SALTO DE LINEA]\n')
+    .replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, '[INVISIBLE]');
+}
 // ---------- funciones de diagnóstico temporal — bórralas cuando ya no las necesites ----------
-// Traen el texto EXACTO (tal cual, con saltos de línea y caracteres invisibles marcados) del
-// correo más reciente que encuentren — el mismo texto que usa revisarCorreos para leer los
-// datos, no lo que se ve en tu pantalla al abrir el correo en el navegador (esas dos versiones
-// pueden ser distintas).
+// Traen el texto de un correo puntual buscado a mano -- para diagnosticar UNO en particular sin
+// esperar a que vuelva a fallar dentro de revisarCorreos() (que ahora también muestra el
+// texto crudo automáticamente en el log cuando algo falla, ver más abajo -- esto ya es
+// un respaldo más, no la única forma de diagnosticar).
 function debugVerCuerpoCrudo_(query, etiqueta){
   var threads = GmailApp.search(query + ' newer_than:' + WINDOW_DAYS + 'd', 0, 1);
   if (!threads.length) { Logger.log(etiqueta + ' — no encontró ningún correo con esa búsqueda.'); return; }
   var msg = threads[0].getMessages()[threads[0].getMessages().length - 1];
-  var body = msg.getPlainBody();
-  var visible = body
-    .replace(/\r\n|\r|\n/g, '[SALTO DE LINEA]\n')
-    .replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, '[INVISIBLE]');
   Logger.log('--- ' + etiqueta + ' — asunto ---\n' + msg.getSubject());
-  Logger.log('--- ' + etiqueta + ' — cuerpo (saltos de línea y caracteres invisibles marcados) ---\n' + visible);
+  Logger.log('--- ' + etiqueta + ' — cuerpo (saltos de línea y caracteres invisibles marcados) ---\n' + textoVisible_(msg.getPlainBody()));
 }
 // Para diagnosticar un correo que "encontró pero no logró leer" -- en el desplegable de
 // arriba junto a "Ejecutar", elige la función del banco que está fallando y aprieta Ejecutar,
