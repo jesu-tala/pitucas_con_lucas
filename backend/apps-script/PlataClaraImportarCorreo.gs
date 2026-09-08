@@ -83,13 +83,22 @@ var RULES = [
       // Con /i: nada obliga a que el banco mande siempre "compra" en minúscula (ej. si la
       // frase empieza mayúscula porque cambiaron la plantilla del correo) -- antes esto
       // dependía de la mayúscula exacta y podía dejar de calzar en silencio.
-      var re = /compra\s+por\s+\$([\d.,]+)\s+con\s+(?:Tarjeta\s+de\s+Cr[ée]dito\s+[\*•]+\s*(\d{4})|cargo\s+a\s+Cuenta\s+[\*•]+\s*(\d{4}))\s+en\s+([\s\S]+?)\s+el\s+(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/i;
+      // Las compras en el extranjero (ej. un viaje) vienen en dólares: "compra por US$51,25"
+      // en vez de "compra por $51.250" -- el "US" opcional antes del "$" distingue ambos casos.
+      // El monto igual se lee con montoCLP_ (coma como separador decimal) porque el banco usa
+      // SU formato chileno de números incluso para montos en dólares ("51,25" = US$51.25, no
+      // 5125) -- no es el mismo formato que montoUSD_ (pensado para números ya en formato
+      // estadounidense, como los que manda Racional). El monto queda en dólares tal cual sin
+      // convertir (no hay tipo de cambio en el correo), marcado con "(USD)" en el comercio,
+      // igual que ya se hace con las compras de racional_orden.
+      var re = /compra\s+por\s+(US)?\$([\d.,]+)\s+con\s+(?:Tarjeta\s+de\s+Cr[ée]dito\s+[\*•]+\s*(\d{4})|cargo\s+a\s+Cuenta\s+[\*•]+\s*(\d{4}))\s+en\s+([\s\S]+?)\s+el\s+(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/i;
       var m = bodyText.match(re);
       if (!m) return null;
-      var last4 = m[2] || m[3];
+      var esUSD = !!m[1];
+      var last4 = m[3] || m[4];
       return {
-        fecha: m[7] + '-' + m[6] + '-' + m[5], hora: m[8],
-        comercio: m[4].trim(), monto: montoCLP_(m[1]), tipo: 'gasto',
+        fecha: m[8] + '-' + m[7] + '-' + m[6], hora: m[9],
+        comercio: m[5].trim() + (esUSD ? ' (USD)' : ''), monto: montoCLP_(m[2]), tipo: 'gasto',
         medio_sugerido: last4 ? ('****' + last4) : null
       };
     }
@@ -154,6 +163,32 @@ var RULES = [
         comercio: origenM ? origenM[1].trim() : 'Transferencia recibida',
         // Le llega a su cuenta corriente/vista, no a una tarjeta ni a efectivo.
         monto: montoCLP_(montoM[1]), tipo: 'ingreso', medio_sugerido: 'cuenta_vista'
+      };
+    }
+  },
+  {
+    id: 'banco_chile_transferencia_movired',
+    // Transferencia que ELLA manda a Movired/Fintoc (ej. para recargar bip! desde la cuenta
+    // corriente) -- mismo remitente que las dos reglas de arriba, pero con su propia plantilla
+    // de campos ("Datos del Destinatario" / "Datos de la Transferencia", "Nombre Movired") que
+    // no calza con "Datos de Destino"/"Nombre Beneficiario" (transferencia_recibida) ni con el
+    // asunto fijo "Transferencia a Terceros" (transferencia) -- por eso necesita su propia
+    // regla en vez de intentar meterla en alguna de las otras dos.
+    query: 'from:serviciodetransferencias@bancochile.cl',
+    parse: function(bodyText){
+      var t = bodyText.replace(/\*/g, '');
+      if (!/Datos\s+del\s+Destinatario/i.test(t) || !/Datos\s+de\s+la\s+Transferencia/i.test(t)) return null;
+      var destM = t.match(/Nombre\s+([^\n]+)/i);
+      var montoM = t.match(/Monto\s*\$([\d.,]+)/i);
+      var fechaM = t.match(/Fecha\s+(\d{2})\/(\d{2})\/(\d{4})/i);
+      if (!montoM || !fechaM) return null;
+      return {
+        // El correo no trae la hora exacta de la transferencia, solo la fecha -- se deja hora
+        // en null en vez de rellenarla con la hora de llegada del correo (que podría no
+        // coincidir con la de la transferencia misma).
+        fecha: fechaM[3] + '-' + fechaM[2] + '-' + fechaM[1], hora: null,
+        comercio: 'Transferencia a ' + (destM ? destM[1].trim() : 'Movired'),
+        monto: montoCLP_(montoM[1]), tipo: 'gasto', medio_sugerido: 'cuenta_vista'
       };
     }
   },
