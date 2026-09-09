@@ -18,9 +18,9 @@ src/            código fuente: *.ts (TypeScript, en módulos -- ver sección 2)
 public/         lo que genera rebuild.py (index.html, test.html, test_debug.html, extracted*.js)
                 más lo que ya iba tal cual (sw.js, manifest.json, icons/, pdf.min.js, pdf.worker.min.js)
                 -- este directorio completo es lo que se sube a Cloudflare Pages (ver sección 8)
-backend/        supabase/ (esquema SQL), cloudflare-worker/ (push notifications),
-                cloudflare-worker-ocr/ (lector de boletas vía Gemini), apps-script/
-                (importador de correo) -- cada uno se despliega por su cuenta, no por Cloudflare Pages
+backend/        supabase/ (esquema SQL), cloudflare-worker/ (un solo Worker con dos endpoints:
+                push notifications y lector de boletas vía Gemini), apps-script/ (importador de
+                correo) -- cada uno se despliega por su cuenta, no por Cloudflare Pages
 tests/          suite de Playwright: lib/test_kit.js, run_all_tests.js, shot_*.js, audit_*.js,
                 smoke_test.js, fixtures/ (PDFs y datos de ejemplo)
 preview/        preview.html generado por rebuild_preview.py, nunca se sube a producción
