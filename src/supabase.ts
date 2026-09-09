@@ -20,11 +20,9 @@ export const VAPID_PUBLIC_KEY = 'BBVwNyDtQKLPpTNpIRMLpl13w9_3ucBwbZKyStc-v5LFU3s
 export const PUSH_WORKER_URL = 'https://curly-thunder-b4c6.talajesu.workers.dev';
 // Lector de boletas: el MISMO Worker de arriba (cloudflare-worker/worker.js), que expone
 // /leer-boleta además de /notify -- recibe la foto, la manda a Gemini con instrucciones de
-// leerla, y devuelve los items ya separados. Va con la misma URL que PUSH_WORKER_URL una vez
-// desplegado; se deja como constante aparte solo para no mezclar los dos usos en el código.
-// Igual que arriba, PEGA_AQUI marca que todavía no se desplegó -- boletaWorkerConfigured() lo
-// usa para avisar en la propia hoja de "Escanear boleta" en vez de fallar en silencio.
-export let OCR_WORKER_URL = 'PEGA_AQUI_LA_URL_DE_TU_WORKER_DE_BOLETAS';
+// leerla, y devuelve los items ya separados. Por eso apunta directo a PUSH_WORKER_URL (son el
+// mismo Worker) en vez de tener su propio "PEGA_AQUI" -- una sola URL que mantener al día, no dos.
+export let OCR_WORKER_URL = PUSH_WORKER_URL;
 export function boletaWorkerConfigured(){
   return typeof OCR_WORKER_URL==='string' && OCR_WORKER_URL.indexOf('PEGA_AQUI')===-1;
 }
