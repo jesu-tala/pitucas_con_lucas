@@ -5,7 +5,7 @@ import { buildReconcileDiff, movementLineId } from '../reconcile';
 import { ensureMonthExists, participantIdForUser } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
 import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO } from '../state';
-import { PUSH_WORKER_URL, VAPID_PUBLIC_KEY, buildFullStateBlob, currentHouseholdId, currentUser, saveTimer, sb, translateAuthError, writeStateToSupabase } from '../supabase';
+import { OCR_WORKER_URL, PUSH_WORKER_URL, VAPID_PUBLIC_KEY, boletaWorkerConfigured, buildFullStateBlob, currentHouseholdId, currentUser, saveTimer, sb, translateAuthError, writeStateToSupabase } from '../supabase';
 import { CategoryMapping, Transaction } from '../types';
 import { toast } from '../ui/toasts';
 import { generalCatIdFor, isPlatformArchived } from './inversiones';
@@ -1659,6 +1659,59 @@ export async function sendTestPush(){
   }
   state.notifTestBusy = false;
   renderMenuView();
+}
+// Antes de mandar la foto al Worker, la reduce a un tamaño razonable (máx. 1600px de lado
+// más largo) -- una foto de celular sin achicar pesa varios MB, lo que hace la subida lenta en
+// datos móviles y encarece cada llamada a Document AI sin ninguna ganancia real de precisión
+// (el parser no necesita más resolución que esa para leer una boleta).
+function fotoBoletaABase64_(file){
+  return new Promise(function(resolve, reject){
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = function(){
+      URL.revokeObjectURL(url);
+      const maxDim = 1600;
+      let w = img.width, h = img.height;
+      if(w>maxDim || h>maxDim){
+        const scale = maxDim/Math.max(w,h);
+        w = Math.round(w*scale); h = Math.round(h*scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.85).split(',')[1]); // saca el prefijo "data:image/jpeg;base64,"
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('No se pudo leer la foto')); };
+    img.src = url;
+  });
+}
+// Manda la foto de una boleta al Worker de OCR (ver cloudflare-worker-ocr/worker.js) y devuelve
+// los items ya separados -- nunca lanza (todos los caminos de error vuelven como {error}), para
+// que quien llama siempre pueda caer de vuelta a agregar los items a mano en vez de dejar la
+// hoja pegada en el paso "procesando".
+export async function leerBoletaConOCR(file){
+  if(!boletaWorkerConfigured()) return {error:'Todavía falta terminar de configurar el lector de boletas.'};
+  if(!sb || !currentHouseholdId || !state.importToken) return {error:'No hay conexión con el servidor todavía -- espera un momento y prueba de nuevo.'};
+  try{
+    const imageBase64 = await fotoBoletaABase64_(file);
+    const res = await fetch(OCR_WORKER_URL+'/leer-boleta', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ household_id: currentHouseholdId, token: state.importToken, image_base64: imageBase64 })
+    });
+    let data = null;
+    try{ data = await res.json(); }catch(e){}
+    if(!res.ok || !data || data.error){
+      return {error: 'No se pudo leer la boleta'+(data && data.error ? (': '+data.error) : (' (error '+res.status+')'))+'.'};
+    }
+    if(!data.items || !data.items.length){
+      return {error:'No se encontraron items en la foto -- prueba con otra foto más nítida, o agrégalos a mano.'};
+    }
+    return {items: data.items, comercio: data.comercio || null};
+  }catch(err){
+    console.error('Pitucas sin lucas — error leyendo boleta:', err);
+    return {error:'No se pudo leer la boleta (revisa tu conexión).'};
+  }
 }
 // Title/message for the budget push -- kept separate from checkBudgetPushAlerts() so the
 // exact text can be tested without needing a real Supabase session (which is the only

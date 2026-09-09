@@ -1,14 +1,14 @@
 import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup } from './shared-expenses';
-import { RECEIPT_EXAMPLES, receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
+import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
 import { CATEGORIES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
 import { defaultShareDraft, renderGroupsView } from './views/grupos';
 import { activePlatformIds, bumpPlatformValueForContribution, generalCatIdFor, goalCapablePlatformIds, platformCurrentValue, platformIdForInvestmentCat, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
-import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
+import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, leerBoletaConOCR, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
 import { renderBalanceView, renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
 import { buildReconcileDiff } from './reconcile';
@@ -1083,23 +1083,9 @@ phone.addEventListener('click', function(e: any){
     return;
   }
 
-  /* ---------- Split receipt with friends (simulated) ---------- */
+  /* ---------- Split receipt with friends ---------- */
   const openReceiptBtn = e.target.closest('[data-open-receipt]');
   if(openReceiptBtn){ openReceiptFlow(openReceiptBtn.getAttribute('data-open-receipt')); return; }
-  const receiptCaptureBtn = e.target.closest('[data-receipt-capture]');
-  if(receiptCaptureBtn && state.boleta){
-    state.boleta.step = 'procesando';
-    renderSheet();
-    setTimeout(function(){
-      if(!state.boleta || state.boleta.step!=='procesando') return; // the sheet may have closed while "processing"
-      // we already know the merchant name (it's the real transaction's) — from the "photo" we only take the items
-      const ejemplo = RECEIPT_EXAMPLES[Math.floor(Math.random()*RECEIPT_EXAMPLES.length)];
-      state.boleta.items = ejemplo.items.map(function(it){ return {id: nextReceiptItemId(), nombre: it.nombre, monto: it.monto}; });
-      state.boleta.step = 'items';
-      renderSheet();
-    }, 900);
-    return;
-  }
   const receiptItemRemoveBtn = e.target.closest('[data-receipt-item-remove]');
   if(receiptItemRemoveBtn && state.boleta){
     const idx = parseInt(receiptItemRemoveBtn.getAttribute('data-receipt-item-remove'),10);
@@ -1833,6 +1819,29 @@ phone.addEventListener('change', function(e: any){
     return;
   }
 
+  const receiptFileInput = e.target.closest('[data-receipt-file-input]');
+  if(receiptFileInput && state.boleta){
+    const file = receiptFileInput.files && receiptFileInput.files[0];
+    if(file){
+      state.boleta.step = 'procesando';
+      renderSheet();
+      leerBoletaConOCR(file).then(function(resultado){
+        // la hoja pudo haberse cerrado (o pasado a otro paso) mientras esperábamos al Worker
+        if(!state.boleta || state.boleta.step!=='procesando') return;
+        if(resultado.error){
+          toast(resultado.error);
+          state.boleta.step = 'items'; // igual la deja lista para agregar los items a mano
+          renderSheet();
+          return;
+        }
+        state.boleta.items = resultado.items.map(function(it){ return {id: nextReceiptItemId(), nombre: it.nombre||'', monto: Math.round(it.monto)||0}; });
+        if(resultado.comercio) state.boleta.comercio = resultado.comercio;
+        state.boleta.step = 'items';
+        renderSheet();
+      });
+    }
+    return;
+  }
   const reconcileFileInput = e.target.closest('[data-reconcile-file-input]');
   if(reconcileFileInput){
     const file = reconcileFileInput.files && reconcileFileInput.files[0];
