@@ -1893,10 +1893,15 @@
   __name(subscribeToGroupsLive, "subscribeToGroupsLive");
   async function createGroup(nombre, icono) {
     if (!sb || !currentUser) return { data: null, error: null };
-    const { data, error } = await sb.from("grupos").insert({ nombre, icono: icono || "\u{1F465}", creado_por: currentUser.id }).select().single();
+    const insertRes = await sb.from("grupos").insert({ nombre, icono: icono || "\u{1F465}", creado_por: currentUser.id });
+    if (insertRes.error) {
+      console.error("Pitucas sin lucas \u2014 error creando grupo (insert):", insertRes.error);
+      return { data: null, error: insertRes.error, paso: "insert" };
+    }
+    const { data, error } = await sb.from("grupos").select("*").eq("creado_por", currentUser.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (error) {
-      console.error("Pitucas sin lucas \u2014 error creando grupo:", error);
-      return { data: null, error };
+      console.error("Pitucas sin lucas \u2014 el grupo se cre\xF3 pero no se pudo volver a leer:", error);
+      return { data: null, error, paso: "select" };
     }
     await loadSharedExpenses();
     return { data, error: null };
@@ -4486,7 +4491,13 @@
       if (d.nombre.trim()) {
         createGroup(d.nombre.trim(), d.icono).then(function(res) {
           state.creatingGroup = false;
-          toast(res.data ? 'Grupo "' + res.data.nombre + '" creado' : "No se pudo crear el grupo \u2014 " + (res.error ? res.error.message : "revisa tu conexi\xF3n"));
+          if (res.data) {
+            toast('Grupo "' + res.data.nombre + '" creado');
+          } else if (res.paso === "select") {
+            toast("El grupo se cre\xF3, pero no se pudo confirmar en pantalla \u2014 revisa la lista o recarga la app.");
+          } else {
+            toast("No se pudo crear el grupo \u2014 " + (res.error ? res.error.message : "revisa tu conexi\xF3n"));
+          }
           renderGroupsView();
         });
       }

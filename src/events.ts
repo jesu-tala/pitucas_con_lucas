@@ -1209,7 +1209,15 @@ phone.addEventListener('click', function(e: any){
     if(d.nombre.trim()){
       createGroup(d.nombre.trim(), d.icono).then(function(res){
         state.creatingGroup = false;
-        toast(res.data ? 'Grupo "'+res.data.nombre+'" creado' : 'No se pudo crear el grupo — ' + (res.error ? res.error.message : 'revisa tu conexión'));
+        if(res.data){
+          toast('Grupo "'+res.data.nombre+'" creado');
+        } else if(res.paso==='select'){
+          // El grupo SÍ se guardó -- solo falló volver a leerlo para mostrarlo de inmediato,
+          // así que no se le puede decir "no se pudo crear" (sería falso).
+          toast('El grupo se creó, pero no se pudo confirmar en pantalla — revisa la lista o recarga la app.');
+        } else {
+          toast('No se pudo crear el grupo — ' + (res.error ? res.error.message : 'revisa tu conexión'));
+        }
         renderGroupsView();
       });
     }
