@@ -18,6 +18,14 @@ export const VAPID_PUBLIC_KEY = 'BBVwNyDtQKLPpTNpIRMLpl13w9_3ucBwbZKyStc-v5LFU3s
 // Replace this with the real URL of your Worker once you deploy it (Cloudflare
 // shows it to you as soon as you create the Worker, something like https://your-worker.your-account.workers.dev).
 export const PUSH_WORKER_URL = 'https://curly-thunder-b4c6.talajesu.workers.dev';
+// Lector de boletas: otro Worker aparte (ver cloudflare-worker-ocr/worker.js) que recibe la
+// foto, la manda al parser de boletas de Google Document AI, y devuelve los items ya separados.
+// Igual que arriba, PEGA_AQUI marca que todavía no se desplegó -- boletaWorkerConfigured() lo
+// usa para avisar en la propia hoja de "Escanear boleta" en vez de fallar en silencio.
+export let OCR_WORKER_URL = 'PEGA_AQUI_LA_URL_DE_TU_WORKER_DE_BOLETAS';
+export function boletaWorkerConfigured(){
+  return typeof OCR_WORKER_URL==='string' && OCR_WORKER_URL.indexOf('PEGA_AQUI')===-1;
+}
 // The actual creation of the client (and everything below that depends on it existing) was moved
 // to initSupabaseAuth() -- if this ran as a module-level side effect (just from
 // importing this file), it would run BEFORE the first render() with the sample

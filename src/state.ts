@@ -457,7 +457,7 @@ export const state: AppState = {
   // ---- Pending charges and reimbursements (link a deposit to a pending item, or vice versa) ----
   linkFlow:null,                // null | {mode:'fromPendiente', expenseTxId, idx} | {mode:'fromIngreso', incomeTxId}
 
-  // ---- Split receipt (simulated: no OCR or real link) ----
+  // ---- Split receipt (real OCR via cloudflare-worker-ocr/, "share by link" step still simulated) ----
   boleta:null,                 // null when the assistant is closed, or {step, expenseTxId, comercio, items, asign} —
                                 // always tied to an already-existing transaction marked "por cobrar"
 

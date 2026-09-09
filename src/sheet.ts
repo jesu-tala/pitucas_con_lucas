@@ -3,6 +3,7 @@ import { ICONS, catIconMarkup } from './icons';
 import { render } from './render';
 import { ensureMonthExists, safeEvalExpr } from './shared-expenses';
 import { CATEGORIES, CONTACTS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, money, moneyPlainMasked, state, todayISO } from './state';
+import { boletaWorkerConfigured } from './supabase';
 import { ReceivableItem, Transaction } from './types';
 import { toast } from './ui/toasts';
 import { renderShareGroupSection, renderSplitDraftForm } from './views/grupos';
@@ -573,23 +574,12 @@ export function renderLinkFlowContent(){
   }
 }
 
-/* ---------- split a receipt with friends (simulated — no OCR or real link) ---------- */
+/* ---------- split a receipt with friends (real OCR via cloudflare-worker-ocr/; the
+   "share by link" step in renderReceiptSummary is still a coming-soon placeholder) ---------- */
 export let receiptItemIdCounter = 0;
 // events.ts adds items to the "split receipt" assistant from outside -- see the note about
 // setters in state.ts.
 export function nextReceiptItemId(){ receiptItemIdCounter++; return receiptItemIdCounter; }
-// A couple of sample receipts so "scanning" doesn't always show the same thing — none of
-// this comes from a real photo, it's just to practice the assign-and-split flow.
-export const RECEIPT_EXAMPLES = [
-  {comercio:'Sushi Itto Providencia', items:[
-    {nombre:'Roll California x2', monto:14000},{nombre:'Sashimi mixto', monto:16000},
-    {nombre:'Bebidas (3)', monto:6000},{nombre:'Propina sugerida', monto:3600}
-  ]},
-  {comercio:'Pizzería Don Telmo', items:[
-    {nombre:'Pizza familiar', monto:18000},{nombre:'Papas fritas', monto:6000},
-    {nombre:'Cervezas (4)', monto:16000}
-  ]}
-];
 export function receiptPeople(){ return ['Yo'].concat(CONTACTS); }
 export function openReceiptFlow(expenseTxId){
   const gastoTx = getTx(expenseTxId);
@@ -634,15 +624,21 @@ export function receiptPersonTotalsWithTip(){
 }
 export function renderReceiptCapture(){
   const b = state.boleta;
+  const configurado = boletaWorkerConfigured();
   return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
       '<div class="merchant" style="font-size:17px;">Boleta de '+(b.comercio||'esta transacción')+'</div>'+
       '<div class="meta">Sácale una foto o súbela desde tu galería y la convertimos en una lista de items para repartir.</div>'+
     '</div>'+
     '<div class="boleta-capture-row">'+
-      '<button class="boleta-capture-btn" data-receipt-capture="camara">'+ICONS.camera+'<span>Tomar foto</span></button>'+
-      '<button class="boleta-capture-btn" data-receipt-capture="galeria">'+ICONS.image+'<span>Elegir de galería</span></button>'+
+      '<label class="boleta-capture-btn" style="cursor:pointer;">'+ICONS.camera+'<span>Tomar foto</span>'+
+        '<input type="file" accept="image/*" capture="environment" data-receipt-file-input style="display:none;">'+
+      '</label>'+
+      '<label class="boleta-capture-btn" style="cursor:pointer;">'+ICONS.image+'<span>Elegir de galería</span>'+
+        '<input type="file" accept="image/*" data-receipt-file-input style="display:none;">'+
+      '</label>'+
     '</div>'+
-    '<div class="file-format-hint">Esta maqueta simula el resultado con una boleta de ejemplo — no procesa fotos de verdad.</div>';
+    (configurado ? '' : '<div class="file-format-hint">Todavía falta terminar de configurar el lector de boletas -- mientras tanto puedes agregar los items a mano en el siguiente paso.</div>')+
+    '<button class="split-add" data-receipt-goto="items">'+ICONS.plus+' Prefiero agregar los items a mano</button>';
 }
 export function renderReceiptProcessing(){
   return '<div class="boleta-processing"><div class="boleta-spinner"></div><span>Leyendo tu boleta…</span></div>';
