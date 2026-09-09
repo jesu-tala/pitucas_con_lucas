@@ -733,8 +733,12 @@ async function handleLeerBoleta_(request, env) {
   try {
     data = await llamarGemini_(env, imageBase64);
   } catch (err) {
-    console.error('Pitucas sin lucas OCR — error llamando a Gemini:', err);
-    return jsonResponse_({ error: 'No se pudo leer la boleta con Gemini' }, 502);
+    const detalle = String(err && err.message ? err.message : err);
+    console.error('Pitucas sin lucas OCR — error llamando a Gemini:', detalle);
+    // Se manda el detalle real (no solo un mensaje genérico) para poder diagnosticar sin
+    // depender del visor de logs de Cloudflare (que a veces no muestra bien el .message de un
+    // Error) -- mismo criterio de siempre: nunca adivinar, ver el dato real.
+    return jsonResponse_({ error: 'No se pudo leer la boleta con Gemini: ' + detalle }, 502);
   }
 
   const { comercio, items } = parsearRespuestaGemini_(data);
