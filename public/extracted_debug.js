@@ -5693,7 +5693,7 @@
   var SUPABASE_ANON_KEY = "sb_publishable_uLIIyeomS52mPIie__KvAA_ErW-lYhb";
   var VAPID_PUBLIC_KEY = "BBVwNyDtQKLPpTNpIRMLpl13w9_3ucBwbZKyStc-v5LFU3shPh9Q7HfrmDxR4m60riF1-3dGth9Iwe3BOTgF_uk";
   var PUSH_WORKER_URL = "https://curly-thunder-b4c6.talajesu.workers.dev";
-  var OCR_WORKER_URL = "PEGA_AQUI_LA_URL_DE_TU_WORKER_DE_BOLETAS";
+  var OCR_WORKER_URL = PUSH_WORKER_URL;
   function boletaWorkerConfigured() {
     return typeof OCR_WORKER_URL === "string" && OCR_WORKER_URL.indexOf("PEGA_AQUI") === -1;
   }

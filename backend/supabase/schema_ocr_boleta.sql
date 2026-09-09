@@ -7,7 +7,7 @@
 -- Qué resuelve: el Cloudflare Worker que lee la boleta (cloudflare-worker-ocr/worker.js)
 -- recibe la foto directo del celular, sin que la persona haya iniciado sesión ahí (es
 -- un Worker, no la app) -- necesita una forma barata de confirmar "esta persona sí
--- pertenece a este hogar" antes de gastar una llamada a Google Document AI. Reutiliza el
+-- pertenece a este hogar" antes de gastar una llamada a Gemini. Reutiliza el
 -- mismo import_token que ya usan el importador de correo y las notificaciones push (ver
 -- schema_importar_correo.sql) en vez de inventar un secreto nuevo.
 

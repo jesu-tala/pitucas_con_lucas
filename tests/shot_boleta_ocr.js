@@ -3,9 +3,9 @@
 // en sheet.ts): apretar cualquiera de los dos botones simulaba el resultado con una boleta de
 // ejemplo fija, sin tocar ninguna foto real. Ahora hay inputs de archivo reales (cámara/galería)
 // que mandan la foto a un Cloudflare Worker (backend/cloudflare-worker-ocr/), que a su vez la
-// manda al parser de boletas de Google Document AI y devuelve los items ya separados.
+// manda a Gemini con instrucciones de devolver los items ya separados.
 // Como ese Worker real no puede llamarse desde este sandbox (ni tiene sentido depender de
-// Document AI real para un test), se reemplaza window.fetch para simular sus 3 respuestas
+// Gemini real para un test), se reemplaza window.fetch para simular sus 3 respuestas
 // posibles (éxito, error del Worker, Worker sin configurar) -- lo que SÍ se prueba de verdad es
 // el flujo completo de la app: seleccionar un archivo real en el <input type="file"> (Playwright
 // lo sube de verdad), que dispara el mismo código que corre en el celular (achicar la foto a
