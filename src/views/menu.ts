@@ -1662,7 +1662,7 @@ export async function sendTestPush(){
 }
 // Antes de mandar la foto al Worker, la reduce a un tamaño razonable (máx. 1600px de lado
 // más largo) -- una foto de celular sin achicar pesa varios MB, lo que hace la subida lenta en
-// datos móviles y encarece cada llamada a Document AI sin ninguna ganancia real de precisión
+// datos móviles y encarece cada llamada a Gemini sin ninguna ganancia real de precisión
 // (el parser no necesita más resolución que esa para leer una boleta).
 function fotoBoletaABase64_(file){
   return new Promise(function(resolve, reject){

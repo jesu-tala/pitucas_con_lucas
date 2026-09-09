@@ -19,7 +19,7 @@ public/         lo que genera rebuild.py (index.html, test.html, test_debug.html
                 más lo que ya iba tal cual (sw.js, manifest.json, icons/, pdf.min.js, pdf.worker.min.js)
                 -- este directorio completo es lo que se sube a Cloudflare Pages (ver sección 8)
 backend/        supabase/ (esquema SQL), cloudflare-worker/ (push notifications),
-                cloudflare-worker-ocr/ (lector de boletas vía Google Document AI), apps-script/
+                cloudflare-worker-ocr/ (lector de boletas vía Gemini), apps-script/
                 (importador de correo) -- cada uno se despliega por su cuenta, no por Cloudflare Pages
 tests/          suite de Playwright: lib/test_kit.js, run_all_tests.js, shot_*.js, audit_*.js,
                 smoke_test.js, fixtures/ (PDFs y datos de ejemplo)
