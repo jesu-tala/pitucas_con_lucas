@@ -663,7 +663,10 @@ const GEMINI_PROMPT_ =
   'logras leer un precio con confianza, no inventes un número -- omite ese item.';
 
 async function llamarGemini_(env, imageBase64) {
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + env.GEMINI_API_KEY;
+  // gemini-2.0-flash quedó obsoleto (Google lo sacó de circulación) -- si esto vuelve a fallar
+  // con "model ... is no longer available", el mensaje de error de Google mismo dice cuál usar
+  // en su reemplazo (ver el detalle que devuelve /leer-boleta cuando falla).
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=' + env.GEMINI_API_KEY;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
