@@ -1371,8 +1371,28 @@ export function subscribeToGroupsLive(){
 
 export async function createGroup(nombre, icono){
   if(!sb || !currentUser) return {data:null, error:null};
-  const { data, error } = await sb.from('grupos').insert({nombre, icono: icono||'👥', creado_por: currentUser.id}).select().single();
-  if(error){ console.error('Pitucas sin lucas — error creando grupo:', error); return {data:null, error}; }
+  // .insert(...).select().single() en una sola llamada pide la fila de vuelta como parte del
+  // mismo POST -- PostgREST hace eso con un SELECT aparte, que pasa por la política "ver mis
+  // grupos" (is_grupo_member), no por "crear grupo". Postgres devuelve el MISMO mensaje genérico
+  // ("new row violates row-level security policy") sin importar cuál de las dos políticas fue
+  // la que realmente falló, así que separar el INSERT del SELECT-de-vuelta es la única forma de
+  // saber cuál arreglar (ya pasó una vez antes con este mismo error, ver historial de este
+  // archivo/PRs #4-#6 -- se dejaba como "diagnóstico temporal" y se revertía después, pero como
+  // el mensaje genérico puede confundir a cualquiera de las dos políticas otra vez en el futuro,
+  // esta vez se deja así de forma permanente en vez de volver a la versión ambigua).
+  const insertRes = await sb.from('grupos').insert({nombre, icono: icono||'👥', creado_por: currentUser.id});
+  if(insertRes.error){
+    console.error('Pitucas sin lucas — error creando grupo (insert):', insertRes.error);
+    return {data:null, error: insertRes.error, paso:'insert'};
+  }
+  const { data, error } = await sb.from('grupos').select('*').eq('creado_por', currentUser.id).order('created_at', {ascending:false}).limit(1).maybeSingle();
+  if(error){
+    // A diferencia de arriba, acá el grupo SÍ se guardó -- lo que falló fue solo volver a
+    // leerlo para mostrarlo de inmediato. paso:'select' se lo dice al llamador para que no
+    // muestre "no se pudo crear" cuando en realidad sí se creó.
+    console.error('Pitucas sin lucas — el grupo se creó pero no se pudo volver a leer:', error);
+    return {data:null, error, paso:'select'};
+  }
   await loadSharedExpenses();
   return {data, error:null};
 }
