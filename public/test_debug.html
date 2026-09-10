@@ -2760,7 +2760,7 @@
       resumenTarjeta = '<div class="card" style="padding:14px 16px;margin-bottom:14px;"><div class="sheet-block-title" style="margin-bottom:6px;">Pago de tarjeta este mes</div><p class="muted" style="margin-bottom:4px;">Se pag\xF3 ' + money(totalPagos) + " en " + pagosTarjeta.length + " cargo" + (pagosTarjeta.length === 1 ? "" : "s") + ' de tarjeta de cr\xE9dito.</p><p class="muted">Tienes ' + money(comprasRegistradas) + " en compras con tarjeta registradas este mes \u2014 esto es solo referencial, la cartola de tarjeta detalla cada compra por separado.</p></div>";
     }
     function filaHtml(m, idx, yaRegistrada) {
-      const acciones = yaRegistrada ? '<span class="tx-state state-cobrado-inline">Ya registrada</span>' : '<div style="display:flex;gap:6px;"><button class="chip" data-reconcile-add="' + idx + '">+ Agregar</button><button class="chip" style="background:var(--surface-sunken);color:var(--text-secondary);" data-reconcile-not-expense="' + idx + '">No es gasto</button></div>';
+      const acciones = yaRegistrada ? '<span class="tx-state state-cobrado-inline">Ya registrada</span>' : '<div style="display:flex;gap:6px;"><button class="chip" data-reconcile-add="' + idx + '">+ Agregar</button><button class="chip" style="background:var(--surface-sunken);color:var(--text-secondary);" data-reconcile-not-expense="' + idx + '">' + (m.tipoMov === "ingreso" ? "No es ingreso" : "No es gasto") + "</button></div>";
       return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;"><div style="min-width:0;"><div style="font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (m.comercioSugerido || m.detalle) + '</div><div class="muted" style="font-size:12px;">' + dayLabel(m.fecha) + (m.esEspecial === "sueldo" ? " \xB7 Sueldo" : "") + '</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;"><span class="tabular" style="font-weight:600;">' + (m.tipoMov === "ingreso" ? "+" : "") + money(Math.abs(m.monto)) + "</span>" + acciones + "</div></div>";
     }
     __name(filaHtml, "filaHtml");
@@ -2833,7 +2833,7 @@
       categorias: !opts.noEsGasto && catId ? [{ cat: catId, monto: Math.abs(m.monto) }] : [],
       porCobrar: [],
       reglaAuto: false,
-      nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola \u2014 marcada como "no es gasto"' : "Agregada al reconciliar con la cartola",
+      nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola \u2014 marcada como "' + (m.tipoMov === "ingreso" ? "no es ingreso" : "no es gasto") + '"' : "Agregada al reconciliar con la cartola",
       // Came straight from a bank statement line, whether through the movement-by-movement
       // "+ Agregar" flow or the diff's bulk "agregar" -- reconcile.ts is allowed to later propose
       // deleting it (never a manual transaction). fuenteLineaId (when the movement has one, i.e.
@@ -3169,19 +3169,29 @@
       console.error("Pitucas sin lucas \u2014 error eliminando grupo:", error);
       return { ok: false, error };
     }
+    const { data: sigueExistiendo, error: checkErr } = await sb.from("grupos").select("id").eq("id", groupId).maybeSingle();
+    if (checkErr) {
+      console.error("Pitucas sin lucas \u2014 no se pudo confirmar que el grupo se borr\xF3:", checkErr);
+      return { ok: false, error: checkErr };
+    }
+    if (sigueExistiendo) {
+      const fakeError = { message: "No tienes permiso para eliminar este grupo (solo quien lo cre\xF3 puede hacerlo)." };
+      console.error("Pitucas sin lucas \u2014 el DELETE no dio error pero el grupo sigue existiendo (bloqueado por RLS):", groupId);
+      return { ok: false, error: fakeError };
+    }
     await loadSharedExpenses();
     return { ok: true, error: null };
   }
   __name(deleteGroup, "deleteGroup");
   async function joinGroup(inviteCode, nombre) {
-    if (!sb) return false;
+    if (!sb) return { ok: false, error: null };
     const { error } = await sb.rpc("unirse_a_grupo", { p_invite_code: inviteCode, p_nombre: nombre });
     if (error) {
       console.error("Pitucas sin lucas \u2014 error uni\xE9ndose al grupo:", error);
-      return false;
+      return { ok: false, error };
     }
     await loadSharedExpenses();
-    return true;
+    return { ok: true, error: null };
   }
   __name(joinGroup, "joinGroup");
   async function addParticipantWithoutAccount(groupId, nombre, color) {
@@ -4420,7 +4430,7 @@
     let stateTag = "";
     if (isCobrado) stateTag = '<span class="tx-state state-cobrado-inline">' + (hasReceivableType(t, "reembolso") ? "Reembolsado" : "Cobrado") + "</span>";
     else if (t.estado === "por_cobrar") stateTag = hasReceivableType(t, "reembolso") ? '<span class="tx-state state-reembolso">Reembolso</span>' : '<span class="tx-state state-porcobrar">Por cobrar</span>';
-    else if (t.estado === "no_es_gasto") stateTag = '<span class="tx-state state-noesgasto">No es gasto</span>';
+    else if (t.estado === "no_es_gasto") stateTag = '<span class="tx-state state-noesgasto">' + (isIncome ? "No es ingreso" : "No es gasto") + "</span>";
     const medio = paymentMethodInfo(t.medio);
     return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="--fill:var(--cat-' + primaryCat.color + "-fill);--ink:var(--cat-" + primaryCat.color + '-ink)">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name' + (isCobrado ? " tachado" : "") + '">' + t.comercio + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + leftLabel + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + '">' + amtDisplay + '</span><div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + medio.corto + "</div></span></button>";
   }
@@ -5445,13 +5455,14 @@
             toast("Marcado como reembolso pendiente");
           }
         } else if (act === "noesgasto") {
+          const etiqueta = t.tipo === "ingreso" ? "no es ingreso" : "no es gasto";
           if (t.estado === "no_es_gasto") {
             t.estado = t.categorias.length > 0 ? "confirmado" : "pendiente";
-            toast('Ya no est\xE1 marcado como "no es gasto"');
+            toast('Ya no est\xE1 marcado como "' + etiqueta + '"');
           } else {
             t.categorias = [];
             t.estado = "no_es_gasto";
-            toast("Marcado como no es gasto");
+            toast("Marcado como " + etiqueta);
           }
         }
         renderSheet();
@@ -5775,9 +5786,9 @@
     if (groupJoinConfirmBtn) {
       const d = state.joinDraft;
       if (d.inviteCode.trim() && d.nombre.trim()) {
-        joinGroup(d.inviteCode.trim(), d.nombre.trim()).then(function(ok) {
+        joinGroup(d.inviteCode.trim(), d.nombre.trim()).then(function(res) {
           state.joiningGroup = false;
-          toast(ok ? "Te uniste al grupo" : "No se pudo unir \u2014 revisa el c\xF3digo");
+          toast(res.ok ? "Te uniste al grupo" : "No se pudo unir \u2014 " + (res.error ? res.error.message : "revisa el c\xF3digo"));
           renderGroupsView();
         });
       }
@@ -7873,6 +7884,10 @@
     return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones r\xE1pidas</div><div class="quick-actions"><button class="action-btn ' + (t.estado === "confirmado" ? "selected" : "") + '" data-action="confirmar" data-tx="' + t.id + '">' + ICONS.checkCircle + ' Confirmar gasto</button><button class="action-btn ' + (hasReceivableType(t, "persona") || draftPersonaAbierto ? "selected" : "") + '" data-action="porcobrar_persona" data-tx="' + t.id + '">' + ICONS.users + ' Por cobrar a alguien</button><button class="action-btn ' + (hasReceivableType(t, "reembolso") ? "selected" : "") + '" data-action="porcobrar_reembolso" data-tx="' + t.id + '">' + ICONS.inbox + ' Reembolso pendiente</button><button class="action-btn ' + (t.estado === "no_es_gasto" ? "selected" : "") + '" data-action="noesgasto" data-tx="' + t.id + '">' + ICONS.ban + " No es gasto</button></div></div>" + (t.estado === "por_cobrar" ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>' + renderChargeSplitBlock(t) + "</div>" : "");
   }
   __name(renderQuickActionsBlock, "renderQuickActionsBlock");
+  function renderIncomeQuickActionsBlock(t) {
+    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones r\xE1pidas</div><div class="quick-actions"><button class="action-btn ' + (t.estado === "no_es_gasto" ? "selected" : "") + '" data-action="noesgasto" data-tx="' + t.id + '">' + ICONS.ban + " No es ingreso</button></div></div>";
+  }
+  __name(renderIncomeQuickActionsBlock, "renderIncomeQuickActionsBlock");
   function renderSheetContent(t) {
     const isIncome = t.tipo === "ingreso";
     const isInvest = t.tipo === "inversion";
@@ -7891,9 +7906,9 @@
     }).join("");
     const importedBlock = !t.importadoEmail ? "" : '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Importada desde tu correo</div><p class="muted" style="font-size:12.5px;margin:0;">Esta transacci\xF3n se agreg\xF3 sola a partir de un correo de tu banco.</p></div>';
     const tipoRecurrenciaCard = isInvest ? '<div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + tipoSelector + "</div>" : '<div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + tipoSelector + '<div class="draft-label" style="margin:16px 0 7px;">Recurrencia</div>' + recurrenciaSelector + '<p class="cat-picker-hint" style="margin-top:8px;">"Mensual" y "Anual" cuentan como <b>gasto fijo</b> en tus metas de Resumen \xB7 Balance \u2014 "Variable" es todo lo dem\xE1s. No existe una opci\xF3n separada llamada "Fijo".</p></div>';
-    return '<div class="sheet-top"><div class="merchant" id="sheet-title-el">' + t.comercio + '</div><div class="meta">' + dayLabel(t.fecha) + " \xB7 " + t.hora + " \xB7 " + paymentMethodInfo(t.medio).nombre + '</div><div class="sheet-amount ' + (isIncome ? "pos" : "") + ' tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</div><div class="meta" data-note-echo style="margin-top:6px;' + (t.nota ? "" : "display:none;") + '">' + (t.nota || "") + '</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nombre, monto y fecha</div><div class="draft-field"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-tx-field="comercio" data-tx="' + t.id + '" value="' + t.comercio.replace(/"/g, "&quot;") + '"></div><div class="draft-field"><label class="draft-label">Monto</label><div class="edit-amount-row"><input type="text" inputmode="decimal" class="draft-input tabular" data-tx-field="monto" data-tx="' + t.id + '" value="' + t.monto + '"><span class="edit-amount-echo tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</span></div></div><div class="edit-field-pair"><div class="edit-field-col draft-field"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-tx-field="fecha" data-tx="' + t.id + '" value="' + t.fecha + '"></div><div class="edit-field-col draft-field"><label class="draft-label">Hora</label><input type="time" class="draft-input" data-tx-field="hora" data-tx="' + t.id + '" value="' + t.hora + '"></div></div><div class="muted edit-day-hint">' + dayLabel(t.fecha) + '</div><div class="draft-field" style="margin:14px 0 0;"><label class="draft-label">Con qu\xE9 pagaste</label><select class="draft-select" data-tx-payment-method-select="' + t.id + '">' + medioOptsExisting + "</select></div></div>" + tipoRecurrenciaCard + cuotaBlock + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa' + (cats.length > 1 ? "s" : "") + "</div>" + categoriaSection + "</div>" + (isInvest ? "" : '<div class="sheet-block card lock-card' + (t.reglaAuto ? " active-rule" : "") + '" style="padding:14px 16px;"><div class="lock-row"><span class="lock-icon">' + ICONS.lock + '</span><span class="lock-text">' + (t.reglaAuto ? "Ya clasificamos siempre as\xED lo de <b>" + t.comercio + "</b>" : "Clasificar siempre as\xED los gastos de <b>" + t.comercio + "</b>") + '</span><button class="switch ' + (t.reglaAuto ? "on" : "") + '" data-toggle-lock="' + t.id + '" aria-label="Activar regla autom\xE1tica" aria-pressed="' + (t.reglaAuto ? "true" : "false") + '"></button></div></div>') + (isInvest ? "" : isIncome ? (function() {
+    return '<div class="sheet-top"><div class="merchant" id="sheet-title-el">' + t.comercio + '</div><div class="meta">' + dayLabel(t.fecha) + " \xB7 " + t.hora + " \xB7 " + paymentMethodInfo(t.medio).nombre + '</div><div class="sheet-amount ' + (isIncome ? "pos" : "") + ' tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</div><div class="meta" data-note-echo style="margin-top:6px;' + (t.nota ? "" : "display:none;") + '">' + (t.nota || "") + '</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nombre, monto y fecha</div><div class="draft-field"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-tx-field="comercio" data-tx="' + t.id + '" value="' + t.comercio.replace(/"/g, "&quot;") + '"></div><div class="draft-field"><label class="draft-label">Monto</label><div class="edit-amount-row"><input type="text" inputmode="decimal" class="draft-input tabular" data-tx-field="monto" data-tx="' + t.id + '" value="' + t.monto + '"><span class="edit-amount-echo tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</span></div></div><div class="edit-field-pair"><div class="edit-field-col draft-field"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-tx-field="fecha" data-tx="' + t.id + '" value="' + t.fecha + '"></div><div class="edit-field-col draft-field"><label class="draft-label">Hora</label><input type="time" class="draft-input" data-tx-field="hora" data-tx="' + t.id + '" value="' + t.hora + '"></div></div><div class="muted edit-day-hint">' + dayLabel(t.fecha) + '</div><div class="draft-field" style="margin:14px 0 0;"><label class="draft-label">Con qu\xE9 pagaste</label><select class="draft-select" data-tx-payment-method-select="' + t.id + '">' + medioOptsExisting + "</select></div></div>" + tipoRecurrenciaCard + cuotaBlock + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa' + (cats.length > 1 ? "s" : "") + "</div>" + categoriaSection + "</div>" + (isInvest ? "" : '<div class="sheet-block card lock-card' + (t.reglaAuto ? " active-rule" : "") + '" style="padding:14px 16px;"><div class="lock-row"><span class="lock-icon">' + ICONS.lock + '</span><span class="lock-text">' + (t.reglaAuto ? "Ya clasificamos siempre as\xED lo de <b>" + t.comercio + "</b>" : "Clasificar siempre as\xED los gastos de <b>" + t.comercio + "</b>") + '</span><button class="switch ' + (t.reglaAuto ? "on" : "") + '" data-toggle-lock="' + t.id + '" aria-label="Activar regla autom\xE1tica" aria-pressed="' + (t.reglaAuto ? "true" : "false") + '"></button></div></div>') + (isInvest ? "" : isIncome ? renderIncomeQuickActionsBlock(t) + (function() {
       const vinculo = pendingLinkedTo(t.id);
-      if (!vinculo && (t.categorias.length > 0 || allPendingReceivables().length === 0)) return "";
+      if (t.estado === "no_es_gasto" || !vinculo && (t.categorias.length > 0 || allPendingReceivables().length === 0)) return "";
       return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos</div>' + (vinculo ? '<div class="cobro-banner-done">' + ICONS.checkCircle + "<span>Vinculado a " + (vinculo.persona || "un pendiente") + " \xB7 " + vinculo.comercio + '</span></div><button class="split-toggle-link" data-unlink-income="' + t.id + '">Quitar v\xEDnculo</button>' : '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Si este dep\xF3sito corresponde a un cobro o reembolso pendiente, vinc\xFAlalo para tacharlo de la lista.</p><button class="action-btn" data-open-link-income="' + t.id + '">' + ICONS.inbox + " Vincular a un pendiente</button>") + "</div>";
     })() : renderQuickActionsBlock(t)) + renderShareGroupSection(t) + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nota</div><input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="' + t.id + '" value="' + (t.nota || "").replace(/"/g, "&quot;") + '" placeholder="Agregar notas personales"></div>' + importedBlock + (state.confirmDeleteTxId === t.id ? '<div class="sheet-delete-confirm"><p class="muted" style="font-size:12.5px;margin:0 0 10px;">\xBFSeguro que quieres eliminar esta transacci\xF3n? No se puede deshacer.</p><div style="display:flex;gap:8px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="' + t.id + '">Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="' + t.id + '">S\xED, eliminar</button></div></div>' : '<div class="sheet-bottom-actions"><button class="sheet-delete-btn" data-ask-delete-tx="' + t.id + '" aria-label="Eliminar transacci\xF3n">' + ICONS.trash + '</button><button class="sheet-done-btn" data-close-sheet-done>' + ICONS.check + " Listo</button></div>");
   }
@@ -8191,7 +8206,7 @@
     // detail already offers after saving (same block, same events.ts handlers, resolved via
     // currentEditableTx() instead of getTx() while state.creatingNew is true). Only for gasto,
     // same gating as the saved-tx detail (there isIncome/isInvest both skip it).
-    (d.tipo === "gasto" ? renderQuickActionsBlock(d) : "") + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Medio de pago</div>' + (state.addingPaymentMethod ? "" : '<select class="draft-select" data-draft-field="medio">' + medioOpts + "</select>") + newPaymentMethodForm + '</div><button class="save-tx-btn" data-save-draft="1" ' + (canSave ? "" : "disabled") + ">Guardar transacci\xF3n</button>" + (canSave ? "" : '<div class="field-error">Ponle un nombre de comercio y un monto para poder guardar.</div>');
+    (d.tipo === "gasto" ? renderQuickActionsBlock(d) : d.tipo === "ingreso" ? renderIncomeQuickActionsBlock(d) : "") + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Medio de pago</div>' + (state.addingPaymentMethod ? "" : '<select class="draft-select" data-draft-field="medio">' + medioOpts + "</select>") + newPaymentMethodForm + '</div><button class="save-tx-btn" data-save-draft="1" ' + (canSave ? "" : "disabled") + ">Guardar transacci\xF3n</button>" + (canSave ? "" : '<div class="field-error">Ponle un nombre de comercio y un monto para poder guardar.</div>');
   }
   __name(renderNewTxSheetContent, "renderNewTxSheetContent");
   function saveDraftTx() {

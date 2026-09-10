@@ -119,7 +119,7 @@ export function renderTxItem(t){
   let stateTag = '';
   if(isCobrado) stateTag = '<span class="tx-state state-cobrado-inline">'+(hasReceivableType(t,'reembolso')?'Reembolsado':'Cobrado')+'</span>';
   else if(t.estado==='por_cobrar') stateTag = hasReceivableType(t,'reembolso') ? '<span class="tx-state state-reembolso">Reembolso</span>' : '<span class="tx-state state-porcobrar">Por cobrar</span>';
-  else if(t.estado==='no_es_gasto') stateTag = '<span class="tx-state state-noesgasto">No es gasto</span>';
+  else if(t.estado==='no_es_gasto') stateTag = '<span class="tx-state state-noesgasto">'+(isIncome?'No es ingreso':'No es gasto')+'</span>';
 
   const medio = paymentMethodInfo(t.medio);
 

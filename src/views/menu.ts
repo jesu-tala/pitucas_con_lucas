@@ -832,7 +832,7 @@ export function renderMenuReconciliar(){
       ? '<span class="tx-state state-cobrado-inline">Ya registrada</span>'
       : '<div style="display:flex;gap:6px;">'+
           '<button class="chip" data-reconcile-add="'+idx+'">+ Agregar</button>'+
-          '<button class="chip" style="background:var(--surface-sunken);color:var(--text-secondary);" data-reconcile-not-expense="'+idx+'">No es gasto</button>'+
+          '<button class="chip" style="background:var(--surface-sunken);color:var(--text-secondary);" data-reconcile-not-expense="'+idx+'">'+(m.tipoMov==='ingreso'?'No es ingreso':'No es gasto')+'</button>'+
         '</div>';
     return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;">'+
       '<div style="min-width:0;">'+
@@ -964,7 +964,7 @@ export function createTxFromMovement(m, opts?: {noEsGasto?: boolean}){
     estado: opts.noEsGasto ? 'no_es_gasto' : (catId ? 'confirmado' : 'pendiente'),
     categorias: (!opts.noEsGasto && catId) ? [{cat:catId, monto:Math.abs(m.monto)}] : [],
     porCobrar:[], reglaAuto:false,
-    nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola — marcada como "no es gasto"' : 'Agregada al reconciliar con la cartola',
+    nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola — marcada como "'+(m.tipoMov==='ingreso'?'no es ingreso':'no es gasto')+'"' : 'Agregada al reconciliar con la cartola',
     // Came straight from a bank statement line, whether through the movement-by-movement
     // "+ Agregar" flow or the diff's bulk "agregar" -- reconcile.ts is allowed to later propose
     // deleting it (never a manual transaction). fuenteLineaId (when the movement has one, i.e.
@@ -1407,16 +1407,33 @@ export async function deleteGroup(groupId){
     console.error('Pitucas sin lucas — error eliminando grupo:', error);
     return {ok:false, error};
   }
+  // Bug real reportado: "eliminé grupos, volví a iniciar sesión y los veo de nuevo". Postgres/
+  // PostgREST NO devuelven error cuando una política de RLS bloquea el DELETE -- el borrado
+  // simplemente afecta 0 filas EN SILENCIO, así que el código de arriba (error===null) mostraba
+  // "Grupo eliminado" igual aunque el grupo siguiera ahí, intacto. Se confirma con una lectura
+  // aparte que la fila de verdad desapareció antes de avisar éxito.
+  const { data: sigueExistiendo, error: checkErr } = await sb.from('grupos').select('id').eq('id', groupId).maybeSingle();
+  if(checkErr){
+    console.error('Pitucas sin lucas — no se pudo confirmar que el grupo se borró:', checkErr);
+    return {ok:false, error: checkErr};
+  }
+  if(sigueExistiendo){
+    const fakeError = { message: 'No tienes permiso para eliminar este grupo (solo quien lo creó puede hacerlo).' };
+    console.error('Pitucas sin lucas — el DELETE no dio error pero el grupo sigue existiendo (bloqueado por RLS):', groupId);
+    return {ok:false, error: fakeError};
+  }
   await loadSharedExpenses();
   return {ok:true, error:null};
 }
 
 export async function joinGroup(inviteCode, nombre){
-  if(!sb) return false;
+  if(!sb) return {ok:false, error:null};
+  // Igual que createGroup/deleteGroup: devolver el error real en vez de solo true/false, para
+  // no mostrar siempre el mismo "revisa el código" genérico sin importar la causa real.
   const { error } = await sb.rpc('unirse_a_grupo', {p_invite_code:inviteCode, p_nombre:nombre});
-  if(error){ console.error('Pitucas sin lucas — error uniéndose al grupo:', error); return false; }
+  if(error){ console.error('Pitucas sin lucas — error uniéndose al grupo:', error); return {ok:false, error}; }
   await loadSharedExpenses();
-  return true;
+  return {ok:true, error:null};
 }
 
 export async function addParticipantWithoutAccount(groupId, nombre, color){
