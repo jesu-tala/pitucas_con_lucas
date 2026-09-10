@@ -5910,6 +5910,9 @@
     });
     Object.assign(PAYMENT_METHODS, blob.mediosPago || {});
     setTransactions(blob.transacciones || []);
+    TRANSACTIONS.forEach(function(t) {
+      if (t.estado === "pendiente" && t.categorias.length > 0) t.estado = "confirmado";
+    });
     setContacts(blob.contactos || []);
     setBudgets(blob.presupuestos || {});
     setMonthlyBudgetTotal(blob.monthlyBudgetTotal || 0);
