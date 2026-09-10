@@ -201,13 +201,15 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
 
-  // ========== (e) Regresión: un borrador de ingreso/inversión nunca muestra Acciones rápidas ==========
+  // ========== (e) Un borrador de ingreso solo ofrece "No es ingreso" (nada de por-cobrar/
+  // reembolso/confirmar, que son conceptos de gasto); un borrador de inversión no ofrece nada ==========
   await page.click('#fab-add');
   await page.waitForTimeout(200);
   await page.click('[data-seg="draft-tipo"] [data-seg-val="ingreso"]');
   await page.waitForTimeout(150);
-  const ingresoSinAcciones = await page.evaluate(() => !document.querySelector('#sheet-content [data-action]'));
-  check('(e) Un borrador de tipo "ingreso" no muestra Acciones rápidas (misma regla que el detalle ya guardado)', ingresoSinAcciones === true);
+  const accionesIngreso = await page.evaluate(() => Array.from(document.querySelectorAll('#sheet-content [data-action]')).map(el => el.getAttribute('data-action')));
+  check('(e) Un borrador de tipo "ingreso" solo ofrece "No es ingreso", nada de por-cobrar/reembolso/confirmar',
+    accionesIngreso.length === 1 && accionesIngreso[0] === 'noesgasto', accionesIngreso);
 
   await page.click('[data-seg="draft-tipo"] [data-seg-val="inversion"]');
   await page.waitForTimeout(150);

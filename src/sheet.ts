@@ -294,6 +294,17 @@ function renderQuickActionsBlock(t){
     '</div></div>'+
     (t.estado==='por_cobrar' ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>'+renderChargeSplitBlock(t)+'</div>' : '');
 }
+// Un ingreso también puede ser algo que en realidad no es plata que entró de verdad (ej. un
+// traspaso entre sus propias cuentas que quedó categorizado como ingreso, o una devolución que
+// no debería sumar en sus totales) -- mismo estado 'no_es_gasto' que ya usa un gasto (toda la
+// exclusión de gasto/ingreso/inversión de los agregados, ver monthTotals en views/evolucion.ts,
+// ya lo excluye de forma genérica por estado, sin importar el tipo), solo con la etiqueta
+// correcta para que tenga sentido en un ingreso.
+function renderIncomeQuickActionsBlock(t){
+  return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones rápidas</div><div class="quick-actions">'+
+      '<button class="action-btn '+(t.estado==='no_es_gasto'?'selected':'')+'" data-action="noesgasto" data-tx="'+t.id+'">'+ICONS.ban+' No es ingreso</button>'+
+    '</div></div>';
+}
 
 export function renderSheetContent(t){
   const isIncome = t.tipo==='ingreso';
@@ -409,7 +420,7 @@ export function renderSheetContent(t){
 
     (isInvest ? '' :
     isIncome
-      ? (function(){
+      ? renderIncomeQuickActionsBlock(t) + (function(){
           const vinculo = pendingLinkedTo(t.id);
           // Before, this card appeared in the detail of ANY income as soon as there was some
           // pending item anywhere else in the app — so a salary with its normal category
@@ -418,7 +429,9 @@ export function renderSheetContent(t){
           // this income doesn't yet have a category assigned (an ambiguous deposit, like
           // "Transfer from Fran", is exactly the case where it could be the payment for a pending item)
           // — unless it's already linked, in which case it's always shown so it can be viewed/removed.
-          if(!vinculo && (t.categorias.length>0 || allPendingReceivables().length===0)) return '';
+          // Marcada "no es ingreso" ya no tiene sentido ofrecerle vincularla a un cobro/reembolso
+          // (dejó de contar como plata que entró de verdad).
+          if(t.estado==='no_es_gasto' || (!vinculo && (t.categorias.length>0 || allPendingReceivables().length===0))) return '';
           return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos</div>'+
             (vinculo
               ? '<div class="cobro-banner-done">'+ICONS.checkCircle+'<span>Vinculado a '+(vinculo.persona||'un pendiente')+' · '+vinculo.comercio+'</span></div>'+
@@ -856,7 +869,7 @@ export function renderNewTxSheetContent(d){
     // detail already offers after saving (same block, same events.ts handlers, resolved via
     // currentEditableTx() instead of getTx() while state.creatingNew is true). Only for gasto,
     // same gating as the saved-tx detail (there isIncome/isInvest both skip it).
-    (d.tipo==='gasto' ? renderQuickActionsBlock(d) : '')+
+    (d.tipo==='gasto' ? renderQuickActionsBlock(d) : d.tipo==='ingreso' ? renderIncomeQuickActionsBlock(d) : '')+
 
     '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Medio de pago</div>'+
       (state.addingPaymentMethod ? '' : '<select class="draft-select" data-draft-field="medio">'+medioOpts+'</select>')+

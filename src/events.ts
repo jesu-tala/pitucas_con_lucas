@@ -914,16 +914,20 @@ phone.addEventListener('click', function(e: any){
         }
       }
       else if(act==='noesgasto'){
+        // Mismo estado para gasto e ingreso -- monthTotals (views/evolucion.ts) ya excluye
+        // 'no_es_gasto' de los agregados de forma genérica, sin importar t.tipo, así que solo
+        // cambia la etiqueta según de cuál se trate.
+        const etiqueta = t.tipo==='ingreso' ? 'no es ingreso' : 'no es gasto';
         if(t.estado==='no_es_gasto'){
           t.estado = t.categorias.length>0 ? 'confirmado' : 'pendiente';
-          toast('Ya no está marcado como "no es gasto"');
+          toast('Ya no está marcado como "'+etiqueta+'"');
         } else {
           // Una categoría ya asignada no corresponde a nada una vez que la transacción deja
-          // de contar como gasto real (mismo criterio que ya usa classifySharedExpenseFromOthers()
-          // en menu.ts al marcar este mismo estado) -- si no se limpia, queda una categoría
-          // "fantasma" que ya no debería sumar en ningún lado.
+          // de contar como gasto/ingreso real (mismo criterio que ya usa
+          // classifySharedExpenseFromOthers() en menu.ts al marcar este mismo estado) -- si no
+          // se limpia, queda una categoría "fantasma" que ya no debería sumar en ningún lado.
           t.categorias = [];
-          t.estado='no_es_gasto'; toast('Marcado como no es gasto');
+          t.estado='no_es_gasto'; toast('Marcado como '+etiqueta);
         }
       }
       renderSheet(); renderIfListVisible();

@@ -832,7 +832,7 @@ export function renderMenuReconciliar(){
       ? '<span class="tx-state state-cobrado-inline">Ya registrada</span>'
       : '<div style="display:flex;gap:6px;">'+
           '<button class="chip" data-reconcile-add="'+idx+'">+ Agregar</button>'+
-          '<button class="chip" style="background:var(--surface-sunken);color:var(--text-secondary);" data-reconcile-not-expense="'+idx+'">No es gasto</button>'+
+          '<button class="chip" style="background:var(--surface-sunken);color:var(--text-secondary);" data-reconcile-not-expense="'+idx+'">'+(m.tipoMov==='ingreso'?'No es ingreso':'No es gasto')+'</button>'+
         '</div>';
     return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;">'+
       '<div style="min-width:0;">'+
@@ -964,7 +964,7 @@ export function createTxFromMovement(m, opts?: {noEsGasto?: boolean}){
     estado: opts.noEsGasto ? 'no_es_gasto' : (catId ? 'confirmado' : 'pendiente'),
     categorias: (!opts.noEsGasto && catId) ? [{cat:catId, monto:Math.abs(m.monto)}] : [],
     porCobrar:[], reglaAuto:false,
-    nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola — marcada como "no es gasto"' : 'Agregada al reconciliar con la cartola',
+    nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola — marcada como "'+(m.tipoMov==='ingreso'?'no es ingreso':'no es gasto')+'"' : 'Agregada al reconciliar con la cartola',
     // Came straight from a bank statement line, whether through the movement-by-movement
     // "+ Agregar" flow or the diff's bulk "agregar" -- reconcile.ts is allowed to later propose
     // deleting it (never a manual transaction). fuenteLineaId (when the movement has one, i.e.
