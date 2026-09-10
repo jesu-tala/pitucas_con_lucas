@@ -5911,6 +5911,7 @@
   function showAuthForm() {
     document.getElementById("auth-checking").hidden = true;
     document.getElementById("auth-content").hidden = false;
+    document.getElementById("auth-recovery-content").hidden = true;
   }
   __name(showAuthForm, "showAuthForm");
   function switchAuthMode(mode) {
@@ -5921,6 +5922,7 @@
       b.classList.toggle("active", b.getAttribute("data-auth-tab") === mode);
     });
     document.getElementById("auth-password").setAttribute("autocomplete", mode === "signup" ? "new-password" : "current-password");
+    document.getElementById("auth-forgot-btn").hidden = mode !== "login";
     setAuthLoading(false);
   }
   __name(switchAuthMode, "switchAuthMode");
@@ -5932,6 +5934,7 @@
     if (/Unable to validate email|invalid.*email/i.test(msg)) return "Ese correo no parece v\xE1lido.";
     if (/Failed to fetch|NetworkError|network/i.test(msg)) return "No se pudo conectar. Revisa tu internet e intenta de nuevo.";
     if (/provider is not enabled|Unsupported provider/i.test(msg)) return "El login con Google todav\xEDa no est\xE1 activado en el servidor.";
+    if (/security purposes.*after|rate limit/i.test(msg)) return "Espera un momento antes de volver a intentarlo.";
     return msg || "Ocurri\xF3 un error inesperado. Intenta de nuevo.";
   }
   __name(translateAuthError, "translateAuthError");
@@ -5949,6 +5952,72 @@
     if (error) showAuthError(translateAuthError(error));
   }
   __name(handleGoogleSignIn, "handleGoogleSignIn");
+  var inPasswordRecovery = false;
+  function showAuthRecoveryForm() {
+    document.getElementById("auth-content").hidden = true;
+    document.getElementById("auth-recovery-content").hidden = false;
+  }
+  __name(showAuthRecoveryForm, "showAuthRecoveryForm");
+  async function handleForgotPassword() {
+    if (!sb) {
+      showAuthError("No se pudo cargar la conexi\xF3n con el servidor. Recarga la p\xE1gina.");
+      return;
+    }
+    const email = document.getElementById("auth-email").value.trim();
+    clearAuthError();
+    clearAuthHint();
+    if (!email) {
+      showAuthError('Escribe tu correo arriba primero, y despu\xE9s toca "\xBFOlvidaste tu contrase\xF1a?".');
+      return;
+    }
+    setAuthLoading(true);
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname
+    });
+    setAuthLoading(false);
+    if (error) {
+      showAuthError(translateAuthError(error));
+      return;
+    }
+    showAuthHint("Te mandamos un correo a " + email + " con un link para elegir una contrase\xF1a nueva.", true);
+  }
+  __name(handleForgotPassword, "handleForgotPassword");
+  function showRecoveryError(msg) {
+    const el = document.getElementById("auth-recovery-error");
+    el.textContent = msg;
+    el.hidden = false;
+  }
+  __name(showRecoveryError, "showRecoveryError");
+  function clearRecoveryError() {
+    const el = document.getElementById("auth-recovery-error");
+    el.hidden = true;
+    el.textContent = "";
+  }
+  __name(clearRecoveryError, "clearRecoveryError");
+  async function handlePasswordRecoverySubmit() {
+    if (!sb) return;
+    const password = document.getElementById("auth-recovery-password").value;
+    clearRecoveryError();
+    if (password.length < 6) {
+      showRecoveryError("La contrase\xF1a debe tener al menos 6 caracteres.");
+      return;
+    }
+    const btn = document.getElementById("auth-recovery-submit-btn");
+    btn.disabled = true;
+    btn.textContent = "Un momento\u2026";
+    const { error } = await sb.auth.updateUser({ password });
+    btn.disabled = false;
+    btn.textContent = "Guardar y entrar";
+    if (error) {
+      showRecoveryError(translateAuthError(error));
+      return;
+    }
+    inPasswordRecovery = false;
+    document.getElementById("auth-recovery-content").hidden = true;
+    const { data } = await sb.auth.getSession();
+    if (data && data.session && data.session.user) onAuthenticated(data.session.user);
+  }
+  __name(handlePasswordRecoverySubmit, "handlePasswordRecoverySubmit");
   async function handleAuthSubmit() {
     if (!sb) {
       showAuthError("No se pudo cargar la conexi\xF3n con el servidor. Recarga la p\xE1gina.");
@@ -5988,6 +6057,11 @@
   }
   __name(handleAuthSubmit, "handleAuthSubmit");
   async function onAuthenticated(user) {
+    if (inPasswordRecovery) {
+      showAuthForm();
+      showAuthRecoveryForm();
+      return;
+    }
     if (currentUser && currentUser.id === user.id) return;
     currentUser = user;
     setAuthLoading(true);
@@ -6063,6 +6137,8 @@
     state.notifTestResult = null;
     document.getElementById("auth-email").value = "";
     document.getElementById("auth-password").value = "";
+    document.getElementById("auth-recovery-password").value = "";
+    inPasswordRecovery = false;
     clearAuthError();
     clearAuthHint();
     switchAuthMode("login");
@@ -6106,8 +6182,21 @@
     document.getElementById("auth-google-btn").addEventListener("click", function() {
       handleGoogleSignIn();
     });
+    document.getElementById("auth-forgot-btn").addEventListener("click", function() {
+      handleForgotPassword();
+    });
+    document.getElementById("auth-recovery-form").addEventListener("submit", function(e) {
+      e.preventDefault();
+      handlePasswordRecoverySubmit();
+    });
     if (sb) {
       sb.auth.onAuthStateChange(function(event, session) {
+        if (event === "PASSWORD_RECOVERY") {
+          inPasswordRecovery = true;
+          showAuthForm();
+          showAuthRecoveryForm();
+          return;
+        }
         if (event === "SIGNED_OUT") {
           if (currentUser) {
             currentUser = null;
@@ -7911,6 +8000,7 @@
   }
   document.getElementById("fab-add").innerHTML = ICONS.plus;
   document.getElementById("auth-brand-icon").innerHTML = ICONS.lock;
+  document.getElementById("auth-recovery-brand-icon").innerHTML = ICONS.lock;
   regenerateInstallmentsFor("t31");
   render();
   initSupabaseAuth();

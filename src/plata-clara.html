@@ -1158,6 +1158,11 @@
   .auth-google-btn svg{width:18px;height:18px;flex:none;}
   .auth-divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--text-tertiary);font-size:11.5px;}
   .auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border);}
+  .auth-forgot-link{
+    display:block;background:none;border:none;padding:0;margin:-6px 0 14px;
+    font-size:12px;color:var(--accent-ink);font-weight:700;cursor:pointer;text-align:right;
+  }
+  .auth-forgot-link[hidden]{display:none;}
 </style>
 
 <div class="stage">
@@ -1198,10 +1203,26 @@
               <label class="draft-label" for="auth-password">Contraseña</label>
               <input class="draft-input" type="password" id="auth-password" autocomplete="current-password" required minlength="6">
             </div>
+            <button type="button" class="auth-forgot-link" id="auth-forgot-btn">¿Olvidaste tu contraseña?</button>
             <div class="field-error" id="auth-error" hidden></div>
             <button class="save-tx-btn" id="auth-submit-btn" type="submit">Iniciar sesión</button>
           </form>
           <div class="auth-hint" id="auth-hint" hidden></div>
+        </div>
+        <div class="auth-content" id="auth-recovery-content" hidden>
+          <div class="auth-brand">
+            <div class="auth-brand-icon" id="auth-recovery-brand-icon"></div>
+            <h2>Nueva contraseña</h2>
+            <p>Elige una contraseña nueva para tu cuenta.</p>
+          </div>
+          <form class="auth-form" id="auth-recovery-form" autocomplete="on">
+            <div class="draft-field">
+              <label class="draft-label" for="auth-recovery-password">Contraseña nueva</label>
+              <input class="draft-input" type="password" id="auth-recovery-password" autocomplete="new-password" required minlength="6">
+            </div>
+            <div class="field-error" id="auth-recovery-error" hidden></div>
+            <button class="save-tx-btn" id="auth-recovery-submit-btn" type="submit">Guardar y entrar</button>
+          </form>
         </div>
       </div>
       <header class="app-header">
