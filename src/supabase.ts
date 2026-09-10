@@ -276,7 +276,25 @@ export function translateAuthError(err){
   if(/Password should be at least|password.*6/i.test(msg)) return 'La contraseña debe tener al menos 6 caracteres.';
   if(/Unable to validate email|invalid.*email/i.test(msg)) return 'Ese correo no parece válido.';
   if(/Failed to fetch|NetworkError|network/i.test(msg)) return 'No se pudo conectar. Revisa tu internet e intenta de nuevo.';
+  if(/provider is not enabled|Unsupported provider/i.test(msg)) return 'El login con Google todavía no está activado en el servidor.';
   return msg || 'Ocurrió un error inesperado. Intenta de nuevo.';
+}
+
+// Entrar con Google evita por completo el problema de "creé la cuenta pero no confirmé el
+// correo, así que el login dice 'contraseña incorrecta'" -- Google ya confirmó ese correo por
+// nosotros. redirectTo apunta de vuelta a esta misma página (sin querystring/hash propios, para
+// no arrastrar nada raro) -- Supabase completa la sesión sola al volver (detectSessionInUrl,
+// activado por defecto), y de ahí sb.auth.onAuthStateChange (ver initSupabaseAuth) sigue el
+// mismo camino de siempre (onAuthenticated), sea cual sea el método con el que entró.
+export async function handleGoogleSignIn(){
+  if(!sb){ showAuthError('No se pudo cargar la conexión con el servidor. Recarga la página.'); return; }
+  clearAuthError(); clearAuthHint();
+  const { error } = await sb.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin + window.location.pathname }
+  });
+  if(error) showAuthError(translateAuthError(error));
+  // si no hay error, el navegador ya está siendo redirigido a Google -- no hay más que hacer acá
 }
 
 export async function handleAuthSubmit(){
@@ -418,6 +436,9 @@ export function initSupabaseAuth(){
   document.getElementById('auth-form').addEventListener('submit', function(e: any){
     e.preventDefault();
     handleAuthSubmit();
+  });
+  document.getElementById('auth-google-btn').addEventListener('click', function(){
+    handleGoogleSignIn();
   });
 
   /* ---------- was there already a session open? ---------- */
