@@ -481,6 +481,16 @@ export const state: AppState = {
   settleWithId:null,            // participantId being "Settled up" right now, or null
   // "Share with a group" inside a expense transaction's detail/creation:
   shareDraft:null,              // null, or {groupId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
+  // Editing/deleting a CONTACTS entry from within "divide this expense" (no group) -- same
+  // ask-before-delete shape as editingParticipantId/confirmDeleteParticipantId above, but keyed
+  // by the contact's NAME (their id in that flow, see shareDraftParticipants in views/grupos.ts)
+  // instead of a real participantId, since a plain CONTACTS entry is just a string, not a row
+  // with its own id. Kept separate from the participant fields on purpose: they mean different
+  // things (a group's real, relational participant vs. a no-group quick-pick name) and could in
+  // theory be "open" on two different sheets at once.
+  editingContactName:null,
+  editContactDraft:'',
+  confirmDeleteContactName:null,
   confirmDeleteGroupId:null,
   // ---- Group detail: 3 Tricount-style sub-tabs (see views/grupos.ts renderGroupDetail) ----
   groupDetailTab:'gastos',      // 'gastos' | 'balances' | 'transferencias' -- which sub-tab is open

@@ -40,6 +40,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   });
   check('La hoja de Filtros tiene una sección "Grupo"', seccionGrupo.existeSeccion === true, seccionGrupo);
   check('   con un chip por cada grupo ("Depto" y "Viaje")', seccionGrupo.chips.some(t => t.includes('Depto')) && seccionGrupo.chips.some(t => t.includes('Viaje')), seccionGrupo);
+  check('   y además un chip "Personal" para las transacciones sin grupo', seccionGrupo.chips.some(t => t.includes('Personal')), seccionGrupo);
 
   await page.evaluate(() => {
     const btn = Array.from(document.querySelectorAll('[data-toggle-filter-grupo]')).find(b => b.textContent.includes('Depto'));
@@ -53,6 +54,32 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(200);
   const filtrado = await page.evaluate(() => Array.from(document.querySelectorAll('.tx-item')).map(i => i.textContent));
   check('Filtrando por "Depto", solo aparece la transacción de ese grupo', filtrado.length === 1 && filtrado[0].includes('Supermercado del depto'), filtrado);
+
+  // "Personal" se puede elegir junto con grupos reales -- no es excluyente, es un chip más.
+  await page.click('[data-open-filters]');
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    const btn = Array.from(document.querySelectorAll('[data-toggle-filter-grupo]')).find(b => b.textContent.includes('Personal'));
+    btn.click();
+  });
+  await page.click('[data-apply-advfilters]');
+  await page.waitForTimeout(200);
+  const conPersonalYDepto = await page.evaluate(() => Array.from(document.querySelectorAll('.tx-item')).map(i => i.textContent));
+  check('Con "Personal" + "Depto" elegidos, aparecen la del depto Y la personal (2)',
+    conPersonalYDepto.length === 2 && conPersonalYDepto.some(t => t.includes('Supermercado del depto')) && conPersonalYDepto.some(t => t.includes('Gasto personal')),
+    conPersonalYDepto);
+
+  // Solo "Personal" (sin ningún grupo elegido) muestra únicamente lo que no tiene grupo.
+  await page.click('[data-open-filters]');
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    const btn = Array.from(document.querySelectorAll('[data-toggle-filter-grupo]')).find(b => b.textContent.includes('Depto'));
+    btn.click(); // saca "Depto", deja solo "Personal" elegido
+  });
+  await page.click('[data-apply-advfilters]');
+  await page.waitForTimeout(200);
+  const soloPersonal = await page.evaluate(() => Array.from(document.querySelectorAll('.tx-item')).map(i => i.textContent));
+  check('Solo "Personal" elegido muestra únicamente la transacción sin grupo', soloPersonal.length === 1 && soloPersonal[0].includes('Gasto personal'), soloPersonal);
 
   // Limpiar filtros vuelve a mostrar todo.
   await page.click('[data-open-filters]');
