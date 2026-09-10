@@ -276,7 +276,10 @@
         t.reglaAuto = true;
         t.tipo = tx.tipo;
         t.recurrencia = tx.recurrencia;
-        if (cat) t.categorias = [{ cat, monto: catTotalAmount(t) || t.monto }];
+        if (cat) {
+          t.categorias = [{ cat, monto: catTotalAmount(t) || t.monto }];
+          if (t.estado === "pendiente") t.estado = "confirmado";
+        }
       }
     });
     tx.reglaAuto = true;
@@ -4780,6 +4783,20 @@
       renderSheet();
       return;
     }
+    const shareAddNameBtn = e.target.closest("[data-share-add-name]");
+    if (shareAddNameBtn && state.shareDraft) {
+      const row = shareAddNameBtn.closest(".split-row");
+      const input = row ? row.querySelector("[data-share-new-name]") : null;
+      const name = input ? input.value.trim() : "";
+      if (name) {
+        const d = state.shareDraft;
+        if (!d.extraParticipants.includes(name)) d.extraParticipants.push(name);
+        if (!d.participantesIncluidos.includes(name)) d.participantesIncluidos.push(name);
+        if (!CONTACTS.includes(name)) CONTACTS.push(name);
+        renderSheet();
+      }
+      return;
+    }
     const shareConfirmBtn = e.target.closest("[data-share-confirm]");
     if (shareConfirmBtn) {
       const txId = shareConfirmBtn.getAttribute("data-share-confirm");
@@ -5239,19 +5256,6 @@
       if (compartirIncluirBox.checked && idx === -1) d.participantesIncluidos.push(pid);
       else if (!compartirIncluirBox.checked && idx !== -1) d.participantesIncluidos.splice(idx, 1);
       renderSheet();
-      return;
-    }
-    const shareAddNameBtn = e.target.closest("[data-share-add-name]");
-    if (shareAddNameBtn && state.shareDraft) {
-      const row = shareAddNameBtn.closest(".split-row");
-      const input = row ? row.querySelector("[data-share-new-name]") : null;
-      const name = input ? input.value.trim() : "";
-      if (name) {
-        const d = state.shareDraft;
-        if (!d.extraParticipants.includes(name)) d.extraParticipants.push(name);
-        if (!d.participantesIncluidos.includes(name)) d.participantesIncluidos.push(name);
-        renderSheet();
-      }
       return;
     }
     const manualTransferSelect = e.target.closest('[data-manual-transfer-field="deId"], [data-manual-transfer-field="aId"]');
@@ -5865,7 +5869,11 @@
       metasTotalChecks: {},
       presupuestoAvisosEnviados: {},
       months: [ym],
-      monthLabel: monthLabelObj
+      monthLabel: monthLabelObj,
+      // A diferencia de categorías/medios de pago, no hay un valor "de ejemplo" razonable para
+      // los nombres de personas con las que reparte gastos -- una cuenta nueva de verdad arranca
+      // sin ninguno, no con los 4 nombres de la maqueta (Cata/Fran/Pancho/Mamá).
+      contactos: []
     };
   }
   __name(emptyAppStateBlob, "emptyAppStateBlob");
@@ -5887,7 +5895,8 @@
       metasTotalChecks: TOTAL_GOAL_CHECKS,
       presupuestoAvisosEnviados: BUDGET_ALERTS_SENT,
       months: MONTHS,
-      monthLabel: MONTH_LABEL
+      monthLabel: MONTH_LABEL,
+      contactos: CONTACTS
     };
   }
   __name(buildFullStateBlob, "buildFullStateBlob");
@@ -5901,6 +5910,7 @@
     });
     Object.assign(PAYMENT_METHODS, blob.mediosPago || {});
     setTransactions(blob.transacciones || []);
+    setContacts(blob.contactos || []);
     setBudgets(blob.presupuestos || {});
     setMonthlyBudgetTotal(blob.monthlyBudgetTotal || 0);
     setSpendingGoalPct(blob.metasGastoPct || { fijo: 45, variable: 17 });
@@ -8060,6 +8070,10 @@
     TRANSACTIONS = v;
   }
   __name(setTransactions, "setTransactions");
+  function setContacts(v) {
+    CONTACTS = v;
+  }
+  __name(setContacts, "setContacts");
   function setBudgets(v) {
     BUDGETS = v;
   }
@@ -8217,7 +8231,9 @@
     handlePasswordRecoverySubmit: handlePasswordRecoverySubmit,
     get sb(){ return sb; }, set sb(v){ sb = v; },
     absorbImportedRows: absorbImportedRows, writeStateToSupabase: writeStateToSupabase,
-    applyStateBlob: applyStateBlob, nextImportId: nextImportId,
+    applyStateBlob: applyStateBlob, buildFullStateBlob: buildFullStateBlob, emptyAppStateBlob: emptyAppStateBlob,
+    nextImportId: nextImportId,
+    get CONTACTS(){ return CONTACTS; }, set CONTACTS(v){ CONTACTS = v; },
     get OCR_WORKER_URL(){ return OCR_WORKER_URL; }, set OCR_WORKER_URL(v){ OCR_WORKER_URL = v; },
     openReceiptFlow: openReceiptFlow,
     buildReconcileDiff: buildReconcileDiff, matchConfidence: matchConfidence, movementLineId: movementLineId,

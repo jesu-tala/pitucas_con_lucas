@@ -66,6 +66,32 @@ function pad2_(n){ n = String(n); return n.length < 2 ? '0' + n : n; }
 function montoCLP_(s){ return parseFloat(String(s).replace(/\./g, '').replace(',', '.')); }
 function montoUSD_(s){ return parseFloat(String(s).replace(/,/g, '')); }
 
+// ---------- tipo de cambio USD/CLP histórico (mindicador.cl, gratis, sin API key) ----------
+// mindicador.cl es la API pública del "dólar observado" del Banco Central de Chile -- solo
+// publica un valor por día HÁBIL (nada los fines de semana ni feriados), así que si la fecha
+// pedida cae en uno de esos días, se prueba retrocediendo día por día (hasta 6 veces, una
+// semana completa) hasta encontrar el último valor publicado antes -- mismo criterio que
+// cualquier sistema contable real (la compra del sábado usa el valor del viernes).
+function tipoCambioUSDCLPParaFecha_(fechaISO){
+  var d = new Date(fechaISO + 'T12:00:00'); // mediodía para no correr el día por huso horario
+  for (var intento = 0; intento < 7; intento++) {
+    var ddmmaaaa = pad2_(d.getDate()) + '-' + pad2_(d.getMonth() + 1) + '-' + d.getFullYear();
+    try {
+      var res = UrlFetchApp.fetch('https://mindicador.cl/api/dolar/' + ddmmaaaa, { muteHttpExceptions: true });
+      if (res.getResponseCode() === 200) {
+        var data = JSON.parse(res.getContentText());
+        if (data && data.serie && data.serie.length && data.serie[0].valor) {
+          return data.serie[0].valor;
+        }
+      }
+    } catch (e) {
+      Logger.log('Pitucas sin lucas — error consultando tipo de cambio USD/CLP (' + ddmmaaaa + '): ' + e);
+    }
+    d.setDate(d.getDate() - 1);
+  }
+  return null;
+}
+
 // ---------- reglas: una por cada tipo de correo que sabemos leer ----------
 var RULES = [
   {
@@ -88,17 +114,36 @@ var RULES = [
       // El monto igual se lee con montoCLP_ (coma como separador decimal) porque el banco usa
       // SU formato chileno de números incluso para montos en dólares ("51,25" = US$51.25, no
       // 5125) -- no es el mismo formato que montoUSD_ (pensado para números ya en formato
-      // estadounidense, como los que manda Racional). El monto queda en dólares tal cual sin
-      // convertir (no hay tipo de cambio en el correo), marcado con "(USD)" en el comercio,
-      // igual que ya se hace con las compras de racional_orden.
+      // estadounidense, como los que manda Racional).
       var re = /compra\s+por\s+(US)?\$([\d.,]+)\s+con\s+(?:Tarjeta\s+de\s+Cr[ée]dito\s+[\*•]+\s*(\d{4})|cargo\s+a\s+Cuenta\s+[\*•]+\s*(\d{4}))\s+en\s+([\s\S]+?)\s+el\s+(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/i;
       var m = bodyText.match(re);
       if (!m) return null;
       var esUSD = !!m[1];
       var last4 = m[3] || m[4];
+      var fecha = m[8] + '-' + m[7] + '-' + m[6];
+      var comercio = m[5].trim();
+      var monto = montoCLP_(m[2]);
+      if (esUSD) {
+        // A diferencia de racional_orden (una inversión, donde tiene sentido seguir el valor en
+        // dólares), esto es un GASTO -- el resto de la app (presupuestos, balance, totales del
+        // mes) suma monto asumiendo que siempre está en pesos, así que dejar el número crudo en
+        // USD lo subestimaba brutalmente (un gasto de US$51 quedaba pesado como $51 CLP). Se
+        // convierte acá mismo, al tipo de cambio DEL DÍA DE LA COMPRA (no el de hoy) -- el monto
+        // en dólares queda igual anotado en el comercio, por transparencia.
+        var montoUSD = monto;
+        var tipoCambio = tipoCambioUSDCLPParaFecha_(fecha);
+        if (tipoCambio) {
+          monto = Math.round(montoUSD * tipoCambio);
+          comercio = comercio + ' (US$' + montoUSD.toFixed(2) + ' a $' + tipoCambio + ')';
+        } else {
+          // No se pudo conseguir el tipo de cambio (servicio caído, etc.) -- se deja el monto en
+          // dólares tal cual, marcado bien claro, en vez de inventar una conversión al voleo.
+          comercio = comercio + ' (US$' + montoUSD.toFixed(2) + ', sin tipo de cambio -- revisar a mano)';
+        }
+      }
       return {
-        fecha: m[8] + '-' + m[7] + '-' + m[6], hora: m[9],
-        comercio: m[5].trim() + (esUSD ? ' (USD)' : ''), monto: montoCLP_(m[2]), tipo: 'gasto',
+        fecha: fecha, hora: m[9],
+        comercio: comercio, monto: monto, tipo: 'gasto',
         medio_sugerido: last4 ? ('****' + last4) : null
       };
     }
