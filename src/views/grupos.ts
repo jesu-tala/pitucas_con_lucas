@@ -102,7 +102,27 @@ export function renderSplitDraftForm(tx, d){
   const groupSelectHtml = !d.groupId ? '' :
     '<label class="draft-label">Grupo</label>'+
     '<select data-share-group>'+GROUPS.map(g=>'<option value="'+g.id+'" '+(g.id===d.groupId?'selected':'')+'>'+g.icono+' '+g.nombre+'</option>').join('')+'</select>';
+  // A contact (no-group flow, everyone except "Tú") can be renamed or removed from CONTACTS
+  // right here -- editing/deleting never touches TRANSACTIONS: a CONTACTS entry is just a
+  // quick-pick name, not a reference, so removing it can never delete an expense already split
+  // with that person elsewhere (see the data-confirm-delete-contact handler in events.ts).
   const rows = participantes.map(p=>{
+    const isContact = !d.groupId && p.id!=='tu';
+    if(isContact && state.editingContactName===p.id){
+      return '<div class="split-row" style="align-items:center;gap:6px;">'+
+        avatarHtml(p.nombre, p.color, 24)+
+        '<input type="text" class="draft-input" style="flex:1;margin-left:8px;" data-edit-contact-name value="'+state.editContactDraft.replace(/"/g,'&quot;')+'" autofocus>'+
+        '<button class="chip" data-cancel-edit-contact>Cancelar</button>'+
+        '<button class="chip" style="background:var(--accent-soft);color:var(--accent-ink);" data-save-edit-contact="'+p.id+'" '+(state.editContactDraft.trim()?'':'disabled')+'>Guardar</button>'+
+      '</div>';
+    }
+    if(isContact && state.confirmDeleteContactName===p.id){
+      return '<div class="split-row" style="align-items:center;flex-wrap:wrap;gap:6px;">'+
+        '<span style="flex:1 1 100%;font-size:12.5px;" class="muted">¿Quitar a <b>'+p.nombre+'</b> de la lista de personas? No borra gastos ya repartidos con '+p.nombre+'.</span>'+
+        '<button class="chip" data-cancel-delete-contact>Cancelar</button>'+
+        '<button class="chip" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-contact="'+p.id+'">Sí, quitar</button>'+
+      '</div>';
+    }
     const incluido = d.participantesIncluidos.includes(p.id);
     const raw = d.customValues[p.id] || '';
     // "Por partes": each included person gets a "número de partes" input (a weight, not %/$ --
@@ -121,6 +141,10 @@ export function renderSplitDraftForm(tx, d){
       avatarHtml(p.nombre, p.color, 24)+
       '<span style="flex:1;margin-left:8px;">'+p.nombre+'</span>'+
       valueField+
+      (isContact
+        ? '<button type="button" class="rm-btn" data-open-edit-contact="'+p.id+'" aria-label="Editar a '+p.nombre+'">'+ICONS.edit+'</button>'+
+          '<button type="button" class="rm-btn" data-ask-delete-contact="'+p.id+'" aria-label="Quitar a '+p.nombre+'">'+ICONS.trash+'</button>'
+        : '')+
     '</div>';
   }).join('');
   const addPersonRow = d.groupId ? '' :

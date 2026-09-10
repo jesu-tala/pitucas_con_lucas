@@ -8,7 +8,7 @@ import { ReceivableItem, Transaction } from './types';
 import { toast } from './ui/toasts';
 import { renderShareGroupSection, renderSplitDraftForm } from './views/grupos';
 import { bumpPlatformValueForContribution, goalCapablePlatformIds, investmentCatOptions, isPlatformArchived, platformIdForInvestmentCat, platformIds } from './views/inversiones';
-import { advFilterCount } from './views/transacciones';
+import { advFilterCount, PERSONAL_GROUP_ID } from './views/transacciones';
 /* ===================== DETAIL SHEET ===================== */
 export function getTx(id){ return TRANSACTIONS.find(t=>t.id===id); }
 
@@ -803,8 +803,12 @@ export function renderFilterSheetContent(){
     Object.keys(PAYMENT_METHODS).map(k=>chipToggle('toggle-filter-medio', k, PAYMENT_METHODS[k].nombre, PAYMENT_METHODS[k].icon, af.medios.includes(k))).join('')+
   '</div>';
   // Solo transacciones compartidas con un grupo tienen groupId -- si todavía no tiene ningún
-  // grupo, no tiene sentido ofrecer este filtro (quedaría vacío, sin nada que elegir).
+  // grupo, no tiene sentido ofrecer este filtro (quedaría vacío, sin nada que elegir). "Personal"
+  // es un chip más, siempre presente cuando hay al menos un grupo: representa las transacciones
+  // SIN grupo (ver PERSONAL_GROUP_ID en views/transacciones.ts), para poder ver "solo lo mío",
+  // "solo tal grupo", o cualquier combinación de ambos a la vez.
   const grupoChips = GROUPS.length ? '<div class="cat-picker-grid">'+
+    chipToggle('toggle-filter-grupo', PERSONAL_GROUP_ID, 'Personal', '🙋', af.grupos.includes(PERSONAL_GROUP_ID))+
     GROUPS.map(g=>chipToggle('toggle-filter-grupo', g.id, g.nombre, g.icono, af.grupos.includes(g.id))).join('')+
   '</div>' : '';
   const count = advFilterCount();

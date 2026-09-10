@@ -98,6 +98,15 @@ export function applyStateBlob(blob){
   Object.assign(PAYMENT_METHODS, blob.mediosPago || {});
 
   setTransactions(blob.transacciones || []);
+  // Repara datos viejos que hayan quedado "pendiente" con categoría ya asignada -- antes de que
+  // applyLockRule (helpers.ts) confirmara la transacción al aplicar una regla automática, una
+  // cuenta real podía terminar con transacciones así atrapadas para siempre en la pestaña
+  // Pendientes. Ese caso ya no vuelve a pasar hacia adelante, pero esto sana cualquier cuenta que
+  // ya haya quedado en ese estado ANTES del arreglo (el arreglo de applyLockRule por sí solo no
+  // corrige datos que ya estaban guardados así en Supabase).
+  TRANSACTIONS.forEach(function(t){
+    if(t.estado==='pendiente' && t.categorias.length>0) t.estado='confirmado';
+  });
   setContacts(blob.contactos || []);
   setBudgets(blob.presupuestos || {});
   setMonthlyBudgetTotal(blob.monthlyBudgetTotal || 0);

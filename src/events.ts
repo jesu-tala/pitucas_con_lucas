@@ -1468,6 +1468,82 @@ phone.addEventListener('click', function(e: any){
     }
     return;
   }
+  // Editar/quitar una persona de CONTACTS (dividir un gasto SIN grupo) -- mismo trío
+  // ask/cancel/confirm que editar/eliminar un participante de grupo (ver arriba), pero acá el
+  // "id" de la persona ES su nombre (ver shareDraftParticipants en views/grupos.ts), y quitarla
+  // de CONTACTS nunca toca TRANSACTIONS: no borra ningún gasto ya repartido con ella en otro
+  // lado, solo deja de ofrecerla por defecto en el próximo reparto.
+  const openEditContactBtn = e.target.closest('[data-open-edit-contact]');
+  if(openEditContactBtn){
+    const name = openEditContactBtn.getAttribute('data-open-edit-contact');
+    state.editingContactName = name;
+    state.editContactDraft = name;
+    renderSheet();
+    return;
+  }
+  const cancelEditContactBtn = e.target.closest('[data-cancel-edit-contact]');
+  if(cancelEditContactBtn){
+    state.editingContactName = null;
+    renderSheet();
+    return;
+  }
+  const saveEditContactBtn = e.target.closest('[data-save-edit-contact]');
+  if(saveEditContactBtn){
+    const oldName = saveEditContactBtn.getAttribute('data-save-edit-contact');
+    const newName = state.editContactDraft.trim();
+    if(newName && newName!==oldName){
+      if(CONTACTS.includes(newName)){
+        toast('Ya existe una persona con ese nombre');
+      } else {
+        const idx = CONTACTS.indexOf(oldName);
+        if(idx!==-1) CONTACTS[idx] = newName;
+        if(state.shareDraft){
+          const d = state.shareDraft;
+          const i2 = d.participantesIncluidos.indexOf(oldName);
+          if(i2!==-1) d.participantesIncluidos[i2] = newName;
+          if(d.customValues[oldName]!=null){ d.customValues[newName] = d.customValues[oldName]; delete d.customValues[oldName]; }
+          const i3 = d.extraParticipants.indexOf(oldName);
+          if(i3!==-1) d.extraParticipants[i3] = newName;
+          if(d.pagadoPorId===oldName) d.pagadoPorId = newName;
+        }
+        toast('Nombre actualizado');
+      }
+    }
+    state.editingContactName = null;
+    renderSheet();
+    return;
+  }
+  const askDeleteContactBtn = e.target.closest('[data-ask-delete-contact]');
+  if(askDeleteContactBtn){
+    state.confirmDeleteContactName = askDeleteContactBtn.getAttribute('data-ask-delete-contact');
+    renderSheet();
+    return;
+  }
+  const cancelDeleteContactBtn = e.target.closest('[data-cancel-delete-contact]');
+  if(cancelDeleteContactBtn){
+    state.confirmDeleteContactName = null;
+    renderSheet();
+    return;
+  }
+  const confirmDeleteContactBtn = e.target.closest('[data-confirm-delete-contact]');
+  if(confirmDeleteContactBtn){
+    const name = confirmDeleteContactBtn.getAttribute('data-confirm-delete-contact');
+    const idx = CONTACTS.indexOf(name);
+    if(idx!==-1) CONTACTS.splice(idx,1);
+    if(state.shareDraft){
+      const d = state.shareDraft;
+      const i2 = d.participantesIncluidos.indexOf(name);
+      if(i2!==-1) d.participantesIncluidos.splice(i2,1);
+      delete d.customValues[name];
+      const i3 = d.extraParticipants.indexOf(name);
+      if(i3!==-1) d.extraParticipants.splice(i3,1);
+      if(d.pagadoPorId===name) d.pagadoPorId = 'tu';
+    }
+    state.confirmDeleteContactName = null;
+    toast('Quitado de la lista de personas');
+    renderSheet();
+    return;
+  }
   const shareConfirmBtn = e.target.closest('[data-share-confirm]');
   if(shareConfirmBtn){
     const txId = shareConfirmBtn.getAttribute('data-share-confirm');
@@ -2264,6 +2340,13 @@ phone.addEventListener('input', function(e: any){
     state.editParticipantDraft = editParticipantName.value;
     const saveBtn = document.querySelector<HTMLButtonElement>('[data-save-edit-participant]');
     if(saveBtn) saveBtn.disabled = !state.editParticipantDraft.trim();
+    return;
+  }
+  const editContactName = e.target.closest('[data-edit-contact-name]');
+  if(editContactName){
+    state.editContactDraft = editContactName.value;
+    const saveBtn = document.querySelector<HTMLButtonElement>('[data-save-edit-contact]');
+    if(saveBtn) saveBtn.disabled = !state.editContactDraft.trim();
     return;
   }
   const manualTransferMonto = e.target.closest('[data-manual-transfer-field="monto"]');

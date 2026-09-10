@@ -3145,6 +3145,7 @@
   __name(renderEvolutionView, "renderEvolutionView");
 
   // src/views/transacciones.ts
+  var PERSONAL_GROUP_ID = "__personal__";
   function applyCommonFilters(list) {
     if (state.categoryFilter) {
       list = list.filter((t) => t.categorias.some((c) => categoryFilterMatches(c.cat, state.categoryFilter)));
@@ -3164,7 +3165,7 @@
       list = list.filter((t) => af.medios.includes(t.medio));
     }
     if (af.grupos.length) {
-      list = list.filter((t) => t.groupId && af.grupos.includes(t.groupId));
+      list = list.filter((t) => af.grupos.includes(t.groupId || PERSONAL_GROUP_ID));
     }
     if (af.dateFrom) {
       list = list.filter((t) => t.fecha >= af.dateFrom);
@@ -4821,6 +4822,80 @@
       }
       return;
     }
+    const openEditContactBtn = e.target.closest("[data-open-edit-contact]");
+    if (openEditContactBtn) {
+      const name = openEditContactBtn.getAttribute("data-open-edit-contact");
+      state.editingContactName = name;
+      state.editContactDraft = name;
+      renderSheet();
+      return;
+    }
+    const cancelEditContactBtn = e.target.closest("[data-cancel-edit-contact]");
+    if (cancelEditContactBtn) {
+      state.editingContactName = null;
+      renderSheet();
+      return;
+    }
+    const saveEditContactBtn = e.target.closest("[data-save-edit-contact]");
+    if (saveEditContactBtn) {
+      const oldName = saveEditContactBtn.getAttribute("data-save-edit-contact");
+      const newName = state.editContactDraft.trim();
+      if (newName && newName !== oldName) {
+        if (CONTACTS.includes(newName)) {
+          toast("Ya existe una persona con ese nombre");
+        } else {
+          const idx = CONTACTS.indexOf(oldName);
+          if (idx !== -1) CONTACTS[idx] = newName;
+          if (state.shareDraft) {
+            const d = state.shareDraft;
+            const i2 = d.participantesIncluidos.indexOf(oldName);
+            if (i2 !== -1) d.participantesIncluidos[i2] = newName;
+            if (d.customValues[oldName] != null) {
+              d.customValues[newName] = d.customValues[oldName];
+              delete d.customValues[oldName];
+            }
+            const i3 = d.extraParticipants.indexOf(oldName);
+            if (i3 !== -1) d.extraParticipants[i3] = newName;
+            if (d.pagadoPorId === oldName) d.pagadoPorId = newName;
+          }
+          toast("Nombre actualizado");
+        }
+      }
+      state.editingContactName = null;
+      renderSheet();
+      return;
+    }
+    const askDeleteContactBtn = e.target.closest("[data-ask-delete-contact]");
+    if (askDeleteContactBtn) {
+      state.confirmDeleteContactName = askDeleteContactBtn.getAttribute("data-ask-delete-contact");
+      renderSheet();
+      return;
+    }
+    const cancelDeleteContactBtn = e.target.closest("[data-cancel-delete-contact]");
+    if (cancelDeleteContactBtn) {
+      state.confirmDeleteContactName = null;
+      renderSheet();
+      return;
+    }
+    const confirmDeleteContactBtn = e.target.closest("[data-confirm-delete-contact]");
+    if (confirmDeleteContactBtn) {
+      const name = confirmDeleteContactBtn.getAttribute("data-confirm-delete-contact");
+      const idx = CONTACTS.indexOf(name);
+      if (idx !== -1) CONTACTS.splice(idx, 1);
+      if (state.shareDraft) {
+        const d = state.shareDraft;
+        const i2 = d.participantesIncluidos.indexOf(name);
+        if (i2 !== -1) d.participantesIncluidos.splice(i2, 1);
+        delete d.customValues[name];
+        const i3 = d.extraParticipants.indexOf(name);
+        if (i3 !== -1) d.extraParticipants.splice(i3, 1);
+        if (d.pagadoPorId === name) d.pagadoPorId = "tu";
+      }
+      state.confirmDeleteContactName = null;
+      toast("Quitado de la lista de personas");
+      renderSheet();
+      return;
+    }
     const shareConfirmBtn = e.target.closest("[data-share-confirm]");
     if (shareConfirmBtn) {
       const txId = shareConfirmBtn.getAttribute("data-share-confirm");
@@ -5662,6 +5737,13 @@
       if (saveBtn) saveBtn.disabled = !state.editParticipantDraft.trim();
       return;
     }
+    const editContactName = e.target.closest("[data-edit-contact-name]");
+    if (editContactName) {
+      state.editContactDraft = editContactName.value;
+      const saveBtn = document.querySelector("[data-save-edit-contact]");
+      if (saveBtn) saveBtn.disabled = !state.editContactDraft.trim();
+      return;
+    }
     const manualTransferMonto = e.target.closest('[data-manual-transfer-field="monto"]');
     if (manualTransferMonto && state.manualTransferDraft) {
       const v = safeEvalMoneyExpr(manualTransferMonto.value);
@@ -5934,6 +6016,9 @@
     });
     Object.assign(PAYMENT_METHODS, blob.mediosPago || {});
     setTransactions(blob.transacciones || []);
+    TRANSACTIONS.forEach(function(t) {
+      if (t.estado === "pendiente" && t.categorias.length > 0) t.estado = "confirmado";
+    });
     setContacts(blob.contactos || []);
     setBudgets(blob.presupuestos || {});
     setMonthlyBudgetTotal(blob.monthlyBudgetTotal || 0);
@@ -6465,10 +6550,17 @@
     ], d.divisionTipo);
     const groupSelectHtml = !d.groupId ? "" : '<label class="draft-label">Grupo</label><select data-share-group>' + GROUPS.map((g) => '<option value="' + g.id + '" ' + (g.id === d.groupId ? "selected" : "") + ">" + g.icono + " " + g.nombre + "</option>").join("") + "</select>";
     const rows = participantes.map((p) => {
+      const isContact = !d.groupId && p.id !== "tu";
+      if (isContact && state.editingContactName === p.id) {
+        return '<div class="split-row" style="align-items:center;gap:6px;">' + avatarHtml(p.nombre, p.color, 24) + '<input type="text" class="draft-input" style="flex:1;margin-left:8px;" data-edit-contact-name value="' + state.editContactDraft.replace(/"/g, "&quot;") + '" autofocus><button class="chip" data-cancel-edit-contact>Cancelar</button><button class="chip" style="background:var(--accent-soft);color:var(--accent-ink);" data-save-edit-contact="' + p.id + '" ' + (state.editContactDraft.trim() ? "" : "disabled") + ">Guardar</button></div>";
+      }
+      if (isContact && state.confirmDeleteContactName === p.id) {
+        return '<div class="split-row" style="align-items:center;flex-wrap:wrap;gap:6px;"><span style="flex:1 1 100%;font-size:12.5px;" class="muted">\xBFQuitar a <b>' + p.nombre + "</b> de la lista de personas? No borra gastos ya repartidos con " + p.nombre + '.</span><button class="chip" data-cancel-delete-contact>Cancelar</button><button class="chip" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-contact="' + p.id + '">S\xED, quitar</button></div>';
+      }
       const incluido = d.participantesIncluidos.includes(p.id);
       const raw = d.customValues[p.id] || "";
       const valueField = !incluido ? '<span class="tabular muted">\u2014</span>' : d.divisionTipo === "iguales" ? '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '" placeholder="1" style="width:44px;"><span>partes</span></span><span class="tabular muted" data-share-computed="' + p.id + '" style="margin-left:8px;font-size:12px;flex-shrink:0;">' + money(reparto[p.id] || 0) + "</span>" : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '"><span>' + (d.divisionTipo === "pct" ? "%" : "$") + "</span></span>";
-      return '<div class="split-row" style="align-items:center;"><input type="checkbox" data-share-include="' + p.id + '" ' + (incluido ? "checked" : "") + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">' + avatarHtml(p.nombre, p.color, 24) + '<span style="flex:1;margin-left:8px;">' + p.nombre + "</span>" + valueField + "</div>";
+      return '<div class="split-row" style="align-items:center;"><input type="checkbox" data-share-include="' + p.id + '" ' + (incluido ? "checked" : "") + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">' + avatarHtml(p.nombre, p.color, 24) + '<span style="flex:1;margin-left:8px;">' + p.nombre + "</span>" + valueField + (isContact ? '<button type="button" class="rm-btn" data-open-edit-contact="' + p.id + '" aria-label="Editar a ' + p.nombre + '">' + ICONS.edit + '</button><button type="button" class="rm-btn" data-ask-delete-contact="' + p.id + '" aria-label="Quitar a ' + p.nombre + '">' + ICONS.trash + "</button>" : "") + "</div>";
     }).join("");
     const addPersonRow = d.groupId ? "" : '<div class="split-row" style="align-items:center;"><input type="text" class="draft-input" data-share-new-name placeholder="Agregar otra persona\u2026" style="flex:1;"><button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">' + ICONS.plus + "</button></div>";
     return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">' + (d.groupId ? "Compartir con un grupo" : "Dividir este gasto") + "</div>" + groupSelectHtml + '<label class="draft-label" style="margin-top:12px;">\xBFC\xF3mo se divide?</label>' + modalidadSeg + '<label class="draft-label" style="margin-top:12px;">\xBFQui\xE9n pag\xF3?</label>' + segmentedHtml("compartir-pagador", participantes.map((p) => ({ id: p.id, label: p.nombre })), d.pagadoPorId) + '<label class="draft-label" style="margin-top:12px;">\xBFEntre qui\xE9nes se divide?</label>' + rows + addPersonRow + '<div class="split-remaining"><span>Total repartido</span><span class="' + (ok ? "ok" : "bad") + ' tabular">' + money(suma) + " de " + money(tx.monto) + '</span></div><div class="field-error" style="' + (ok ? "display:none;" : "") + '">' + (remaining > 0 ? "Faltan " + money(remaining) + " por repartir" : remaining < 0 ? "Sobran " + money(-remaining) + " por repartir" : "") + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-share-confirm="' + tx.id + '" ' + (ok ? "" : "disabled") + ">" + (d.groupId ? "Compartir" : "Guardar reparto") + "</button></div></div>";
@@ -7094,7 +7186,7 @@
     const af = state.advFilters;
     const catChips = '<div class="cat-picker-grid">' + chipToggle("toggle-filter-cat", "__sin_cat__", "Sin categor\xEDa", null, af.cats.includes("__sin_cat__")) + Object.keys(CATEGORIES).filter((k) => CATEGORIES[k].tipo !== "inversion").map((k) => chipToggle("toggle-filter-cat", k, CATEGORIES[k].nombre, CATEGORIES[k].icon, af.cats.includes(k))).join("") + investmentCatOptions().map((o) => chipToggle("toggle-filter-cat", o.value, o.label, o.icon, af.cats.includes(o.value))).join("") + "</div>";
     const medioChips = '<div class="cat-picker-grid">' + Object.keys(PAYMENT_METHODS).map((k) => chipToggle("toggle-filter-medio", k, PAYMENT_METHODS[k].nombre, PAYMENT_METHODS[k].icon, af.medios.includes(k))).join("") + "</div>";
-    const grupoChips = GROUPS.length ? '<div class="cat-picker-grid">' + GROUPS.map((g) => chipToggle("toggle-filter-grupo", g.id, g.nombre, g.icono, af.grupos.includes(g.id))).join("") + "</div>" : "";
+    const grupoChips = GROUPS.length ? '<div class="cat-picker-grid">' + chipToggle("toggle-filter-grupo", PERSONAL_GROUP_ID, "Personal", "\u{1F64B}", af.grupos.includes(PERSONAL_GROUP_ID)) + GROUPS.map((g) => chipToggle("toggle-filter-grupo", g.id, g.nombre, g.icono, af.grupos.includes(g.id))).join("") + "</div>" : "";
     const count = advFilterCount();
     return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">Filtros</div><div class="meta">Filtra las transacciones por categor\xEDa, tarjeta, grupo o fecha.</div></div><div class="sheet-block"><div class="sheet-block-title">Categor\xEDa</div>' + catChips + '</div><div class="sheet-block"><div class="sheet-block-title">Tarjeta / medio</div>' + medioChips + "</div>" + (grupoChips ? '<div class="sheet-block"><div class="sheet-block-title">Grupo</div>' + grupoChips + "</div>" : "") + '<div class="sheet-block"><div class="sheet-block-title">Rango de fechas</div><div class="filter-date-row"><input type="date" data-filter-date="from" value="' + (af.dateFrom || "") + '" aria-label="Desde"><input type="date" data-filter-date="to" value="' + (af.dateTo || "") + '" aria-label="Hasta"></div></div><div class="sheet-block" style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-clear-advfilters>Limpiar' + (count ? " (" + count + ")" : "") + '</button><button class="save-tx-btn" style="flex:1;" data-apply-advfilters>Ver resultados</button></div>';
   }
@@ -8061,6 +8153,16 @@
     // "Share with a group" inside a expense transaction's detail/creation:
     shareDraft: null,
     // null, or {groupId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
+    // Editing/deleting a CONTACTS entry from within "divide this expense" (no group) -- same
+    // ask-before-delete shape as editingParticipantId/confirmDeleteParticipantId above, but keyed
+    // by the contact's NAME (their id in that flow, see shareDraftParticipants in views/grupos.ts)
+    // instead of a real participantId, since a plain CONTACTS entry is just a string, not a row
+    // with its own id. Kept separate from the participant fields on purpose: they mean different
+    // things (a group's real, relational participant vs. a no-group quick-pick name) and could in
+    // theory be "open" on two different sheets at once.
+    editingContactName: null,
+    editContactDraft: "",
+    confirmDeleteContactName: null,
     confirmDeleteGroupId: null,
     // ---- Group detail: 3 Tricount-style sub-tabs (see views/grupos.ts renderGroupDetail) ----
     groupDetailTab: "gastos",

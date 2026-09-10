@@ -3,6 +3,10 @@ import { ICONS, catIconMarkup } from '../icons';
 import { getTx, openNewTxSheet, renderSheet } from '../sheet';
 import { MONTH_LABEL, TRANSACTIONS, money, normalize, state, todayISO } from '../state';
 /* ===================== TRANSACTIONS VIEW ===================== */
+// Pseudo-group id for "Personal" (a transaction with no groupId) -- shown as just another
+// selectable chip alongside the real groups in the group filter (see renderFilterSheetContent
+// in sheet.ts), same idea as '__sin_cat__' below for "sin categoría" in the category filter.
+export const PERSONAL_GROUP_ID = '__personal__';
 // Filters shared between the list and the summary cards above it: category/month drill-down,
 // the search box, and the "Filtros" sheet (categoría/tarjeta/fecha) -- but NOT the top chip
 // row (Todas/Entradas/Por cobrar/...), which each summary block applies on its own with its
@@ -32,7 +36,7 @@ function applyCommonFilters(list){
     list = list.filter(t=>af.medios.includes(t.medio));
   }
   if(af.grupos.length){
-    list = list.filter(t=>t.groupId && af.grupos.includes(t.groupId));
+    list = list.filter(t=> af.grupos.includes(t.groupId || PERSONAL_GROUP_ID));
   }
   if(af.dateFrom){ list = list.filter(t=>t.fecha>=af.dateFrom); }
   if(af.dateTo){ list = list.filter(t=>t.fecha<=af.dateTo); }
