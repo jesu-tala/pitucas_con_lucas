@@ -2,7 +2,7 @@ import { catInfo, dayLabel, txsOfMonth } from '../helpers';
 import { ICONS, catIconMarkup } from '../icons';
 import { render } from '../render';
 import { buildReconcileDiff, movementLineId } from '../reconcile';
-import { ensureMonthExists, participantIdForUser } from '../shared-expenses';
+import { ensureMonthExists, participantHasHistory, participantIdForUser } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
 import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO } from '../state';
 import { OCR_WORKER_URL, PUSH_WORKER_URL, VAPID_PUBLIC_KEY, boletaWorkerConfigured, buildFullStateBlob, currentHouseholdId, currentUser, saveTimer, sb, translateAuthError, writeStateToSupabase } from '../supabase';
@@ -1442,6 +1442,36 @@ export async function addParticipantWithoutAccount(groupId, nombre, color){
   if(error){ console.error('Pitucas sin lucas — error agregando participante:', error); return null; }
   await loadSharedExpenses();
   return data;
+}
+// Solo renombra -- sin .select() encadenado, para no repetir la misma ambigüedad de RLS que ya
+// se encontró en createGroup (INSERT/UPDATE... RETURNING puede terminar pasando por la política
+// de SELECT, no la de UPDATE, y Postgres devuelve el mismo mensaje genérico para las dos).
+export async function editGroupParticipant(participantId, nombre){
+  if(!sb) return {ok:false, error:null};
+  const { error } = await sb.from('grupo_participantes').update({nombre}).eq('id', participantId);
+  if(error){ console.error('Pitucas sin lucas — error editando participante:', error); return {ok:false, error}; }
+  await loadSharedExpenses();
+  return {ok:true, error:null};
+}
+export async function deleteGroupParticipant(participantId){
+  if(!sb) return {ok:false, error:null};
+  // grupo_participantes.id tiene on delete cascade desde gasto_reparto -- eliminar a alguien con
+  // historial se llevaría por delante su parte de gastos ya repartidos, corrompiendo cuentas
+  // cerradas. Se bloquea ANTES de tocar la base, con un motivo claro (no un error genérico).
+  if(participantHasHistory(participantId)){
+    return {ok:false, error:{message:'No se puede eliminar: ya tiene gastos o transferencias registradas en este grupo.'}};
+  }
+  const { error } = await sb.from('grupo_participantes').delete().eq('id', participantId);
+  if(error){ console.error('Pitucas sin lucas — error eliminando participante:', error); return {ok:false, error}; }
+  // Mismo bug de RLS silenciosa que ya se encontró en deleteGroup: un DELETE bloqueado por RLS
+  // no devuelve error, solo borra 0 filas -- se confirma con una lectura aparte.
+  const { data: sigueExistiendo, error: checkErr } = await sb.from('grupo_participantes').select('id').eq('id', participantId).maybeSingle();
+  if(checkErr){ console.error('Pitucas sin lucas — no se pudo confirmar que el participante se borró:', checkErr); return {ok:false, error: checkErr}; }
+  if(sigueExistiendo){
+    return {ok:false, error:{message:'No tienes permiso para eliminar a este participante.'}};
+  }
+  await loadSharedExpenses();
+  return {ok:true, error:null};
 }
 
 // Creates the shared expense + its split, and locally builds the transaction for whoever

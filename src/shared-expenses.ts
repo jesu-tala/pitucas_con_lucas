@@ -13,6 +13,18 @@ export function participantsOfGroup(groupId: string): GroupParticipant[] {
 export function expensesOfGroup(groupId: string): SharedExpense[] {
   return SHARED_EXPENSES.filter(g=>g.grupo_id===groupId);
 }
+// Un participante con historial no se puede eliminar sin corromper cuentas ya cerradas:
+// grupo_participantes.id tiene on delete cascade desde gasto_reparto (schema_gastos_compartidos.sql),
+// así que borrarlo se llevaría por delante su parte de cualquier gasto ya repartido -- el total
+// de ese gasto dejaría de sumar lo que sumaba, y su "pagado_por" quedaría apuntando a nadie si
+// fue quien pagó. Se revisa las 3 tablas donde puede aparecer: pagó un gasto, le tocó una
+// parte de un reparto, o participó en una transferencia manual ya registrada.
+export function participantHasHistory(participantId: string): boolean {
+  if(SHARED_EXPENSES.some(g=>g.pagado_por===participantId)) return true;
+  if(SHARED_EXPENSES.some(g=>splitsOfExpense(g).some(r=>r.participante_id===participantId))) return true;
+  if(PAID_BALANCES.some(s=>s.de_participante===participantId || s.a_participante===participantId)) return true;
+  return false;
+}
 export function splitsOfExpense(g: SharedExpense): ExpenseSplit[] {
   return g.reparto || [];
 }

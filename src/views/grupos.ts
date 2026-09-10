@@ -331,16 +331,41 @@ export function renderGroupBalancesTab(groupId){
   const transfers = suggestedTransfers(groupId);
   const mi = myParticipantInGroup(groupId);
 
+  // Editar/eliminar solo se ofrece para participantes SIN cuenta (ella los administra por
+  // completo, como su nombre) -- a alguien con cuenta propia no se le fuerza un cambio de
+  // nombre ni se lo saca del grupo unilateralmente desde acá.
+  const participantesRaw = participantsOfGroup(groupId);
   const personSection = '<div class="sheet-block card" style="padding:16px;margin-bottom:14px;">'+
     '<div class="sheet-block-title">Saldo por persona</div>'+
     balances.map(s=>{
       const isMe = !!(mi && s.participantId===mi.id);
+      const pRaw = participantesRaw.find(p=>p.id===s.participantId);
+      const sinCuenta = !!(pRaw && !pRaw.user_id);
+      if(state.editingParticipantId===s.participantId){
+        return '<div class="split-row" style="align-items:center;gap:6px;">'+
+          avatarHtml(s.nombre, s.color)+
+          '<input type="text" class="draft-input" style="flex:1;margin-left:10px;" data-edit-participant-name value="'+state.editParticipantDraft.replace(/"/g,'&quot;')+'" autofocus>'+
+          '<button class="chip" data-cancel-edit-participant>Cancelar</button>'+
+          '<button class="chip" style="background:var(--accent-soft);color:var(--accent-ink);" data-save-edit-participant="'+s.participantId+'" '+(state.editParticipantDraft.trim()?'':'disabled')+'>Guardar</button>'+
+        '</div>';
+      }
+      if(state.confirmDeleteParticipantId===s.participantId){
+        return '<div class="split-row" style="align-items:center;flex-wrap:wrap;gap:6px;">'+
+          '<span style="flex:1 1 100%;font-size:12.5px;" class="muted">¿Eliminar a <b>'+s.nombre+'</b> de este grupo?</span>'+
+          '<button class="chip" data-cancel-delete-participant>Cancelar</button>'+
+          '<button class="chip" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-participant="'+s.participantId+'">Sí, eliminar</button>'+
+        '</div>';
+      }
       return '<div class="split-row" style="align-items:center;">'+
         avatarHtml(s.nombre, s.color)+
         '<span style="flex:1;margin-left:10px;">'+s.nombre+(isMe?' (tú)':'')+'</span>'+
         '<span class="tabular" style="color:'+(s.balance>0?'var(--income-ink)':s.balance<0?'var(--expense-ink)':'var(--text-secondary)')+';font-weight:600;">'+
           (s.balance===0?'Al día':(s.balance>0?'Le deben ':'Debe ')+money(Math.abs(s.balance)))+
         '</span>'+
+        (sinCuenta
+          ? '<button class="rm-btn" data-open-edit-participant="'+s.participantId+'" aria-label="Editar a '+s.nombre+'">'+ICONS.edit+'</button>'+
+            '<button class="rm-btn" data-ask-delete-participant="'+s.participantId+'" aria-label="Eliminar a '+s.nombre+'">'+ICONS.trash+'</button>'
+          : '')+
       '</div>';
     }).join('')+
     '<button class="split-add" data-group-add-participant-open="'+groupId+'">'+ICONS.plus+' Agregar persona</button>'+

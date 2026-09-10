@@ -417,6 +417,11 @@
   .sueldo-suggestion .sueldo-suggestion-actions{display:flex;gap:8px;margin-top:12px;}
   .sueldo-suggestion .sueldo-suggestion-actions .chip{background:var(--surface);}
   .sueldo-suggestion .sueldo-suggestion-actions .save-tx-btn{flex:1;padding:10px;}
+  .cuotas-proximas-card{background:var(--surface);border:1px solid var(--border);padding:14px;margin-bottom:14px;}
+  .cuotas-proximas-card .sueldo-suggestion-title{color:var(--text);}
+  .cuota-proxima-row{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;padding:6px 0;border-top:1px solid var(--border);}
+  .cuota-proxima-row:first-of-type{margin-top:8px;}
+  .cuota-proxima-row .cuota-proxima-fecha{color:var(--text-tertiary);font-size:11px;}
   .roadmap-list{list-style:none;padding:0;margin:14px 0 0;display:flex;flex-direction:column;gap:8px;text-align:left;}
   .roadmap-list li{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-secondary);padding:9px 10px;background:var(--surface-sunken);border-radius:12px;}
   .roadmap-list svg{width:16px;height:16px;flex-shrink:0;color:var(--text-tertiary);}
@@ -3208,6 +3213,39 @@
     return data;
   }
   __name(addParticipantWithoutAccount, "addParticipantWithoutAccount");
+  async function editGroupParticipant(participantId, nombre) {
+    if (!sb) return { ok: false, error: null };
+    const { error } = await sb.from("grupo_participantes").update({ nombre }).eq("id", participantId);
+    if (error) {
+      console.error("Pitucas sin lucas \u2014 error editando participante:", error);
+      return { ok: false, error };
+    }
+    await loadSharedExpenses();
+    return { ok: true, error: null };
+  }
+  __name(editGroupParticipant, "editGroupParticipant");
+  async function deleteGroupParticipant(participantId) {
+    if (!sb) return { ok: false, error: null };
+    if (participantHasHistory(participantId)) {
+      return { ok: false, error: { message: "No se puede eliminar: ya tiene gastos o transferencias registradas en este grupo." } };
+    }
+    const { error } = await sb.from("grupo_participantes").delete().eq("id", participantId);
+    if (error) {
+      console.error("Pitucas sin lucas \u2014 error eliminando participante:", error);
+      return { ok: false, error };
+    }
+    const { data: sigueExistiendo, error: checkErr } = await sb.from("grupo_participantes").select("id").eq("id", participantId).maybeSingle();
+    if (checkErr) {
+      console.error("Pitucas sin lucas \u2014 no se pudo confirmar que el participante se borr\xF3:", checkErr);
+      return { ok: false, error: checkErr };
+    }
+    if (sigueExistiendo) {
+      return { ok: false, error: { message: "No tienes permiso para eliminar a este participante." } };
+    }
+    await loadSharedExpenses();
+    return { ok: true, error: null };
+  }
+  __name(deleteGroupParticipant, "deleteGroupParticipant");
   async function crearGastoCompartido(opts) {
     if (!sb || !currentUser) return null;
     const soyYoQuienPago = participantIdForUser(opts.groupId, currentUser.id) === opts.pagadoPorId;
@@ -4365,6 +4403,9 @@
     if (af.medios.length) {
       list = list.filter((t) => af.medios.includes(t.medio));
     }
+    if (af.grupos.length) {
+      list = list.filter((t) => t.groupId && af.grupos.includes(t.groupId));
+    }
     if (af.dateFrom) {
       list = list.filter((t) => t.fecha >= af.dateFrom);
     }
@@ -4440,7 +4481,7 @@
   __name(renderTxItem, "renderTxItem");
   function advFilterCount() {
     const af = state.advFilters;
-    return af.cats.length + af.medios.length + (af.dateFrom ? 1 : 0) + (af.dateTo ? 1 : 0);
+    return af.cats.length + af.medios.length + af.grupos.length + (af.dateFrom ? 1 : 0) + (af.dateTo ? 1 : 0);
   }
   __name(advFilterCount, "advFilterCount");
   function renderTxResultsInner() {
@@ -4496,9 +4537,22 @@
         sueldoBanner = '<div class="card sueldo-suggestion"><div class="sueldo-suggestion-title">\xBFYa te lleg\xF3 tu sueldo de ' + (MONTH_LABEL[ym] || ym) + '?</div><div class="sueldo-suggestion-sub">Como no manda correo, no se agrega sola \u2014 la \xFAltima vez fue ' + money(last.monto) + '.</div><div class="sueldo-suggestion-actions"><button class="chip" data-dismiss-salary-suggestion>Todav\xEDa no</button><button class="save-tx-btn" data-confirm-salary-suggestion="' + last.id + '">Confirmar o ajustar</button></div></div>';
       }
     }
-    document.getElementById("view-root").innerHTML = searchRow + '<div class="chip-row">' + filterPill + chipsHtml + "</div>" + sueldoBanner + '<div id="tx-results">' + renderTxResultsInner() + '</div><div style="height:64px;"></div>';
+    document.getElementById("view-root").innerHTML = searchRow + '<div class="chip-row">' + filterPill + chipsHtml + "</div>" + (state.filter === "todas" && !state.categoryFilter && !state.searchQuery.trim() ? renderCuotasProximasBanner() : "") + sueldoBanner + '<div id="tx-results">' + renderTxResultsInner() + '</div><div style="height:64px;"></div>';
   }
   __name(renderTransactionsView, "renderTransactionsView");
+  function renderCuotasProximasBanner() {
+    const hoy = todayISO();
+    const proximas = TRANSACTIONS.filter((t) => t.cuotaProyectada && t.fecha > hoy).sort((a, b) => a.fecha.localeCompare(b.fecha));
+    if (!proximas.length) return "";
+    const totalProximas = proximas.reduce((s, t) => s + t.monto, 0);
+    const maxFilas = 3;
+    const filas = proximas.slice(0, maxFilas).map(
+      (t) => '<div class="cuota-proxima-row"><span>' + t.comercio + " \xB7 cuota " + t.cuotaNumero + "/" + t.cuotaTotal + '<span class="cuota-proxima-fecha"> \xB7 ' + capitalizeFirst(dayLabel(t.fecha)) + '</span></span><span class="tabular">' + money(t.monto) + "</span></div>"
+    ).join("");
+    const resto = proximas.length > maxFilas ? '<div class="muted" style="font-size:11px;margin-top:4px;">+' + (proximas.length - maxFilas) + " m\xE1s</div>" : "";
+    return '<div class="card cuotas-proximas-card"><div class="sueldo-suggestion-title">Pr\xF3ximas cuotas</div><div class="sueldo-suggestion-sub">' + proximas.length + " cuota" + (proximas.length === 1 ? "" : "s") + " por venir, " + money(totalProximas) + " en total.</div>" + filas + resto + "</div>";
+  }
+  __name(renderCuotasProximasBanner, "renderCuotasProximasBanner");
   function openSalarySuggestionSheet(lastId) {
     const last = getTx(lastId);
     const ym = todayISO().slice(0, 7);
@@ -4646,9 +4700,19 @@
       renderSheet();
       return;
     }
+    const toggleFilterGrupo = e.target.closest("[data-toggle-filter-grupo]");
+    if (toggleFilterGrupo) {
+      const gid = toggleFilterGrupo.getAttribute("data-toggle-filter-grupo");
+      const arr = state.advFilters.grupos;
+      const i = arr.indexOf(gid);
+      if (i >= 0) arr.splice(i, 1);
+      else arr.push(gid);
+      renderSheet();
+      return;
+    }
     const clearAdv = e.target.closest("[data-clear-advfilters]");
     if (clearAdv) {
-      state.advFilters = { cats: [], medios: [], dateFrom: "", dateTo: "" };
+      state.advFilters = { cats: [], medios: [], grupos: [], dateFrom: "", dateTo: "" };
       renderSheet();
       return;
     }
@@ -5823,6 +5887,56 @@
       }
       return;
     }
+    const openEditParticipantBtn = e.target.closest("[data-open-edit-participant]");
+    if (openEditParticipantBtn) {
+      const pid = openEditParticipantBtn.getAttribute("data-open-edit-participant");
+      const p = GROUP_PARTICIPANTS.find((p2) => p2.id === pid);
+      state.editingParticipantId = pid;
+      state.editParticipantDraft = p ? p.nombre : "";
+      renderGroupsView();
+      return;
+    }
+    const cancelEditParticipantBtn = e.target.closest("[data-cancel-edit-participant]");
+    if (cancelEditParticipantBtn) {
+      state.editingParticipantId = null;
+      renderGroupsView();
+      return;
+    }
+    const saveEditParticipantBtn = e.target.closest("[data-save-edit-participant]");
+    if (saveEditParticipantBtn) {
+      const pid = saveEditParticipantBtn.getAttribute("data-save-edit-participant");
+      const nombre = state.editParticipantDraft.trim();
+      if (nombre) {
+        editGroupParticipant(pid, nombre).then(function(res) {
+          state.editingParticipantId = null;
+          toast(res.ok ? "Nombre actualizado" : "No se pudo editar \u2014 " + (res.error ? res.error.message : "revisa tu conexi\xF3n"));
+          renderGroupsView();
+        });
+      }
+      return;
+    }
+    const askDeleteParticipantBtn = e.target.closest("[data-ask-delete-participant]");
+    if (askDeleteParticipantBtn) {
+      state.confirmDeleteParticipantId = askDeleteParticipantBtn.getAttribute("data-ask-delete-participant");
+      renderGroupsView();
+      return;
+    }
+    const cancelDeleteParticipantBtn = e.target.closest("[data-cancel-delete-participant]");
+    if (cancelDeleteParticipantBtn) {
+      state.confirmDeleteParticipantId = null;
+      renderGroupsView();
+      return;
+    }
+    const confirmDeleteParticipantBtn = e.target.closest("[data-confirm-delete-participant]");
+    if (confirmDeleteParticipantBtn) {
+      const pid = confirmDeleteParticipantBtn.getAttribute("data-confirm-delete-participant");
+      deleteGroupParticipant(pid).then(function(res) {
+        state.confirmDeleteParticipantId = null;
+        toast(res.ok ? "Participante eliminado" : "No se pudo eliminar \u2014 " + (res.error ? res.error.message : "revisa tu conexi\xF3n"));
+        renderGroupsView();
+      });
+      return;
+    }
     const groupTabBtn = e.target.closest("[data-group-tab]");
     if (groupTabBtn) {
       state.groupDetailTab = groupTabBtn.getAttribute("data-group-tab");
@@ -6777,6 +6891,13 @@
       state.participantDraft[participantDraftField.getAttribute("data-participant-draft-field")] = participantDraftField.value;
       return;
     }
+    const editParticipantName = e.target.closest("[data-edit-participant-name]");
+    if (editParticipantName) {
+      state.editParticipantDraft = editParticipantName.value;
+      const saveBtn = document.querySelector("[data-save-edit-participant]");
+      if (saveBtn) saveBtn.disabled = !state.editParticipantDraft.trim();
+      return;
+    }
     const manualTransferMonto = e.target.closest('[data-manual-transfer-field="monto"]');
     if (manualTransferMonto && state.manualTransferDraft) {
       const v = safeEvalMoneyExpr(manualTransferMonto.value);
@@ -7688,9 +7809,18 @@
     const balances = groupBalances(groupId);
     const transfers = suggestedTransfers(groupId);
     const mi = myParticipantInGroup(groupId);
+    const participantesRaw = participantsOfGroup(groupId);
     const personSection = '<div class="sheet-block card" style="padding:16px;margin-bottom:14px;"><div class="sheet-block-title">Saldo por persona</div>' + balances.map((s) => {
       const isMe = !!(mi && s.participantId === mi.id);
-      return '<div class="split-row" style="align-items:center;">' + avatarHtml(s.nombre, s.color) + '<span style="flex:1;margin-left:10px;">' + s.nombre + (isMe ? " (t\xFA)" : "") + '</span><span class="tabular" style="color:' + (s.balance > 0 ? "var(--income-ink)" : s.balance < 0 ? "var(--expense-ink)" : "var(--text-secondary)") + ';font-weight:600;">' + (s.balance === 0 ? "Al d\xEDa" : (s.balance > 0 ? "Le deben " : "Debe ") + money(Math.abs(s.balance))) + "</span></div>";
+      const pRaw = participantesRaw.find((p) => p.id === s.participantId);
+      const sinCuenta = !!(pRaw && !pRaw.user_id);
+      if (state.editingParticipantId === s.participantId) {
+        return '<div class="split-row" style="align-items:center;gap:6px;">' + avatarHtml(s.nombre, s.color) + '<input type="text" class="draft-input" style="flex:1;margin-left:10px;" data-edit-participant-name value="' + state.editParticipantDraft.replace(/"/g, "&quot;") + '" autofocus><button class="chip" data-cancel-edit-participant>Cancelar</button><button class="chip" style="background:var(--accent-soft);color:var(--accent-ink);" data-save-edit-participant="' + s.participantId + '" ' + (state.editParticipantDraft.trim() ? "" : "disabled") + ">Guardar</button></div>";
+      }
+      if (state.confirmDeleteParticipantId === s.participantId) {
+        return '<div class="split-row" style="align-items:center;flex-wrap:wrap;gap:6px;"><span style="flex:1 1 100%;font-size:12.5px;" class="muted">\xBFEliminar a <b>' + s.nombre + '</b> de este grupo?</span><button class="chip" data-cancel-delete-participant>Cancelar</button><button class="chip" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-participant="' + s.participantId + '">S\xED, eliminar</button></div>';
+      }
+      return '<div class="split-row" style="align-items:center;">' + avatarHtml(s.nombre, s.color) + '<span style="flex:1;margin-left:10px;">' + s.nombre + (isMe ? " (t\xFA)" : "") + '</span><span class="tabular" style="color:' + (s.balance > 0 ? "var(--income-ink)" : s.balance < 0 ? "var(--expense-ink)" : "var(--text-secondary)") + ';font-weight:600;">' + (s.balance === 0 ? "Al d\xEDa" : (s.balance > 0 ? "Le deben " : "Debe ") + money(Math.abs(s.balance))) + "</span>" + (sinCuenta ? '<button class="rm-btn" data-open-edit-participant="' + s.participantId + '" aria-label="Editar a ' + s.nombre + '">' + ICONS.edit + '</button><button class="rm-btn" data-ask-delete-participant="' + s.participantId + '" aria-label="Eliminar a ' + s.nombre + '">' + ICONS.trash + "</button>" : "") + "</div>";
     }).join("") + '<button class="split-add" data-group-add-participant-open="' + groupId + '">' + ICONS.plus + " Agregar persona</button>" + (state.addingParticipant ? renderAddParticipantForm(groupId) : "") + "</div>";
     const transferSection = '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Reembolsos sugeridos</div>' + (transfers.length ? transfers.map((t) => {
       const from = balances.find((b) => b.participantId === t.from);
@@ -8200,8 +8330,9 @@
     const af = state.advFilters;
     const catChips = '<div class="cat-picker-grid">' + chipToggle("toggle-filter-cat", "__sin_cat__", "Sin categor\xEDa", null, af.cats.includes("__sin_cat__")) + Object.keys(CATEGORIES).filter((k) => CATEGORIES[k].tipo !== "inversion").map((k) => chipToggle("toggle-filter-cat", k, CATEGORIES[k].nombre, CATEGORIES[k].icon, af.cats.includes(k))).join("") + investmentCatOptions().map((o) => chipToggle("toggle-filter-cat", o.value, o.label, o.icon, af.cats.includes(o.value))).join("") + "</div>";
     const medioChips = '<div class="cat-picker-grid">' + Object.keys(PAYMENT_METHODS).map((k) => chipToggle("toggle-filter-medio", k, PAYMENT_METHODS[k].nombre, PAYMENT_METHODS[k].icon, af.medios.includes(k))).join("") + "</div>";
+    const grupoChips = GROUPS.length ? '<div class="cat-picker-grid">' + GROUPS.map((g) => chipToggle("toggle-filter-grupo", g.id, g.nombre, g.icono, af.grupos.includes(g.id))).join("") + "</div>" : "";
     const count = advFilterCount();
-    return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">Filtros</div><div class="meta">Filtra las transacciones por categor\xEDa, tarjeta o fecha.</div></div><div class="sheet-block"><div class="sheet-block-title">Categor\xEDa</div>' + catChips + '</div><div class="sheet-block"><div class="sheet-block-title">Tarjeta / medio</div>' + medioChips + '</div><div class="sheet-block"><div class="sheet-block-title">Rango de fechas</div><div class="filter-date-row"><input type="date" data-filter-date="from" value="' + (af.dateFrom || "") + '" aria-label="Desde"><input type="date" data-filter-date="to" value="' + (af.dateTo || "") + '" aria-label="Hasta"></div></div><div class="sheet-block" style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-clear-advfilters>Limpiar' + (count ? " (" + count + ")" : "") + '</button><button class="save-tx-btn" style="flex:1;" data-apply-advfilters>Ver resultados</button></div>';
+    return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">Filtros</div><div class="meta">Filtra las transacciones por categor\xEDa, tarjeta, grupo o fecha.</div></div><div class="sheet-block"><div class="sheet-block-title">Categor\xEDa</div>' + catChips + '</div><div class="sheet-block"><div class="sheet-block-title">Tarjeta / medio</div>' + medioChips + "</div>" + (grupoChips ? '<div class="sheet-block"><div class="sheet-block-title">Grupo</div>' + grupoChips + "</div>" : "") + '<div class="sheet-block"><div class="sheet-block-title">Rango de fechas</div><div class="filter-date-row"><input type="date" data-filter-date="from" value="' + (af.dateFrom || "") + '" aria-label="Desde"><input type="date" data-filter-date="to" value="' + (af.dateTo || "") + '" aria-label="Hasta"></div></div><div class="sheet-block" style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-clear-advfilters>Limpiar' + (count ? " (" + count + ")" : "") + '</button><button class="save-tx-btn" style="flex:1;" data-apply-advfilters>Ver resultados</button></div>';
   }
   __name(renderFilterSheetContent, "renderFilterSheetContent");
   function renderNewTxSheetContent(d) {
@@ -8322,6 +8453,13 @@
     return SHARED_EXPENSES.filter((g) => g.grupo_id === groupId);
   }
   __name(expensesOfGroup, "expensesOfGroup");
+  function participantHasHistory(participantId) {
+    if (SHARED_EXPENSES.some((g) => g.pagado_por === participantId)) return true;
+    if (SHARED_EXPENSES.some((g) => splitsOfExpense(g).some((r) => r.participante_id === participantId))) return true;
+    if (PAID_BALANCES.some((s) => s.de_participante === participantId || s.a_participante === participantId)) return true;
+    return false;
+  }
+  __name(participantHasHistory, "participantHasHistory");
   function splitsOfExpense(g) {
     return g.reparto || [];
   }
@@ -9016,7 +9154,7 @@
     // per tx id: bool — true while the category is being re-picked
     searchQuery: "",
     // free text to search by merchant in Transactions
-    advFilters: { cats: [], medios: [], dateFrom: "", dateTo: "" },
+    advFilters: { cats: [], medios: [], grupos: [], dateFrom: "", dateTo: "" },
     filterSheetOpen: false,
     addingPaymentMethod: false,
     // true while the "add card" mini-form is shown
@@ -9148,6 +9286,12 @@
     addingParticipant: false,
     // true while "Add person" (no account) inside a group is shown
     participantDraft: { nombre: "" },
+    editingParticipantId: null,
+    // participantId being renamed right now (no-account only), or null
+    editParticipantDraft: "",
+    // the name being typed while editingParticipantId is set
+    confirmDeleteParticipantId: null,
+    // participantId with a pending "sure you want to delete?" ask, or null
     settleWithId: null,
     // participantId being "Settled up" right now, or null
     // "Share with a group" inside a expense transaction's detail/creation:

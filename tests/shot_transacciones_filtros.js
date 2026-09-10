@@ -28,7 +28,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
     D.state.categoryFilter = null;
     D.state.categoryFilterMonth = null;
     D.state.searchQuery = '';
-    D.state.advFilters = { cats: [], medios: [], dateFrom: '', dateTo: '' };
+    D.state.advFilters = { cats: [], medios: [], grupos: [], dateFrom: '', dateTo: '' };
     D.state.tab = 'transacciones';
     D.render();
   });

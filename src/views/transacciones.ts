@@ -31,6 +31,9 @@ function applyCommonFilters(list){
   if(af.medios.length){
     list = list.filter(t=>af.medios.includes(t.medio));
   }
+  if(af.grupos.length){
+    list = list.filter(t=>t.groupId && af.grupos.includes(t.groupId));
+  }
   if(af.dateFrom){ list = list.filter(t=>t.fecha>=af.dateFrom); }
   if(af.dateTo){ list = list.filter(t=>t.fecha<=af.dateTo); }
   return list;
@@ -140,7 +143,7 @@ export function renderTxItem(t){
 
 export function advFilterCount(){
   const af = state.advFilters;
-  return af.cats.length + af.medios.length + (af.dateFrom?1:0) + (af.dateTo?1:0);
+  return af.cats.length + af.medios.length + af.grupos.length + (af.dateFrom?1:0) + (af.dateTo?1:0);
 }
 
 export function renderTxResultsInner(){
@@ -216,9 +219,32 @@ export function renderTransactionsView(){
   document.getElementById('view-root').innerHTML =
     searchRow +
     '<div class="chip-row">'+filterPill+chipsHtml+'</div>'+
+    (state.filter==='todas' && !state.categoryFilter && !state.searchQuery.trim() ? renderCuotasProximasBanner() : '')+
     sueldoBanner+
     '<div id="tx-results">'+renderTxResultsInner()+'</div>'+
     '<div style="height:64px;"></div>';
+}
+
+// Pedido real: "quiero arriba de transacciones que me aparezcan próx cuotas" -- las cuotas
+// proyectadas (regenerateInstallmentsFor, shared-expenses.ts) ya viven en TRANSACTIONS con su
+// fecha futura real, así que técnicamente ya aparecían en la lista (ordenada por fecha
+// descendente, quedan arriba de todo) -- pero mezcladas con el resto, sin nada que las junte ni
+// las destaque como "esto viene". Esta tarjeta las agrupa aparte, ordenadas por la más próxima.
+export function renderCuotasProximasBanner(){
+  const hoy = todayISO();
+  const proximas = TRANSACTIONS.filter(t=>t.cuotaProyectada && t.fecha>hoy).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  if(!proximas.length) return '';
+  const totalProximas = proximas.reduce((s,t)=>s+t.monto,0);
+  const maxFilas = 3;
+  const filas = proximas.slice(0,maxFilas).map(t=>
+    '<div class="cuota-proxima-row"><span>'+t.comercio+' · cuota '+t.cuotaNumero+'/'+t.cuotaTotal+'<span class="cuota-proxima-fecha"> · '+capitalizeFirst(dayLabel(t.fecha))+'</span></span><span class="tabular">'+money(t.monto)+'</span></div>'
+  ).join('');
+  const resto = proximas.length>maxFilas ? '<div class="muted" style="font-size:11px;margin-top:4px;">+'+(proximas.length-maxFilas)+' más</div>' : '';
+  return '<div class="card cuotas-proximas-card">'+
+    '<div class="sueldo-suggestion-title">Próximas cuotas</div>'+
+    '<div class="sueldo-suggestion-sub">'+proximas.length+' cuota'+(proximas.length===1?'':'s')+' por venir, '+money(totalProximas)+' en total.</div>'+
+    filas+resto+
+  '</div>';
 }
 
 // Opens the "new transaction" sheet pre-filled with the data from the last time the
