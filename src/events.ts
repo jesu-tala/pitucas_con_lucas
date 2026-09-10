@@ -1349,10 +1349,10 @@ phone.addEventListener('click', function(e: any){
   const confirmDeleteGroupBtn = e.target.closest('[data-confirm-delete-group]');
   if(confirmDeleteGroupBtn){
     const gid = confirmDeleteGroupBtn.getAttribute('data-confirm-delete-group');
-    deleteGroup(gid).then(function(ok){
+    deleteGroup(gid).then(function(res){
       state.confirmDeleteGroupId = null;
-      if(ok){ state.openGroupId = null; toast('Grupo eliminado'); }
-      else toast('No se pudo eliminar el grupo — revisa tu conexión');
+      if(res.ok){ state.openGroupId = null; toast('Grupo eliminado'); }
+      else toast('No se pudo eliminar el grupo — ' + (res.error ? res.error.message : 'revisa tu conexión'));
       renderGroupsView();
     });
     return;

@@ -1398,11 +1398,17 @@ export async function createGroup(nombre, icono){
 }
 
 export async function deleteGroup(groupId){
-  if(!sb) return false;
+  if(!sb) return {ok:false, error:null};
   const { error } = await sb.from('grupos').delete().eq('id', groupId);
-  if(error){ console.error('Pitucas sin lucas — error eliminando grupo:', error); return false; }
+  if(error){
+    // Antes esto solo devolvía true/false, así que el toast del llamador siempre mostraba
+    // "revisa tu conexión" sin importar cuál fuera el error real -- devolver el error de
+    // Supabase deja ver el motivo real (permission denied, RLS, etc.) en vez de adivinar.
+    console.error('Pitucas sin lucas — error eliminando grupo:', error);
+    return {ok:false, error};
+  }
   await loadSharedExpenses();
-  return true;
+  return {ok:true, error:null};
 }
 
 export async function joinGroup(inviteCode, nombre){
