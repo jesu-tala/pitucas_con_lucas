@@ -61,7 +61,7 @@ function check(label, condition, extra) {
  * specifically tests the auth-gate's own initial-render timing -- can opt out and
  * inspect the page in its true just-loaded state.
  */
-async function openApp({ debug = true, viewport = { width: 420, height: 950 }, colorScheme, hideGate = true, waitAfter = 300 } = {}) {
+async function openApp({ debug = true, viewport = { width: 420, height: 950 }, colorScheme, hideGate = true, waitAfter = 300, urlSuffix = '' } = {}) {
   const browser = await chromium.launch(launchOpts);
   const contextOpts = { viewport };
   if (colorScheme) contextOpts.colorScheme = colorScheme;
@@ -74,7 +74,11 @@ async function openApp({ debug = true, viewport = { width: 420, height: 950 }, c
   });
 
   const file = debug ? 'test_debug.html' : 'test.html';
-  await page.goto('file://' + path.join(APP_DIR, file));
+  // urlSuffix: for tests that need a specific #hash or ?query on first load (ej. simular el
+  // link de "olvidé mi contraseña", que Supabase manda con #...type=recovery) -- initSupabaseAuth()
+  // lee la URL de entrada UNA sola vez al arrancar, así que tiene que venir puesta desde el
+  // primer page.goto(), no agregada después con un page.evaluate().
+  await page.goto('file://' + path.join(APP_DIR, file) + urlSuffix);
   if (hideGate) {
     await page.evaluate(() => { const g = document.getElementById('auth-gate'); if (g) g.hidden = true; });
   }

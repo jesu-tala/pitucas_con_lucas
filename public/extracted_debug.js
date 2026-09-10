@@ -6160,6 +6160,9 @@
   __name(handleLogout, "handleLogout");
   function initSupabaseAuth() {
     sb = typeof window !== "undefined" && window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+    if ((window.location.hash + window.location.search).indexOf("type=recovery") !== -1) {
+      inPasswordRecovery = true;
+    }
     const syncIndicatorEl = document.getElementById("sync-indicator");
     const autoSaveObserver = new MutationObserver(function(mutList) {
       const soloIndicador = syncIndicatorEl && mutList.every(function(m) {
