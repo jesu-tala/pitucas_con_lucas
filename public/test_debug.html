@@ -3210,6 +3210,39 @@
     return data;
   }
   __name(addParticipantWithoutAccount, "addParticipantWithoutAccount");
+  async function editGroupParticipant(participantId, nombre) {
+    if (!sb) return { ok: false, error: null };
+    const { error } = await sb.from("grupo_participantes").update({ nombre }).eq("id", participantId);
+    if (error) {
+      console.error("Pitucas sin lucas \u2014 error editando participante:", error);
+      return { ok: false, error };
+    }
+    await loadSharedExpenses();
+    return { ok: true, error: null };
+  }
+  __name(editGroupParticipant, "editGroupParticipant");
+  async function deleteGroupParticipant(participantId) {
+    if (!sb) return { ok: false, error: null };
+    if (participantHasHistory(participantId)) {
+      return { ok: false, error: { message: "No se puede eliminar: ya tiene gastos o transferencias registradas en este grupo." } };
+    }
+    const { error } = await sb.from("grupo_participantes").delete().eq("id", participantId);
+    if (error) {
+      console.error("Pitucas sin lucas \u2014 error eliminando participante:", error);
+      return { ok: false, error };
+    }
+    const { data: sigueExistiendo, error: checkErr } = await sb.from("grupo_participantes").select("id").eq("id", participantId).maybeSingle();
+    if (checkErr) {
+      console.error("Pitucas sin lucas \u2014 no se pudo confirmar que el participante se borr\xF3:", checkErr);
+      return { ok: false, error: checkErr };
+    }
+    if (sigueExistiendo) {
+      return { ok: false, error: { message: "No tienes permiso para eliminar a este participante." } };
+    }
+    await loadSharedExpenses();
+    return { ok: true, error: null };
+  }
+  __name(deleteGroupParticipant, "deleteGroupParticipant");
   async function crearGastoCompartido(opts) {
     if (!sb || !currentUser) return null;
     const soyYoQuienPago = participantIdForUser(opts.groupId, currentUser.id) === opts.pagadoPorId;
@@ -5851,6 +5884,56 @@
       }
       return;
     }
+    const openEditParticipantBtn = e.target.closest("[data-open-edit-participant]");
+    if (openEditParticipantBtn) {
+      const pid = openEditParticipantBtn.getAttribute("data-open-edit-participant");
+      const p = GROUP_PARTICIPANTS.find((p2) => p2.id === pid);
+      state.editingParticipantId = pid;
+      state.editParticipantDraft = p ? p.nombre : "";
+      renderGroupsView();
+      return;
+    }
+    const cancelEditParticipantBtn = e.target.closest("[data-cancel-edit-participant]");
+    if (cancelEditParticipantBtn) {
+      state.editingParticipantId = null;
+      renderGroupsView();
+      return;
+    }
+    const saveEditParticipantBtn = e.target.closest("[data-save-edit-participant]");
+    if (saveEditParticipantBtn) {
+      const pid = saveEditParticipantBtn.getAttribute("data-save-edit-participant");
+      const nombre = state.editParticipantDraft.trim();
+      if (nombre) {
+        editGroupParticipant(pid, nombre).then(function(res) {
+          state.editingParticipantId = null;
+          toast(res.ok ? "Nombre actualizado" : "No se pudo editar \u2014 " + (res.error ? res.error.message : "revisa tu conexi\xF3n"));
+          renderGroupsView();
+        });
+      }
+      return;
+    }
+    const askDeleteParticipantBtn = e.target.closest("[data-ask-delete-participant]");
+    if (askDeleteParticipantBtn) {
+      state.confirmDeleteParticipantId = askDeleteParticipantBtn.getAttribute("data-ask-delete-participant");
+      renderGroupsView();
+      return;
+    }
+    const cancelDeleteParticipantBtn = e.target.closest("[data-cancel-delete-participant]");
+    if (cancelDeleteParticipantBtn) {
+      state.confirmDeleteParticipantId = null;
+      renderGroupsView();
+      return;
+    }
+    const confirmDeleteParticipantBtn = e.target.closest("[data-confirm-delete-participant]");
+    if (confirmDeleteParticipantBtn) {
+      const pid = confirmDeleteParticipantBtn.getAttribute("data-confirm-delete-participant");
+      deleteGroupParticipant(pid).then(function(res) {
+        state.confirmDeleteParticipantId = null;
+        toast(res.ok ? "Participante eliminado" : "No se pudo eliminar \u2014 " + (res.error ? res.error.message : "revisa tu conexi\xF3n"));
+        renderGroupsView();
+      });
+      return;
+    }
     const groupTabBtn = e.target.closest("[data-group-tab]");
     if (groupTabBtn) {
       state.groupDetailTab = groupTabBtn.getAttribute("data-group-tab");
@@ -6804,6 +6887,13 @@
       state.participantDraft[participantDraftField.getAttribute("data-participant-draft-field")] = participantDraftField.value;
       return;
     }
+    const editParticipantName = e.target.closest("[data-edit-participant-name]");
+    if (editParticipantName) {
+      state.editParticipantDraft = editParticipantName.value;
+      const saveBtn = document.querySelector("[data-save-edit-participant]");
+      if (saveBtn) saveBtn.disabled = !state.editParticipantDraft.trim();
+      return;
+    }
     const manualTransferMonto = e.target.closest('[data-manual-transfer-field="monto"]');
     if (manualTransferMonto && state.manualTransferDraft) {
       const v = safeEvalMoneyExpr(manualTransferMonto.value);
@@ -7709,9 +7799,18 @@
     const balances = groupBalances(groupId);
     const transfers = suggestedTransfers(groupId);
     const mi = myParticipantInGroup(groupId);
+    const participantesRaw = participantsOfGroup(groupId);
     const personSection = '<div class="sheet-block card" style="padding:16px;margin-bottom:14px;"><div class="sheet-block-title">Saldo por persona</div>' + balances.map((s) => {
       const isMe = !!(mi && s.participantId === mi.id);
-      return '<div class="split-row" style="align-items:center;">' + avatarHtml(s.nombre, s.color) + '<span style="flex:1;margin-left:10px;">' + s.nombre + (isMe ? " (t\xFA)" : "") + '</span><span class="tabular" style="color:' + (s.balance > 0 ? "var(--income-ink)" : s.balance < 0 ? "var(--expense-ink)" : "var(--text-secondary)") + ';font-weight:600;">' + (s.balance === 0 ? "Al d\xEDa" : (s.balance > 0 ? "Le deben " : "Debe ") + money(Math.abs(s.balance))) + "</span></div>";
+      const pRaw = participantesRaw.find((p) => p.id === s.participantId);
+      const sinCuenta = !!(pRaw && !pRaw.user_id);
+      if (state.editingParticipantId === s.participantId) {
+        return '<div class="split-row" style="align-items:center;gap:6px;">' + avatarHtml(s.nombre, s.color) + '<input type="text" class="draft-input" style="flex:1;margin-left:10px;" data-edit-participant-name value="' + state.editParticipantDraft.replace(/"/g, "&quot;") + '" autofocus><button class="chip" data-cancel-edit-participant>Cancelar</button><button class="chip" style="background:var(--accent-soft);color:var(--accent-ink);" data-save-edit-participant="' + s.participantId + '" ' + (state.editParticipantDraft.trim() ? "" : "disabled") + ">Guardar</button></div>";
+      }
+      if (state.confirmDeleteParticipantId === s.participantId) {
+        return '<div class="split-row" style="align-items:center;flex-wrap:wrap;gap:6px;"><span style="flex:1 1 100%;font-size:12.5px;" class="muted">\xBFEliminar a <b>' + s.nombre + '</b> de este grupo?</span><button class="chip" data-cancel-delete-participant>Cancelar</button><button class="chip" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-participant="' + s.participantId + '">S\xED, eliminar</button></div>';
+      }
+      return '<div class="split-row" style="align-items:center;">' + avatarHtml(s.nombre, s.color) + '<span style="flex:1;margin-left:10px;">' + s.nombre + (isMe ? " (t\xFA)" : "") + '</span><span class="tabular" style="color:' + (s.balance > 0 ? "var(--income-ink)" : s.balance < 0 ? "var(--expense-ink)" : "var(--text-secondary)") + ';font-weight:600;">' + (s.balance === 0 ? "Al d\xEDa" : (s.balance > 0 ? "Le deben " : "Debe ") + money(Math.abs(s.balance))) + "</span>" + (sinCuenta ? '<button class="rm-btn" data-open-edit-participant="' + s.participantId + '" aria-label="Editar a ' + s.nombre + '">' + ICONS.edit + '</button><button class="rm-btn" data-ask-delete-participant="' + s.participantId + '" aria-label="Eliminar a ' + s.nombre + '">' + ICONS.trash + "</button>" : "") + "</div>";
     }).join("") + '<button class="split-add" data-group-add-participant-open="' + groupId + '">' + ICONS.plus + " Agregar persona</button>" + (state.addingParticipant ? renderAddParticipantForm(groupId) : "") + "</div>";
     const transferSection = '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Reembolsos sugeridos</div>' + (transfers.length ? transfers.map((t) => {
       const from = balances.find((b) => b.participantId === t.from);
@@ -8344,6 +8443,13 @@
     return SHARED_EXPENSES.filter((g) => g.grupo_id === groupId);
   }
   __name(expensesOfGroup, "expensesOfGroup");
+  function participantHasHistory(participantId) {
+    if (SHARED_EXPENSES.some((g) => g.pagado_por === participantId)) return true;
+    if (SHARED_EXPENSES.some((g) => splitsOfExpense(g).some((r) => r.participante_id === participantId))) return true;
+    if (PAID_BALANCES.some((s) => s.de_participante === participantId || s.a_participante === participantId)) return true;
+    return false;
+  }
+  __name(participantHasHistory, "participantHasHistory");
   function splitsOfExpense(g) {
     return g.reparto || [];
   }
@@ -9170,6 +9276,12 @@
     addingParticipant: false,
     // true while "Add person" (no account) inside a group is shown
     participantDraft: { nombre: "" },
+    editingParticipantId: null,
+    // participantId being renamed right now (no-account only), or null
+    editParticipantDraft: "",
+    // the name being typed while editingParticipantId is set
+    confirmDeleteParticipantId: null,
+    // participantId with a pending "sure you want to delete?" ask, or null
     settleWithId: null,
     // participantId being "Settled up" right now, or null
     // "Share with a group" inside a expense transaction's detail/creation:

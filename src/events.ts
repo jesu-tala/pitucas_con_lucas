@@ -2,13 +2,13 @@ import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, pay
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
-import { CATEGORIES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
+import { CATEGORIES, GROUP_PARTICIPANTS, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
 import { defaultShareDraft, renderGroupsView } from './views/grupos';
 import { activePlatformIds, bumpPlatformValueForContribution, generalCatIdFor, goalCapablePlatformIds, platformCurrentValue, platformIdForInvestmentCat, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
-import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, leerBoletaConOCR, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
+import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, deleteGroupParticipant, editGroupParticipant, leerBoletaConOCR, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
 import { renderBalanceView, renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
 import { buildReconcileDiff } from './reconcile';
@@ -1285,6 +1285,58 @@ phone.addEventListener('click', function(e: any){
     }
     return;
   }
+  // Editar/eliminar un participante sin cuenta (mismo trío ask/cancel/confirm que eliminar un
+  // grupo o una transacción -- nunca borra directo).
+  const openEditParticipantBtn = e.target.closest('[data-open-edit-participant]');
+  if(openEditParticipantBtn){
+    const pid = openEditParticipantBtn.getAttribute('data-open-edit-participant');
+    const p = GROUP_PARTICIPANTS.find(p=>p.id===pid);
+    state.editingParticipantId = pid;
+    state.editParticipantDraft = p ? p.nombre : '';
+    renderGroupsView();
+    return;
+  }
+  const cancelEditParticipantBtn = e.target.closest('[data-cancel-edit-participant]');
+  if(cancelEditParticipantBtn){
+    state.editingParticipantId = null;
+    renderGroupsView();
+    return;
+  }
+  const saveEditParticipantBtn = e.target.closest('[data-save-edit-participant]');
+  if(saveEditParticipantBtn){
+    const pid = saveEditParticipantBtn.getAttribute('data-save-edit-participant');
+    const nombre = state.editParticipantDraft.trim();
+    if(nombre){
+      editGroupParticipant(pid, nombre).then(function(res){
+        state.editingParticipantId = null;
+        toast(res.ok ? 'Nombre actualizado' : 'No se pudo editar — ' + (res.error ? res.error.message : 'revisa tu conexión'));
+        renderGroupsView();
+      });
+    }
+    return;
+  }
+  const askDeleteParticipantBtn = e.target.closest('[data-ask-delete-participant]');
+  if(askDeleteParticipantBtn){
+    state.confirmDeleteParticipantId = askDeleteParticipantBtn.getAttribute('data-ask-delete-participant');
+    renderGroupsView();
+    return;
+  }
+  const cancelDeleteParticipantBtn = e.target.closest('[data-cancel-delete-participant]');
+  if(cancelDeleteParticipantBtn){
+    state.confirmDeleteParticipantId = null;
+    renderGroupsView();
+    return;
+  }
+  const confirmDeleteParticipantBtn = e.target.closest('[data-confirm-delete-participant]');
+  if(confirmDeleteParticipantBtn){
+    const pid = confirmDeleteParticipantBtn.getAttribute('data-confirm-delete-participant');
+    deleteGroupParticipant(pid).then(function(res){
+      state.confirmDeleteParticipantId = null;
+      toast(res.ok ? 'Participante eliminado' : 'No se pudo eliminar — ' + (res.error ? res.error.message : 'revisa tu conexión'));
+      renderGroupsView();
+    });
+    return;
+  }
   // Sub-tabs of a group's detail (Gastos/Balances/Transferencias) -- same simple pattern as
   // data-summary-sub (no drag here, only 3 fixed tabs).
   const groupTabBtn = e.target.closest('[data-group-tab]');
@@ -2187,6 +2239,13 @@ phone.addEventListener('input', function(e: any){
   const participantDraftField = e.target.closest('[data-participant-draft-field]');
   if(participantDraftField){
     state.participantDraft[participantDraftField.getAttribute('data-participant-draft-field')] = participantDraftField.value;
+    return;
+  }
+  const editParticipantName = e.target.closest('[data-edit-participant-name]');
+  if(editParticipantName){
+    state.editParticipantDraft = editParticipantName.value;
+    const saveBtn = document.querySelector<HTMLButtonElement>('[data-save-edit-participant]');
+    if(saveBtn) saveBtn.disabled = !state.editParticipantDraft.trim();
     return;
   }
   const manualTransferMonto = e.target.closest('[data-manual-transfer-field="monto"]');

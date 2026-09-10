@@ -470,6 +470,9 @@ export const state: AppState = {
   joinDraft:{inviteCode:'', nombre:''},
   addingParticipant:false,      // true while "Add person" (no account) inside a group is shown
   participantDraft:{nombre:''},
+  editingParticipantId:null,    // participantId being renamed right now (no-account only), or null
+  editParticipantDraft:'',      // the name being typed while editingParticipantId is set
+  confirmDeleteParticipantId:null, // participantId with a pending "sure you want to delete?" ask, or null
   settleWithId:null,            // participantId being "Settled up" right now, or null
   // "Share with a group" inside a expense transaction's detail/creation:
   shareDraft:null,              // null, or {groupId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
