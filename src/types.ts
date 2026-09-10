@@ -57,7 +57,10 @@ export interface ReceivableItem {
   direccion?: 'me_deben' | 'debo';
 }
 
-export interface InstallmentsInfo { total: number; }
+// montoTotal is the full purchase price as originally entered (before splitting it across
+// installments) -- kept so the per-cuota amount can be recomputed whenever `total` changes,
+// and so turning "Pago en cuotas" back off can restore the original amount.
+export interface InstallmentsInfo { total: number; montoTotal: number; }
 
 export interface Transaction {
   id: string;
