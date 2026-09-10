@@ -5931,9 +5931,24 @@
     if (/Password should be at least|password.*6/i.test(msg)) return "La contrase\xF1a debe tener al menos 6 caracteres.";
     if (/Unable to validate email|invalid.*email/i.test(msg)) return "Ese correo no parece v\xE1lido.";
     if (/Failed to fetch|NetworkError|network/i.test(msg)) return "No se pudo conectar. Revisa tu internet e intenta de nuevo.";
+    if (/provider is not enabled|Unsupported provider/i.test(msg)) return "El login con Google todav\xEDa no est\xE1 activado en el servidor.";
     return msg || "Ocurri\xF3 un error inesperado. Intenta de nuevo.";
   }
   __name(translateAuthError, "translateAuthError");
+  async function handleGoogleSignIn() {
+    if (!sb) {
+      showAuthError("No se pudo cargar la conexi\xF3n con el servidor. Recarga la p\xE1gina.");
+      return;
+    }
+    clearAuthError();
+    clearAuthHint();
+    const { error } = await sb.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin + window.location.pathname }
+    });
+    if (error) showAuthError(translateAuthError(error));
+  }
+  __name(handleGoogleSignIn, "handleGoogleSignIn");
   async function handleAuthSubmit() {
     if (!sb) {
       showAuthError("No se pudo cargar la conexi\xF3n con el servidor. Recarga la p\xE1gina.");
@@ -6087,6 +6102,9 @@
     document.getElementById("auth-form").addEventListener("submit", function(e) {
       e.preventDefault();
       handleAuthSubmit();
+    });
+    document.getElementById("auth-google-btn").addEventListener("click", function() {
+      handleGoogleSignIn();
     });
     if (sb) {
       sb.auth.onAuthStateChange(function(event, session) {
