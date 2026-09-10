@@ -347,7 +347,8 @@ export function renderSheetContent(t){
           (t.cuotas ? '<div class="cuota-stepper-wrap"><span class="cs-label">Número de cuotas</span>'+
             '<div class="stepper"><button data-installments-step="-1" data-tx="'+t.id+'" aria-label="Menos cuotas">'+ICONS.minus+'</button>'+
             '<span class="count tabular">'+t.cuotas.total+'</span>'+
-            '<button data-installments-step="1" data-tx="'+t.id+'" aria-label="Más cuotas">'+ICONS.plus+'</button></div></div>' : '')+
+            '<button data-installments-step="1" data-tx="'+t.id+'" aria-label="Más cuotas">'+ICONS.plus+'</button></div></div>'+
+            '<div class="muted" style="font-size:12px;margin-top:6px;">'+money(t.monto)+' al mes · '+money(t.cuotas.montoTotal)+' en total</div>' : '')+
         '</div>';
 
   const medioOptsExisting = Object.keys(PAYMENT_METHODS).map(function(k){
