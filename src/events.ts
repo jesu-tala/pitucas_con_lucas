@@ -1239,9 +1239,9 @@ phone.addEventListener('click', function(e: any){
   if(groupJoinConfirmBtn){
     const d = state.joinDraft;
     if(d.inviteCode.trim() && d.nombre.trim()){
-      joinGroup(d.inviteCode.trim(), d.nombre.trim()).then(function(ok){
+      joinGroup(d.inviteCode.trim(), d.nombre.trim()).then(function(res){
         state.joiningGroup = false;
-        toast(ok ? 'Te uniste al grupo' : 'No se pudo unir — revisa el código');
+        toast(res.ok ? 'Te uniste al grupo' : 'No se pudo unir — ' + (res.error ? res.error.message : 'revisa el código'));
         renderGroupsView();
       });
     }

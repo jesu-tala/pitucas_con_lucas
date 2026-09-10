@@ -3169,19 +3169,29 @@
       console.error("Pitucas sin lucas \u2014 error eliminando grupo:", error);
       return { ok: false, error };
     }
+    const { data: sigueExistiendo, error: checkErr } = await sb.from("grupos").select("id").eq("id", groupId).maybeSingle();
+    if (checkErr) {
+      console.error("Pitucas sin lucas \u2014 no se pudo confirmar que el grupo se borr\xF3:", checkErr);
+      return { ok: false, error: checkErr };
+    }
+    if (sigueExistiendo) {
+      const fakeError = { message: "No tienes permiso para eliminar este grupo (solo quien lo cre\xF3 puede hacerlo)." };
+      console.error("Pitucas sin lucas \u2014 el DELETE no dio error pero el grupo sigue existiendo (bloqueado por RLS):", groupId);
+      return { ok: false, error: fakeError };
+    }
     await loadSharedExpenses();
     return { ok: true, error: null };
   }
   __name(deleteGroup, "deleteGroup");
   async function joinGroup(inviteCode, nombre) {
-    if (!sb) return false;
+    if (!sb) return { ok: false, error: null };
     const { error } = await sb.rpc("unirse_a_grupo", { p_invite_code: inviteCode, p_nombre: nombre });
     if (error) {
       console.error("Pitucas sin lucas \u2014 error uni\xE9ndose al grupo:", error);
-      return false;
+      return { ok: false, error };
     }
     await loadSharedExpenses();
-    return true;
+    return { ok: true, error: null };
   }
   __name(joinGroup, "joinGroup");
   async function addParticipantWithoutAccount(groupId, nombre, color) {
@@ -5775,9 +5785,9 @@
     if (groupJoinConfirmBtn) {
       const d = state.joinDraft;
       if (d.inviteCode.trim() && d.nombre.trim()) {
-        joinGroup(d.inviteCode.trim(), d.nombre.trim()).then(function(ok) {
+        joinGroup(d.inviteCode.trim(), d.nombre.trim()).then(function(res) {
           state.joiningGroup = false;
-          toast(ok ? "Te uniste al grupo" : "No se pudo unir \u2014 revisa el c\xF3digo");
+          toast(res.ok ? "Te uniste al grupo" : "No se pudo unir \u2014 " + (res.error ? res.error.message : "revisa el c\xF3digo"));
           renderGroupsView();
         });
       }
