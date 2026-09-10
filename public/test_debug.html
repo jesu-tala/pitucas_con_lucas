@@ -1545,6 +1545,26 @@
     tx.reglaAuto = true;
   }
   __name(applyLockRule, "applyLockRule");
+  function applyCuotaMonto(t, newMonto) {
+    t.monto = newMonto;
+    if (t.categorias.length === 1) {
+      t.categorias[0].monto = newMonto;
+    } else if (t.categorias.length > 1) {
+      const oldTotal = catTotalAmount(t);
+      if (oldTotal > 0) {
+        let asignado = 0;
+        t.categorias.forEach((c, idx) => {
+          if (idx === t.categorias.length - 1) {
+            c.monto = newMonto - asignado;
+          } else {
+            c.monto = Math.round(c.monto / oldTotal * newMonto);
+            asignado += c.monto;
+          }
+        });
+      }
+    }
+  }
+  __name(applyCuotaMonto, "applyCuotaMonto");
   function allCollected(t) {
     return t.porCobrar.length > 0 && t.porCobrar.every((p) => p.pagado);
   }
@@ -4882,9 +4902,12 @@
       const t = getTx(toggleCuotas.getAttribute("data-toggle-installments"));
       if (t) {
         if (t.cuotas) {
+          applyCuotaMonto(t, t.cuotas.montoTotal);
           delete t.cuotas;
         } else {
-          t.cuotas = { total: 2 };
+          const montoTotal = t.monto;
+          t.cuotas = { total: 2, montoTotal };
+          applyCuotaMonto(t, Math.round(montoTotal / 2));
         }
         regenerateInstallmentsFor(t.id);
         renderSheet();
@@ -4898,6 +4921,7 @@
       if (t && t.cuotas) {
         const delta = parseInt(cuotasStep.getAttribute("data-installments-step"), 10);
         t.cuotas.total = Math.max(2, Math.min(24, t.cuotas.total + delta));
+        applyCuotaMonto(t, Math.round(t.cuotas.montoTotal / t.cuotas.total));
         regenerateInstallmentsFor(t.id);
         renderSheet();
         renderIfListVisible();
@@ -8132,7 +8156,7 @@
       { id: "mensual", label: "Mensual" },
       { id: "anual", label: "Anual" }
     ], t.recurrencia);
-    const cuotaBlock = t.tipo !== "gasto" || isInvest ? "" : t.cuotaProyectada ? '<div class="sheet-block card" style="padding:16px;"><div class="cuota-note">' + ICONS.layers + "<span>Esta es la cuota " + t.cuotaNumero + " de " + t.cuotaTotal + " de la compra en <b>" + t.comercio + "</b>. Se gener\xF3 sola a partir de la cuota 1 y va a dejar de aparecer despu\xE9s de la cuota " + t.cuotaTotal + ".</span></div></div>" : '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Pago en cuotas</div><div class="cuota-row"><span class="cuota-icon">' + ICONS.layers + '</span><span class="cuota-text">La pagaste en cuotas y quieres verla los pr\xF3ximos meses</span><button class="switch ' + (t.cuotas ? "on" : "") + '" data-toggle-installments="' + t.id + '" aria-label="Pago en cuotas" aria-pressed="' + (t.cuotas ? "true" : "false") + '"></button></div>' + (t.cuotas ? '<div class="cuota-stepper-wrap"><span class="cs-label">N\xFAmero de cuotas</span><div class="stepper"><button data-installments-step="-1" data-tx="' + t.id + '" aria-label="Menos cuotas">' + ICONS.minus + '</button><span class="count tabular">' + t.cuotas.total + '</span><button data-installments-step="1" data-tx="' + t.id + '" aria-label="M\xE1s cuotas">' + ICONS.plus + "</button></div></div>" : "") + "</div>";
+    const cuotaBlock = t.tipo !== "gasto" || isInvest ? "" : t.cuotaProyectada ? '<div class="sheet-block card" style="padding:16px;"><div class="cuota-note">' + ICONS.layers + "<span>Esta es la cuota " + t.cuotaNumero + " de " + t.cuotaTotal + " de la compra en <b>" + t.comercio + "</b>. Se gener\xF3 sola a partir de la cuota 1 y va a dejar de aparecer despu\xE9s de la cuota " + t.cuotaTotal + ".</span></div></div>" : '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Pago en cuotas</div><div class="cuota-row"><span class="cuota-icon">' + ICONS.layers + '</span><span class="cuota-text">La pagaste en cuotas y quieres verla los pr\xF3ximos meses</span><button class="switch ' + (t.cuotas ? "on" : "") + '" data-toggle-installments="' + t.id + '" aria-label="Pago en cuotas" aria-pressed="' + (t.cuotas ? "true" : "false") + '"></button></div>' + (t.cuotas ? '<div class="cuota-stepper-wrap"><span class="cs-label">N\xFAmero de cuotas</span><div class="stepper"><button data-installments-step="-1" data-tx="' + t.id + '" aria-label="Menos cuotas">' + ICONS.minus + '</button><span class="count tabular">' + t.cuotas.total + '</span><button data-installments-step="1" data-tx="' + t.id + '" aria-label="M\xE1s cuotas">' + ICONS.plus + '</button></div></div><div class="muted" style="font-size:12px;margin-top:6px;">' + money(t.monto) + " al mes \xB7 " + money(t.cuotas.montoTotal) + " en total</div>" : "") + "</div>";
     const medioOptsExisting = Object.keys(PAYMENT_METHODS).map(function(k) {
       return '<option value="' + k + '" ' + (t.medio === k ? "selected" : "") + ">" + PAYMENT_METHODS[k].nombre + "</option>";
     }).join("");
@@ -9116,7 +9140,7 @@
     { id: "t10", fecha: "2026-08-21", hora: "18:22", comercio: "Cine Hoyts Costanera", monto: 12e3, medio: "visa_bch", tipo: "gasto", recurrencia: "variable", estado: "confirmado", categorias: [{ cat: "entretenimiento", monto: 12e3 }], porCobrar: [], reglaAuto: false, nota: "" },
     { id: "t11", fecha: "2026-08-20", hora: "09:00", comercio: "Freelance dise\xF1o web", monto: 18e4, medio: "cuenta_vista", tipo: "ingreso", recurrencia: "variable", estado: "confirmado", categorias: [{ cat: "pololos_extra", monto: 18e4 }], porCobrar: [], reglaAuto: false, nota: "" },
     { id: "t30", fecha: "2026-08-28", hora: "19:45", comercio: "Compra Transbank *8842", monto: 12500, medio: "visa_bch", tipo: "gasto", recurrencia: "variable", estado: "pendiente", categorias: [], porCobrar: [], reglaAuto: false, nota: "" },
-    { id: "t31", fecha: "2026-08-10", hora: "16:20", comercio: "Falabella \xB7 Notebook", monto: 9e4, medio: "visa_bch", tipo: "gasto", recurrencia: "variable", estado: "confirmado", categorias: [{ cat: "hogar", monto: 9e4 }], porCobrar: [], reglaAuto: false, nota: "", cuotas: { total: 3 } },
+    { id: "t31", fecha: "2026-08-10", hora: "16:20", comercio: "Falabella \xB7 Notebook", monto: 3e4, medio: "visa_bch", tipo: "gasto", recurrencia: "variable", estado: "confirmado", categorias: [{ cat: "hogar", monto: 3e4 }], porCobrar: [], reglaAuto: false, nota: "", cuotas: { total: 3, montoTotal: 9e4 } },
     { id: "t32", fecha: "2026-08-07", hora: "13:30", comercio: "Sushi Bar Vitacura", monto: 36e3, medio: "debito_bci", tipo: "gasto", recurrencia: "variable", estado: "por_cobrar", categorias: [{ cat: "restoranes", monto: 36e3 }], porCobrar: [{ persona: "Pancho", monto: 18e3, pagado: true, tipo: "persona", montoRecibido: 18e3, linkedTxId: null }], reglaAuto: false, nota: "" },
     { id: "t12", fecha: "2026-08-18", hora: "11:00", comercio: "L\xEDder Express", monto: 23800, medio: "debito_bci", tipo: "gasto", recurrencia: "variable", estado: "confirmado", categorias: [{ cat: "supermercado", monto: 23800 }], porCobrar: [], reglaAuto: false, nota: "" },
     { id: "t13", fecha: "2026-08-15", hora: "14:10", comercio: "Transferencia entre mis cuentas", monto: 2e5, medio: "cuenta_vista", tipo: "gasto", recurrencia: "variable", estado: "no_es_gasto", categorias: [], porCobrar: [], reglaAuto: false, nota: "Traspaso, no es un gasto real" },

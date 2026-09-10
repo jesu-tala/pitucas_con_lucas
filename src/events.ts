@@ -1,4 +1,4 @@
-import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
+import { allCollected, applyCuotaMonto, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
@@ -312,7 +312,16 @@ phone.addEventListener('click', function(e: any){
   if(toggleCuotas){
     const t = getTx(toggleCuotas.getAttribute('data-toggle-installments'));
     if(t){
-      if(t.cuotas){ delete t.cuotas; } else { t.cuotas = {total:2}; }
+      if(t.cuotas){
+        // Turning it off: restore the full purchase price that was recorded when cuotas were
+        // turned on -- this transaction goes back to being just what it says, once.
+        applyCuotaMonto(t, t.cuotas.montoTotal);
+        delete t.cuotas;
+      } else {
+        const montoTotal = t.monto;
+        t.cuotas = {total:2, montoTotal};
+        applyCuotaMonto(t, Math.round(montoTotal/2));
+      }
       regenerateInstallmentsFor(t.id);
       renderSheet(); renderIfListVisible();
     }
@@ -324,6 +333,7 @@ phone.addEventListener('click', function(e: any){
     if(t && t.cuotas){
       const delta = parseInt(cuotasStep.getAttribute('data-installments-step'),10);
       t.cuotas.total = Math.max(2, Math.min(24, t.cuotas.total+delta));
+      applyCuotaMonto(t, Math.round(t.cuotas.montoTotal/t.cuotas.total));
       regenerateInstallmentsFor(t.id);
       renderSheet(); renderIfListVisible();
     }

@@ -277,6 +277,32 @@ export function applyLockRule(tx){
   tx.reglaAuto = true;
 }
 
+// Sets a transaction's monto to newMonto and rescales its categorias proportionally, so
+// catTotalAmount() (what Balance/Presupuesto/Evolución actually sum) stays in sync — same
+// rounding approach as the manual monto-edit field in events.ts (data-tx-field="monto"): a
+// single category gets the new amount directly, several are rescaled preserving their split,
+// with the last one absorbing the rounding remainder so the sum lands exactly on newMonto.
+// Used to turn "Pago en cuotas" ON/OFF and to resize the number of cuotas: the transaction's
+// own monto has to become THAT MONTH's cuota amount (montoTotal / total), never the full
+// purchase price, since that's what gets counted every month it appears in (see
+// regenerateInstallmentsFor in shared-expenses.ts, which just copies monto/categorias as-is
+// into every projected future installment).
+export function applyCuotaMonto(t: Transaction, newMonto: number){
+  t.monto = newMonto;
+  if(t.categorias.length===1){
+    t.categorias[0].monto = newMonto;
+  } else if(t.categorias.length>1){
+    const oldTotal = catTotalAmount(t);
+    if(oldTotal>0){
+      let asignado = 0;
+      t.categorias.forEach((c,idx)=>{
+        if(idx===t.categorias.length-1){ c.monto = newMonto - asignado; }
+        else { c.monto = Math.round(c.monto/oldTotal*newMonto); asignado += c.monto; }
+      });
+    }
+  }
+}
+
 export function allCollected(t){
   return t.porCobrar.length>0 && t.porCobrar.every(p=>p.pagado);
 }
