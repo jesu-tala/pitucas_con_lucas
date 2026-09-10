@@ -55,7 +55,12 @@ export const PAYMENT_METHODS: Record<string, PaymentMethod> = {
   cuenta_vista:{nombre:'Cuenta Vista', corto:'Cta. Vista', icon:'bank'},
   efectivo:{nombre:'Efectivo', corto:'Efectivo', icon:'cash'}
 };
-export const CONTACTS = ['Cata','Fran','Pancho','Mamá'];
+// Antes era un array fijo (const), nunca guardado ni cargado desde Supabase -- por eso eran
+// siempre los mismos 4 nombres de ejemplo para cualquier cuenta real (nunca "los suyos"), y
+// "+ agregar persona" en un reparto (events.ts) solo empujaba el nombre nuevo al borrador de
+// ESE reparto puntual (extraParticipants), nunca acá -- así que en el próximo reparto volvía a
+// desaparecer, sin ninguna sensación de haberse "agregado" de verdad.
+export let CONTACTS: string[] = ['Cata','Fran','Pancho','Mamá'];
 
 // Budget (Phase 2): monthly goal + alerts per expense category.
 // Only the categories present here have a budget assigned; the rest are shown with a
@@ -514,6 +519,7 @@ export function normalize(s){
    MONTH_LABEL aren't here because they're never reassigned like that: they're emptied and
    refilled in the same object/array (a plain old const). */
 export function setTransactions(v: Transaction[]){ TRANSACTIONS = v; }
+export function setContacts(v: string[]){ CONTACTS = v; }
 export function setBudgets(v){ BUDGETS = v; }
 export function setMonthlyBudgetTotal(v){ monthlyBudgetTotal = v; }
 export function setSpendingGoalPct(v){ SPENDING_GOAL_PCT = v; }

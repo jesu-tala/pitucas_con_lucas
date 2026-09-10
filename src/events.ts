@@ -2,7 +2,7 @@ import { allCollected, applyLockRule, catInfo, writeOffReceivable, dayLabel, pay
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
-import { CATEGORIES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
+import { CATEGORIES, CONTACTS, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
@@ -1374,6 +1374,29 @@ phone.addEventListener('click', function(e: any){
     renderSheet();
     return;
   }
+  // "+ agregar persona" inside the split draft (no-group only — see shareDraftParticipants):
+  // adds a brand new ad-hoc name to the pool AND checks it in, ready for the live preview.
+  // Bug real: este handler vivía por error adentro del listener de 'change' (más abajo en este
+  // archivo) -- un <button> nunca dispara 'change' al tocarlo, así que nunca hacía nada en
+  // absoluto (ni siquiera lo temporal de antes, mucho menos persistir a CONTACTS).
+  const shareAddNameBtn = e.target.closest('[data-share-add-name]');
+  if(shareAddNameBtn && state.shareDraft){
+    const row = shareAddNameBtn.closest('.split-row');
+    const input = row ? row.querySelector('[data-share-new-name]') as HTMLInputElement : null;
+    const name = input ? input.value.trim() : '';
+    if(name){
+      const d = state.shareDraft;
+      if(!d.extraParticipants.includes(name)) d.extraParticipants.push(name);
+      if(!d.participantesIncluidos.includes(name)) d.participantesIncluidos.push(name);
+      // Antes esto solo quedaba en el borrador de ESTE reparto puntual -- en el próximo volvía
+      // a desaparecer, sin ninguna sensación de haberse "agregado" de verdad. Ahora también
+      // queda en CONTACTS (persistido, ver buildFullStateBlob/applyStateBlob en supabase.ts),
+      // así que aparece solo la próxima vez que reparta con alguien.
+      if(!CONTACTS.includes(name)) CONTACTS.push(name);
+      renderSheet();
+    }
+    return;
+  }
   const shareConfirmBtn = e.target.closest('[data-share-confirm]');
   if(shareConfirmBtn){
     const txId = shareConfirmBtn.getAttribute('data-share-confirm');
@@ -1759,21 +1782,6 @@ phone.addEventListener('change', function(e: any){
     if(compartirIncluirBox.checked && idx===-1) d.participantesIncluidos.push(pid);
     else if(!compartirIncluirBox.checked && idx!==-1) d.participantesIncluidos.splice(idx,1);
     renderSheet();
-    return;
-  }
-  // "+ agregar persona" inside the split draft (no-group only — see shareDraftParticipants):
-  // adds a brand new ad-hoc name to the pool AND checks it in, ready for the live preview.
-  const shareAddNameBtn = e.target.closest('[data-share-add-name]');
-  if(shareAddNameBtn && state.shareDraft){
-    const row = shareAddNameBtn.closest('.split-row');
-    const input = row ? row.querySelector('[data-share-new-name]') as HTMLInputElement : null;
-    const name = input ? input.value.trim() : '';
-    if(name){
-      const d = state.shareDraft;
-      if(!d.extraParticipants.includes(name)) d.extraParticipants.push(name);
-      if(!d.participantesIncluidos.includes(name)) d.participantesIncluidos.push(name);
-      renderSheet();
-    }
     return;
   }
   // Manual transfer form (group detail, tab "Transferencias") -- "de"/"a" selects and the date
