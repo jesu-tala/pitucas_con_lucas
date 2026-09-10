@@ -7279,6 +7279,14 @@
     TRANSACTIONS.forEach(function(t) {
       if (t.estado === "pendiente" && t.categorias.length > 0) t.estado = "confirmado";
     });
+    TRANSACTIONS.forEach(function(t) {
+      if (t.cuotas && t.cuotas.montoTotal == null) {
+        const montoTotal = t.monto;
+        t.cuotas.montoTotal = montoTotal;
+        applyCuotaMonto(t, Math.round(montoTotal / t.cuotas.total));
+        regenerateInstallmentsFor(t.id);
+      }
+    });
     setContacts(blob.contactos || []);
     setBudgets(blob.presupuestos || {});
     setMonthlyBudgetTotal(blob.monthlyBudgetTotal || 0);
