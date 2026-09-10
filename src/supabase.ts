@@ -475,6 +475,18 @@ export function initSupabaseAuth(){
     ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     : null;
 
+  // Si la URL trae el link de "olvidé mi contraseña" (Supabase le agrega type=recovery, como
+  // querystring o como fragmento #, según el flujo), la bandera se marca ACÁ, de forma
+  // síncrona, antes de llamar a nada de sb.auth. Antes esto se detectaba solo escuchando el
+  // evento PASSWORD_RECOVERY de onAuthStateChange (asíncrono) -- pero sb.auth.getSession()
+  // (más abajo, también asíncrono) corre en paralelo, y si esa segunda llamada resolvía
+  // PRIMERO, entraba derecho a la app con la sesión de recuperación sin pedir nunca la
+  // contraseña nueva (bug real reportado: "no terminé de escribir la contraseña y se inició
+  // sesión"). Mirar la URL de entrada no depende de ninguna carrera entre dos promesas.
+  if((window.location.hash + window.location.search).indexOf('type=recovery') !== -1){
+    inPasswordRecovery = true;
+  }
+
   const syncIndicatorEl = document.getElementById('sync-indicator');
   const autoSaveObserver = new MutationObserver(function(mutList){
     const soloIndicador = syncIndicatorEl && mutList.every(function(m){

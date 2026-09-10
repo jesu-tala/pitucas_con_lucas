@@ -85,5 +85,23 @@ const { openApp, check, finish } = require('./lib/test_kit');
   const nativaTambienBloquea = await page.evaluate(() => !document.getElementById('auth-recovery-password').checkValidity());
   check('   y el navegador igual la bloquearía de forma nativa (minlength="6")', nativaTambienBloquea === true, nativaTambienBloquea);
 
+  // ---------- Bug real: detectar el link de recuperación debe ser SÍNCRONO, no depender de
+  // una carrera entre dos promesas ----------
+  // Antes, inPasswordRecovery solo se marcaba adentro del evento PASSWORD_RECOVERY de
+  // onAuthStateChange (asíncrono) -- pero sb.auth.getSession() (también asíncrono, en
+  // initSupabaseAuth) corre en paralelo, y si esa promesa resolvía PRIMERO, entraba derecho a
+  // la app con la sesión de recuperación sin pedir nunca la contraseña nueva (reportado:
+  // "no terminé de escribir la contraseña y se inició sesión"). El fix mira la URL de entrada
+  // de forma síncrona, antes de llamar a nada de sb.auth -- así que se prueba con una carga de
+  // página fresca (initSupabaseAuth solo corre una vez, al arrancar) con el mismo #type=recovery
+  // que manda Supabase en el link del correo.
+  const segunda = await openApp({ urlSuffix: '#type=recovery', hideGate: false });
+  const marcada = await segunda.page.evaluate(() => window.__debug.inPasswordRecovery);
+  check('Con #type=recovery en la URL de entrada, inPasswordRecovery queda marcado de inmediato (síncrono, sin esperar ningún evento)',
+    marcada === true, marcada);
+  errors.push(...segunda.errors);
+  await segunda.context.close();
+  await segunda.browser.close();
+
   await finish({ context, browser, errors });
 })();
