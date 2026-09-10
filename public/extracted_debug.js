@@ -1908,14 +1908,14 @@
   }
   __name(createGroup, "createGroup");
   async function deleteGroup(groupId) {
-    if (!sb) return false;
+    if (!sb) return { ok: false, error: null };
     const { error } = await sb.from("grupos").delete().eq("id", groupId);
     if (error) {
       console.error("Pitucas sin lucas \u2014 error eliminando grupo:", error);
-      return false;
+      return { ok: false, error };
     }
     await loadSharedExpenses();
-    return true;
+    return { ok: true, error: null };
   }
   __name(deleteGroup, "deleteGroup");
   async function joinGroup(inviteCode, nombre) {
@@ -4637,12 +4637,12 @@
     const confirmDeleteGroupBtn = e.target.closest("[data-confirm-delete-group]");
     if (confirmDeleteGroupBtn) {
       const gid = confirmDeleteGroupBtn.getAttribute("data-confirm-delete-group");
-      deleteGroup(gid).then(function(ok) {
+      deleteGroup(gid).then(function(res) {
         state.confirmDeleteGroupId = null;
-        if (ok) {
+        if (res.ok) {
           state.openGroupId = null;
           toast("Grupo eliminado");
-        } else toast("No se pudo eliminar el grupo \u2014 revisa tu conexi\xF3n");
+        } else toast("No se pudo eliminar el grupo \u2014 " + (res.error ? res.error.message : "revisa tu conexi\xF3n"));
         renderGroupsView();
       });
       return;
