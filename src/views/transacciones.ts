@@ -31,6 +31,9 @@ function applyCommonFilters(list){
   if(af.medios.length){
     list = list.filter(t=>af.medios.includes(t.medio));
   }
+  if(af.grupos.length){
+    list = list.filter(t=>t.groupId && af.grupos.includes(t.groupId));
+  }
   if(af.dateFrom){ list = list.filter(t=>t.fecha>=af.dateFrom); }
   if(af.dateTo){ list = list.filter(t=>t.fecha<=af.dateTo); }
   return list;
@@ -140,7 +143,7 @@ export function renderTxItem(t){
 
 export function advFilterCount(){
   const af = state.advFilters;
-  return af.cats.length + af.medios.length + (af.dateFrom?1:0) + (af.dateTo?1:0);
+  return af.cats.length + af.medios.length + af.grupos.length + (af.dateFrom?1:0) + (af.dateTo?1:0);
 }
 
 export function renderTxResultsInner(){

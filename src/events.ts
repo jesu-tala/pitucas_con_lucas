@@ -107,9 +107,18 @@ phone.addEventListener('click', function(e: any){
     renderSheet();
     return;
   }
+  const toggleFilterGrupo = e.target.closest('[data-toggle-filter-grupo]');
+  if(toggleFilterGrupo){
+    const gid = toggleFilterGrupo.getAttribute('data-toggle-filter-grupo');
+    const arr = state.advFilters.grupos;
+    const i = arr.indexOf(gid);
+    if(i>=0) arr.splice(i,1); else arr.push(gid);
+    renderSheet();
+    return;
+  }
   const clearAdv = e.target.closest('[data-clear-advfilters]');
   if(clearAdv){
-    state.advFilters = {cats:[], medios:[], dateFrom:'', dateTo:''};
+    state.advFilters = {cats:[], medios:[], grupos:[], dateFrom:'', dateTo:''};
     renderSheet();
     return;
   }

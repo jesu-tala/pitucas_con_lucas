@@ -273,7 +273,7 @@ export interface PlatformData {
    said to keep following, function by function); the rest is covered by the "[key: string]:
    any" index below, and gets added to this interface as more screens get typed -- without
    breaking anything in the meantime. */
-export interface AdvFilters { cats: string[]; medios: string[]; dateFrom: string; dateTo: string; }
+export interface AdvFilters { cats: string[]; medios: string[]; grupos: string[]; dateFrom: string; dateTo: string; }
 
 export interface AppState {
   tab: string;                         // transacciones | resumen | menu

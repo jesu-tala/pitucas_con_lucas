@@ -379,7 +379,7 @@ export const state: AppState = {
   splitCollectUnit:{},
   categoryEditMode:{},        // per tx id: bool — true while the category is being re-picked
   searchQuery:'',             // free text to search by merchant in Transactions
-  advFilters:{cats:[], medios:[], dateFrom:'', dateTo:''},
+  advFilters:{cats:[], medios:[], grupos:[], dateFrom:'', dateTo:''},
   filterSheetOpen:false,
   addingPaymentMethod:false,  // true while the "add card" mini-form is shown
   newPaymentMethodDraft:{nombre:'', ultimos4:''},

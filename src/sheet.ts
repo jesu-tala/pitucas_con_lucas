@@ -2,7 +2,7 @@ import { allCollected, catInfo, dayLabel, paymentMethodInfo, pendingEffectiveAmo
 import { ICONS, catIconMarkup } from './icons';
 import { render } from './render';
 import { ensureMonthExists, safeEvalExpr } from './shared-expenses';
-import { CATEGORIES, CONTACTS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, money, moneyPlainMasked, state, todayISO } from './state';
+import { CATEGORIES, CONTACTS, GROUPS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, money, moneyPlainMasked, state, todayISO } from './state';
 import { boletaWorkerConfigured } from './supabase';
 import { ReceivableItem, Transaction } from './types';
 import { toast } from './ui/toasts';
@@ -801,13 +801,19 @@ export function renderFilterSheetContent(){
   const medioChips = '<div class="cat-picker-grid">'+
     Object.keys(PAYMENT_METHODS).map(k=>chipToggle('toggle-filter-medio', k, PAYMENT_METHODS[k].nombre, PAYMENT_METHODS[k].icon, af.medios.includes(k))).join('')+
   '</div>';
+  // Solo transacciones compartidas con un grupo tienen groupId -- si todavía no tiene ningún
+  // grupo, no tiene sentido ofrecer este filtro (quedaría vacío, sin nada que elegir).
+  const grupoChips = GROUPS.length ? '<div class="cat-picker-grid">'+
+    GROUPS.map(g=>chipToggle('toggle-filter-grupo', g.id, g.nombre, g.icono, af.grupos.includes(g.id))).join('')+
+  '</div>' : '';
   const count = advFilterCount();
   return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
       '<div class="merchant" style="font-size:17px;">Filtros</div>'+
-      '<div class="meta">Filtra las transacciones por categoría, tarjeta o fecha.</div>'+
+      '<div class="meta">Filtra las transacciones por categoría, tarjeta, grupo o fecha.</div>'+
     '</div>'+
     '<div class="sheet-block"><div class="sheet-block-title">Categoría</div>'+catChips+'</div>'+
     '<div class="sheet-block"><div class="sheet-block-title">Tarjeta / medio</div>'+medioChips+'</div>'+
+    (grupoChips ? '<div class="sheet-block"><div class="sheet-block-title">Grupo</div>'+grupoChips+'</div>' : '')+
     '<div class="sheet-block"><div class="sheet-block-title">Rango de fechas</div>'+
       '<div class="filter-date-row">'+
         '<input type="date" data-filter-date="from" value="'+(af.dateFrom||'')+'" aria-label="Desde">'+

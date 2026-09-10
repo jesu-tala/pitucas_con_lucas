@@ -3107,6 +3107,9 @@
     if (af.medios.length) {
       list = list.filter((t) => af.medios.includes(t.medio));
     }
+    if (af.grupos.length) {
+      list = list.filter((t) => t.groupId && af.grupos.includes(t.groupId));
+    }
     if (af.dateFrom) {
       list = list.filter((t) => t.fecha >= af.dateFrom);
     }
@@ -3182,7 +3185,7 @@
   __name(renderTxItem, "renderTxItem");
   function advFilterCount() {
     const af = state.advFilters;
-    return af.cats.length + af.medios.length + (af.dateFrom ? 1 : 0) + (af.dateTo ? 1 : 0);
+    return af.cats.length + af.medios.length + af.grupos.length + (af.dateFrom ? 1 : 0) + (af.dateTo ? 1 : 0);
   }
   __name(advFilterCount, "advFilterCount");
   function renderTxResultsInner() {
@@ -3388,9 +3391,19 @@
       renderSheet();
       return;
     }
+    const toggleFilterGrupo = e.target.closest("[data-toggle-filter-grupo]");
+    if (toggleFilterGrupo) {
+      const gid = toggleFilterGrupo.getAttribute("data-toggle-filter-grupo");
+      const arr = state.advFilters.grupos;
+      const i = arr.indexOf(gid);
+      if (i >= 0) arr.splice(i, 1);
+      else arr.push(gid);
+      renderSheet();
+      return;
+    }
     const clearAdv = e.target.closest("[data-clear-advfilters]");
     if (clearAdv) {
-      state.advFilters = { cats: [], medios: [], dateFrom: "", dateTo: "" };
+      state.advFilters = { cats: [], medios: [], grupos: [], dateFrom: "", dateTo: "" };
       renderSheet();
       return;
     }
@@ -6935,8 +6948,9 @@
     const af = state.advFilters;
     const catChips = '<div class="cat-picker-grid">' + chipToggle("toggle-filter-cat", "__sin_cat__", "Sin categor\xEDa", null, af.cats.includes("__sin_cat__")) + Object.keys(CATEGORIES).filter((k) => CATEGORIES[k].tipo !== "inversion").map((k) => chipToggle("toggle-filter-cat", k, CATEGORIES[k].nombre, CATEGORIES[k].icon, af.cats.includes(k))).join("") + investmentCatOptions().map((o) => chipToggle("toggle-filter-cat", o.value, o.label, o.icon, af.cats.includes(o.value))).join("") + "</div>";
     const medioChips = '<div class="cat-picker-grid">' + Object.keys(PAYMENT_METHODS).map((k) => chipToggle("toggle-filter-medio", k, PAYMENT_METHODS[k].nombre, PAYMENT_METHODS[k].icon, af.medios.includes(k))).join("") + "</div>";
+    const grupoChips = GROUPS.length ? '<div class="cat-picker-grid">' + GROUPS.map((g) => chipToggle("toggle-filter-grupo", g.id, g.nombre, g.icono, af.grupos.includes(g.id))).join("") + "</div>" : "";
     const count = advFilterCount();
-    return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">Filtros</div><div class="meta">Filtra las transacciones por categor\xEDa, tarjeta o fecha.</div></div><div class="sheet-block"><div class="sheet-block-title">Categor\xEDa</div>' + catChips + '</div><div class="sheet-block"><div class="sheet-block-title">Tarjeta / medio</div>' + medioChips + '</div><div class="sheet-block"><div class="sheet-block-title">Rango de fechas</div><div class="filter-date-row"><input type="date" data-filter-date="from" value="' + (af.dateFrom || "") + '" aria-label="Desde"><input type="date" data-filter-date="to" value="' + (af.dateTo || "") + '" aria-label="Hasta"></div></div><div class="sheet-block" style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-clear-advfilters>Limpiar' + (count ? " (" + count + ")" : "") + '</button><button class="save-tx-btn" style="flex:1;" data-apply-advfilters>Ver resultados</button></div>';
+    return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">Filtros</div><div class="meta">Filtra las transacciones por categor\xEDa, tarjeta, grupo o fecha.</div></div><div class="sheet-block"><div class="sheet-block-title">Categor\xEDa</div>' + catChips + '</div><div class="sheet-block"><div class="sheet-block-title">Tarjeta / medio</div>' + medioChips + "</div>" + (grupoChips ? '<div class="sheet-block"><div class="sheet-block-title">Grupo</div>' + grupoChips + "</div>" : "") + '<div class="sheet-block"><div class="sheet-block-title">Rango de fechas</div><div class="filter-date-row"><input type="date" data-filter-date="from" value="' + (af.dateFrom || "") + '" aria-label="Desde"><input type="date" data-filter-date="to" value="' + (af.dateTo || "") + '" aria-label="Hasta"></div></div><div class="sheet-block" style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-clear-advfilters>Limpiar' + (count ? " (" + count + ")" : "") + '</button><button class="save-tx-btn" style="flex:1;" data-apply-advfilters>Ver resultados</button></div>';
   }
   __name(renderFilterSheetContent, "renderFilterSheetContent");
   function renderNewTxSheetContent(d) {
@@ -7751,7 +7765,7 @@
     // per tx id: bool — true while the category is being re-picked
     searchQuery: "",
     // free text to search by merchant in Transactions
-    advFilters: { cats: [], medios: [], dateFrom: "", dateTo: "" },
+    advFilters: { cats: [], medios: [], grupos: [], dateFrom: "", dateTo: "" },
     filterSheetOpen: false,
     addingPaymentMethod: false,
     // true while the "add card" mini-form is shown
