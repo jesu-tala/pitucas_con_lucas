@@ -1158,6 +1158,11 @@
   .auth-google-btn svg{width:18px;height:18px;flex:none;}
   .auth-divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--text-tertiary);font-size:11.5px;}
   .auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border);}
+  .auth-forgot-link{
+    display:block;background:none;border:none;padding:0;margin:-6px 0 14px;
+    font-size:12px;color:var(--accent-ink);font-weight:700;cursor:pointer;text-align:right;
+  }
+  .auth-forgot-link[hidden]{display:none;}
 </style>
 
 <div class="stage">
@@ -1198,10 +1203,26 @@
               <label class="draft-label" for="auth-password">Contraseña</label>
               <input class="draft-input" type="password" id="auth-password" autocomplete="current-password" required minlength="6">
             </div>
+            <button type="button" class="auth-forgot-link" id="auth-forgot-btn">¿Olvidaste tu contraseña?</button>
             <div class="field-error" id="auth-error" hidden></div>
             <button class="save-tx-btn" id="auth-submit-btn" type="submit">Iniciar sesión</button>
           </form>
           <div class="auth-hint" id="auth-hint" hidden></div>
+        </div>
+        <div class="auth-content" id="auth-recovery-content" hidden>
+          <div class="auth-brand">
+            <div class="auth-brand-icon" id="auth-recovery-brand-icon"></div>
+            <h2>Nueva contraseña</h2>
+            <p>Elige una contraseña nueva para tu cuenta.</p>
+          </div>
+          <form class="auth-form" id="auth-recovery-form" autocomplete="on">
+            <div class="draft-field">
+              <label class="draft-label" for="auth-recovery-password">Contraseña nueva</label>
+              <input class="draft-input" type="password" id="auth-recovery-password" autocomplete="new-password" required minlength="6">
+            </div>
+            <div class="field-error" id="auth-recovery-error" hidden></div>
+            <button class="save-tx-btn" id="auth-recovery-submit-btn" type="submit">Guardar y entrar</button>
+          </form>
         </div>
       </div>
       <header class="app-header">
@@ -7145,6 +7166,7 @@
   function showAuthForm() {
     document.getElementById("auth-checking").hidden = true;
     document.getElementById("auth-content").hidden = false;
+    document.getElementById("auth-recovery-content").hidden = true;
   }
   __name(showAuthForm, "showAuthForm");
   function switchAuthMode(mode) {
@@ -7155,6 +7177,7 @@
       b.classList.toggle("active", b.getAttribute("data-auth-tab") === mode);
     });
     document.getElementById("auth-password").setAttribute("autocomplete", mode === "signup" ? "new-password" : "current-password");
+    document.getElementById("auth-forgot-btn").hidden = mode !== "login";
     setAuthLoading(false);
   }
   __name(switchAuthMode, "switchAuthMode");
@@ -7166,6 +7189,7 @@
     if (/Unable to validate email|invalid.*email/i.test(msg)) return "Ese correo no parece v\xE1lido.";
     if (/Failed to fetch|NetworkError|network/i.test(msg)) return "No se pudo conectar. Revisa tu internet e intenta de nuevo.";
     if (/provider is not enabled|Unsupported provider/i.test(msg)) return "El login con Google todav\xEDa no est\xE1 activado en el servidor.";
+    if (/security purposes.*after|rate limit/i.test(msg)) return "Espera un momento antes de volver a intentarlo.";
     return msg || "Ocurri\xF3 un error inesperado. Intenta de nuevo.";
   }
   __name(translateAuthError, "translateAuthError");
@@ -7183,6 +7207,72 @@
     if (error) showAuthError(translateAuthError(error));
   }
   __name(handleGoogleSignIn, "handleGoogleSignIn");
+  var inPasswordRecovery = false;
+  function showAuthRecoveryForm() {
+    document.getElementById("auth-content").hidden = true;
+    document.getElementById("auth-recovery-content").hidden = false;
+  }
+  __name(showAuthRecoveryForm, "showAuthRecoveryForm");
+  async function handleForgotPassword() {
+    if (!sb) {
+      showAuthError("No se pudo cargar la conexi\xF3n con el servidor. Recarga la p\xE1gina.");
+      return;
+    }
+    const email = document.getElementById("auth-email").value.trim();
+    clearAuthError();
+    clearAuthHint();
+    if (!email) {
+      showAuthError('Escribe tu correo arriba primero, y despu\xE9s toca "\xBFOlvidaste tu contrase\xF1a?".');
+      return;
+    }
+    setAuthLoading(true);
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname
+    });
+    setAuthLoading(false);
+    if (error) {
+      showAuthError(translateAuthError(error));
+      return;
+    }
+    showAuthHint("Te mandamos un correo a " + email + " con un link para elegir una contrase\xF1a nueva.", true);
+  }
+  __name(handleForgotPassword, "handleForgotPassword");
+  function showRecoveryError(msg) {
+    const el = document.getElementById("auth-recovery-error");
+    el.textContent = msg;
+    el.hidden = false;
+  }
+  __name(showRecoveryError, "showRecoveryError");
+  function clearRecoveryError() {
+    const el = document.getElementById("auth-recovery-error");
+    el.hidden = true;
+    el.textContent = "";
+  }
+  __name(clearRecoveryError, "clearRecoveryError");
+  async function handlePasswordRecoverySubmit() {
+    if (!sb) return;
+    const password = document.getElementById("auth-recovery-password").value;
+    clearRecoveryError();
+    if (password.length < 6) {
+      showRecoveryError("La contrase\xF1a debe tener al menos 6 caracteres.");
+      return;
+    }
+    const btn = document.getElementById("auth-recovery-submit-btn");
+    btn.disabled = true;
+    btn.textContent = "Un momento\u2026";
+    const { error } = await sb.auth.updateUser({ password });
+    btn.disabled = false;
+    btn.textContent = "Guardar y entrar";
+    if (error) {
+      showRecoveryError(translateAuthError(error));
+      return;
+    }
+    inPasswordRecovery = false;
+    document.getElementById("auth-recovery-content").hidden = true;
+    const { data } = await sb.auth.getSession();
+    if (data && data.session && data.session.user) onAuthenticated(data.session.user);
+  }
+  __name(handlePasswordRecoverySubmit, "handlePasswordRecoverySubmit");
   async function handleAuthSubmit() {
     if (!sb) {
       showAuthError("No se pudo cargar la conexi\xF3n con el servidor. Recarga la p\xE1gina.");
@@ -7222,6 +7312,11 @@
   }
   __name(handleAuthSubmit, "handleAuthSubmit");
   async function onAuthenticated(user) {
+    if (inPasswordRecovery) {
+      showAuthForm();
+      showAuthRecoveryForm();
+      return;
+    }
     if (currentUser && currentUser.id === user.id) return;
     currentUser = user;
     setAuthLoading(true);
@@ -7297,6 +7392,8 @@
     state.notifTestResult = null;
     document.getElementById("auth-email").value = "";
     document.getElementById("auth-password").value = "";
+    document.getElementById("auth-recovery-password").value = "";
+    inPasswordRecovery = false;
     clearAuthError();
     clearAuthHint();
     switchAuthMode("login");
@@ -7340,8 +7437,21 @@
     document.getElementById("auth-google-btn").addEventListener("click", function() {
       handleGoogleSignIn();
     });
+    document.getElementById("auth-forgot-btn").addEventListener("click", function() {
+      handleForgotPassword();
+    });
+    document.getElementById("auth-recovery-form").addEventListener("submit", function(e) {
+      e.preventDefault();
+      handlePasswordRecoverySubmit();
+    });
     if (sb) {
       sb.auth.onAuthStateChange(function(event, session) {
+        if (event === "PASSWORD_RECOVERY") {
+          inPasswordRecovery = true;
+          showAuthForm();
+          showAuthRecoveryForm();
+          return;
+        }
         if (event === "SIGNED_OUT") {
           if (currentUser) {
             currentUser = null;
@@ -9145,6 +9255,7 @@
   }
   document.getElementById("fab-add").innerHTML = ICONS.plus;
   document.getElementById("auth-brand-icon").innerHTML = ICONS.lock;
+  document.getElementById("auth-recovery-brand-icon").innerHTML = ICONS.lock;
   regenerateInstallmentsFor("t31");
 
   window.__debug = {
@@ -9199,6 +9310,9 @@
     registerPaidBalance: registerPaidBalance, categoryForSharedExpense: categoryForSharedExpense,
     get currentUser(){ return currentUser; }, set currentUser(v){ currentUser = v; },
     get currentHouseholdId(){ return currentHouseholdId; }, set currentHouseholdId(v){ currentHouseholdId = v; },
+    get inPasswordRecovery(){ return inPasswordRecovery; }, set inPasswordRecovery(v){ inPasswordRecovery = v; },
+    onAuthenticated: onAuthenticated, showAuthRecoveryForm: showAuthRecoveryForm,
+    handlePasswordRecoverySubmit: handlePasswordRecoverySubmit,
     get sb(){ return sb; }, set sb(v){ sb = v; },
     absorbImportedRows: absorbImportedRows, writeStateToSupabase: writeStateToSupabase,
     applyStateBlob: applyStateBlob, nextImportId: nextImportId,

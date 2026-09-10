@@ -73,6 +73,7 @@ if(window.visualViewport){
 
 document.getElementById('fab-add').innerHTML = ICONS.plus;
 document.getElementById('auth-brand-icon').innerHTML = ICONS.lock;
+document.getElementById('auth-recovery-brand-icon').innerHTML = ICONS.lock;
 regenerateInstallmentsFor('t31');
 render();
 

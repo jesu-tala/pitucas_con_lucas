@@ -259,6 +259,7 @@ export function showAuthChecking(){
 export function showAuthForm(){
   document.getElementById('auth-checking').hidden = true;
   document.getElementById('auth-content').hidden = false;
+  document.getElementById('auth-recovery-content').hidden = true;
 }
 export function switchAuthMode(mode){
   authMode = mode;
@@ -267,6 +268,7 @@ export function switchAuthMode(mode){
     b.classList.toggle('active', b.getAttribute('data-auth-tab')===mode);
   });
   document.getElementById('auth-password').setAttribute('autocomplete', mode==='signup' ? 'new-password' : 'current-password');
+  document.getElementById('auth-forgot-btn').hidden = mode!=='login'; // no tiene sentido al crear una cuenta nueva
   setAuthLoading(false);
 }
 export function translateAuthError(err){
@@ -277,6 +279,7 @@ export function translateAuthError(err){
   if(/Unable to validate email|invalid.*email/i.test(msg)) return 'Ese correo no parece válido.';
   if(/Failed to fetch|NetworkError|network/i.test(msg)) return 'No se pudo conectar. Revisa tu internet e intenta de nuevo.';
   if(/provider is not enabled|Unsupported provider/i.test(msg)) return 'El login con Google todavía no está activado en el servidor.';
+  if(/security purposes.*after|rate limit/i.test(msg)) return 'Espera un momento antes de volver a intentarlo.';
   return msg || 'Ocurrió un error inesperado. Intenta de nuevo.';
 }
 
@@ -295,6 +298,57 @@ export async function handleGoogleSignIn(){
   });
   if(error) showAuthError(translateAuthError(error));
   // si no hay error, el navegador ya está siendo redirigido a Google -- no hay más que hacer acá
+}
+
+// Mientras esto sea true, onAuthenticated() no debe avanzar a cargar los datos del hogar --
+// la sesión que trae el link de "olvidé mi contraseña" ya es una sesión válida (Supabase la
+// crea apenas detecta el link en la URL), así que sin esta bandera entraría directo a la app
+// con la contraseña VIEJA sin darle nunca la oportunidad de elegir una nueva.
+export let inPasswordRecovery = false;
+
+export function showAuthRecoveryForm(){
+  document.getElementById('auth-content').hidden = true;
+  document.getElementById('auth-recovery-content').hidden = false;
+}
+
+export async function handleForgotPassword(){
+  if(!sb){ showAuthError('No se pudo cargar la conexión con el servidor. Recarga la página.'); return; }
+  const email = (document.getElementById('auth-email') as HTMLInputElement).value.trim();
+  clearAuthError(); clearAuthHint();
+  if(!email){ showAuthError('Escribe tu correo arriba primero, y después toca "¿Olvidaste tu contraseña?".'); return; }
+  setAuthLoading(true);
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname
+  });
+  setAuthLoading(false);
+  if(error){ showAuthError(translateAuthError(error)); return; }
+  showAuthHint('Te mandamos un correo a '+email+' con un link para elegir una contraseña nueva.', true);
+}
+
+function showRecoveryError(msg){
+  const el = document.getElementById('auth-recovery-error');
+  el.textContent = msg; el.hidden = false;
+}
+function clearRecoveryError(){
+  const el = document.getElementById('auth-recovery-error');
+  el.hidden = true; el.textContent = '';
+}
+export async function handlePasswordRecoverySubmit(){
+  if(!sb) return;
+  const password = (document.getElementById('auth-recovery-password') as HTMLInputElement).value;
+  clearRecoveryError();
+  if(password.length<6){ showRecoveryError('La contraseña debe tener al menos 6 caracteres.'); return; }
+  const btn = document.getElementById('auth-recovery-submit-btn') as HTMLButtonElement;
+  btn.disabled = true; btn.textContent = 'Un momento…';
+  const { error } = await sb.auth.updateUser({ password });
+  btn.disabled = false; btn.textContent = 'Guardar y entrar';
+  if(error){ showRecoveryError(translateAuthError(error)); return; }
+  // La sesión de recuperación ya es una sesión válida -- una vez guardada la contraseña
+  // nueva, entra directo a la app sin pedirle que inicie sesión de nuevo a mano.
+  inPasswordRecovery = false;
+  document.getElementById('auth-recovery-content').hidden = true;
+  const { data } = await sb.auth.getSession();
+  if(data && data.session && data.session.user) onAuthenticated(data.session.user);
 }
 
 export async function handleAuthSubmit(){
@@ -331,6 +385,7 @@ export async function handleAuthSubmit(){
 
 /* ---------- load/save the real household after authenticating ---------- */
 export async function onAuthenticated(user){
+  if(inPasswordRecovery){ showAuthForm(); showAuthRecoveryForm(); return; }
   if(currentUser && currentUser.id===user.id) return; // already loaded, don't repeat
   currentUser = user;
   setAuthLoading(true);
@@ -391,6 +446,8 @@ export function resetToLoggedOutState(){
   state.notifTestBusy = false; state.notifTestResult = null;
   (document.getElementById('auth-email') as HTMLInputElement).value = '';
   (document.getElementById('auth-password') as HTMLInputElement).value = '';
+  (document.getElementById('auth-recovery-password') as HTMLInputElement).value = '';
+  inPasswordRecovery = false;
   clearAuthError(); clearAuthHint();
   switchAuthMode('login');
   document.getElementById('auth-gate').hidden = false;
@@ -440,10 +497,26 @@ export function initSupabaseAuth(){
   document.getElementById('auth-google-btn').addEventListener('click', function(){
     handleGoogleSignIn();
   });
+  document.getElementById('auth-forgot-btn').addEventListener('click', function(){
+    handleForgotPassword();
+  });
+  document.getElementById('auth-recovery-form').addEventListener('submit', function(e: any){
+    e.preventDefault();
+    handlePasswordRecoverySubmit();
+  });
 
   /* ---------- was there already a session open? ---------- */
   if(sb){
     sb.auth.onAuthStateChange(function(event, session){
+      // Llega al abrir el link del correo de "olvidé mi contraseña" -- antes de nada, no
+      // dejar que onAuthenticated() siga de largo hacia la app con la contraseña vieja
+      // todavía puesta (ver la nota en inPasswordRecovery más arriba).
+      if(event==='PASSWORD_RECOVERY'){
+        inPasswordRecovery = true;
+        showAuthForm();
+        showAuthRecoveryForm();
+        return;
+      }
       if(event==='SIGNED_OUT'){
         if(currentUser){ currentUser = null; currentHouseholdId = null; resetToLoggedOutState(); }
         return;
