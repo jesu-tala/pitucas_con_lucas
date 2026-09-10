@@ -3241,9 +3241,22 @@
         sueldoBanner = '<div class="card sueldo-suggestion"><div class="sueldo-suggestion-title">\xBFYa te lleg\xF3 tu sueldo de ' + (MONTH_LABEL[ym] || ym) + '?</div><div class="sueldo-suggestion-sub">Como no manda correo, no se agrega sola \u2014 la \xFAltima vez fue ' + money(last.monto) + '.</div><div class="sueldo-suggestion-actions"><button class="chip" data-dismiss-salary-suggestion>Todav\xEDa no</button><button class="save-tx-btn" data-confirm-salary-suggestion="' + last.id + '">Confirmar o ajustar</button></div></div>';
       }
     }
-    document.getElementById("view-root").innerHTML = searchRow + '<div class="chip-row">' + filterPill + chipsHtml + "</div>" + sueldoBanner + '<div id="tx-results">' + renderTxResultsInner() + '</div><div style="height:64px;"></div>';
+    document.getElementById("view-root").innerHTML = searchRow + '<div class="chip-row">' + filterPill + chipsHtml + "</div>" + (state.filter === "todas" && !state.categoryFilter && !state.searchQuery.trim() ? renderCuotasProximasBanner() : "") + sueldoBanner + '<div id="tx-results">' + renderTxResultsInner() + '</div><div style="height:64px;"></div>';
   }
   __name(renderTransactionsView, "renderTransactionsView");
+  function renderCuotasProximasBanner() {
+    const hoy = todayISO();
+    const proximas = TRANSACTIONS.filter((t) => t.cuotaProyectada && t.fecha > hoy).sort((a, b) => a.fecha.localeCompare(b.fecha));
+    if (!proximas.length) return "";
+    const totalProximas = proximas.reduce((s, t) => s + t.monto, 0);
+    const maxFilas = 3;
+    const filas = proximas.slice(0, maxFilas).map(
+      (t) => '<div class="cuota-proxima-row"><span>' + t.comercio + " \xB7 cuota " + t.cuotaNumero + "/" + t.cuotaTotal + '<span class="cuota-proxima-fecha"> \xB7 ' + capitalizeFirst(dayLabel(t.fecha)) + '</span></span><span class="tabular">' + money(t.monto) + "</span></div>"
+    ).join("");
+    const resto = proximas.length > maxFilas ? '<div class="muted" style="font-size:11px;margin-top:4px;">+' + (proximas.length - maxFilas) + " m\xE1s</div>" : "";
+    return '<div class="card cuotas-proximas-card"><div class="sueldo-suggestion-title">Pr\xF3ximas cuotas</div><div class="sueldo-suggestion-sub">' + proximas.length + " cuota" + (proximas.length === 1 ? "" : "s") + " por venir, " + money(totalProximas) + " en total.</div>" + filas + resto + "</div>";
+  }
+  __name(renderCuotasProximasBanner, "renderCuotasProximasBanner");
   function openSalarySuggestionSheet(lastId) {
     const last = getTx(lastId);
     const ym = todayISO().slice(0, 7);
