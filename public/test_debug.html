@@ -1531,7 +1531,10 @@
         t.reglaAuto = true;
         t.tipo = tx.tipo;
         t.recurrencia = tx.recurrencia;
-        if (cat) t.categorias = [{ cat, monto: catTotalAmount(t) || t.monto }];
+        if (cat) {
+          t.categorias = [{ cat, monto: catTotalAmount(t) || t.monto }];
+          if (t.estado === "pendiente") t.estado = "confirmado";
+        }
       }
     });
     tx.reglaAuto = true;
