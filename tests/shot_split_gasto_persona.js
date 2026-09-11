@@ -253,10 +253,12 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('(b2) Cambiar de "%" a "Monto fijo" con un % ya tipeado convierte a los pesos reales (Cata $12.000, no "60")',
     convAMontos.cata === '12000' && convAMontos.tu === '10000', convAMontos);
 
-  // Y de vuelta a "Por partes": esos mismos pesos ($12.000/$10.000) pasan a ser el peso de cada
-  // parte -- el "número de partes" es una proporción, no un monto absoluto, así que lo que se
-  // preserva es la PROPORCIÓN entre las dos personas (Cata:Tú = 12000:10000 = 1,2), no las cifras
-  // exactas de antes (eso solo pasaría si los pesos sumaran justo el total, que no es el caso).
+  // Y de vuelta a "Por partes": reusar esos mismos pesos ($12.000/$10.000) como "número de
+  // partes" se ve como si nada hubiera cambiado (un campo llamado "partes" mostrando miles de
+  // pesos no tiene sentido), y si después se agrega a alguien más su peso por defecto (1) queda
+  // insignificante al lado de esos miles -- su parte prácticamente no se nota. "Por partes" ahora
+  // arranca en blanco (1 parte cada uno = reparto igualitario de verdad), y desde ahí se ajusta
+  // a mano si hace falta.
   await page.click('[data-seg="division-tipo"] [data-seg-val="iguales"]');
   await page.waitForTimeout(150);
   const convAPartes = await page.evaluate(() => ({
@@ -265,9 +267,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
     cataComputado: document.querySelector('[data-share-computed="Cata"]')?.textContent,
     tuComputado: document.querySelector('[data-share-computed="tu"]')?.textContent,
   }));
-  const proporcionOk = Math.abs(parseFloat(convAPartes.cataPartes)/parseFloat(convAPartes.tuPartes) - 1.2) < 0.001;
-  check('   y de "Monto fijo" a "Por partes" usa esos pesos como partes, preservando la proporción real entre personas (Cata:Tú = 1,2), no montos crudos al azar',
-    proporcionOk && convAPartes.cataPartes === '12000' && convAPartes.tuPartes === '10000', convAPartes);
+  check('   y de "Monto fijo" a "Por partes" arranca en blanco (1 parte cada uno = mitad y mitad, $10.000/$10.000), no con los pesos anteriores como "partes"',
+    convAPartes.cataPartes === '' && convAPartes.tuPartes === '' && convAPartes.cataComputado === '$10.000' && convAPartes.tuComputado === '$10.000', convAPartes);
 
   await page.click('[data-share-cancel]');
   await page.waitForTimeout(100);

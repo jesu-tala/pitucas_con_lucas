@@ -4824,12 +4824,16 @@
         d.divisionTipo = val;
         const t2 = currentEditableTx();
         if (t2) {
-          const base = computeShareAmounts(t2.monto, { ...d, divisionTipo: tipoAnterior });
-          d.participantesIncluidos.forEach((id) => {
-            if (val === "pct") d.customValues[id] = String(t2.monto ? Math.round((base[id] || 0) / t2.monto * 1e3) / 10 : 0);
-            else if (val === "montos") d.customValues[id] = String(base[id] || 0);
-            else d.customValues[id] = String(base[id] || 0);
-          });
+          if (val === "iguales") {
+            d.participantesIncluidos.forEach((id) => {
+              delete d.customValues[id];
+            });
+          } else {
+            const base = computeShareAmounts(t2.monto, { ...d, divisionTipo: tipoAnterior });
+            d.participantesIncluidos.forEach((id) => {
+              d.customValues[id] = val === "pct" ? String(t2.monto ? Math.round((base[id] || 0) / t2.monto * 1e3) / 10 : 0) : String(base[id] || 0);
+            });
+          }
         }
         renderSheet();
         return;

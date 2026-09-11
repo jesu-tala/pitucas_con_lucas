@@ -205,22 +205,36 @@ phone.addEventListener('click', function(e: any){
       const d = state.shareDraft;
       const tipoAnterior = d.divisionTipo;
       d.divisionTipo = val;
-      // Recompute each included participant's custom value FROM the previous modality's real
-      // computed split (its actual pesos), converting it into whatever unit the new modality
-      // expects. This must run UNCONDITIONALLY (not just "only if blank") -- the old version
-      // only filled in blanks, so a value already typed in one unit (say "50" as a %) carried
-      // over as-is when switching modality, and got silently reinterpreted in the NEW unit ("50"
-      // shown as $50 in "monto fijo" instead of the actual peso amount that 50% corresponds to).
-      // Since the raw string is always freshly derived from the real prior split, this is safe to
-      // overwrite even if the person already fine-tuned it in the modality they're leaving.
       const t = currentEditableTx();
       if(t){
-        const base = computeShareAmounts(t.monto, {...d, divisionTipo: tipoAnterior});
-        d.participantesIncluidos.forEach(id=>{
-          if(val==='pct') d.customValues[id] = String(t.monto ? Math.round((base[id]||0)/t.monto*1000)/10 : 0);
-          else if(val==='montos') d.customValues[id] = String(base[id]||0);
-          else d.customValues[id] = String(base[id]||0); // 'iguales' ("por partes"): pesos previos como peso/parte -- reproduce el mismo reparto
-        });
+        if(val==='iguales'){
+          // "Por partes" ("iguales") means an equal split by default, adjustable per person from
+          // there -- reusing the previous modality's peso amounts as fake "weights" (like montos/
+          // pct do for each other below, since those ARE exact unit conversions of one another)
+          // doesn't work here: those pesos are normally in the thousands, so a newly added
+          // person's default weight of 1 becomes negligible next to them (their share rounds to
+          // ~$0, and the rest barely move), and switching modality just re-shows the exact same
+          // peso figures inside a field labeled "partes" -- reads as if nothing happened at all.
+          // Clearing customValues lets every included participant default to weight 1 -- a real,
+          // visible equal split that also rebalances correctly if someone is added afterward.
+          d.participantesIncluidos.forEach(id=>{ delete d.customValues[id]; });
+        } else {
+          // 'montos'/'pct' ARE exact unit conversions of each other (and of whatever the split
+          // actually was before) -- recompute each included participant's custom value FROM the
+          // previous modality's real computed split (its actual pesos). This must run
+          // UNCONDITIONALLY (not just "only if blank") -- the old version only filled in blanks,
+          // so a value already typed in one unit (say "50" as a %) carried over as-is when
+          // switching modality, and got silently reinterpreted in the NEW unit ("50" shown as $50
+          // in "monto fijo" instead of the actual peso amount that 50% corresponds to). Since the
+          // raw string is always freshly derived from the real prior split, this is safe to
+          // overwrite even if the person already fine-tuned it in the modality they're leaving.
+          const base = computeShareAmounts(t.monto, {...d, divisionTipo: tipoAnterior});
+          d.participantesIncluidos.forEach(id=>{
+            d.customValues[id] = val==='pct'
+              ? String(t.monto ? Math.round((base[id]||0)/t.monto*1000)/10 : 0)
+              : String(base[id]||0);
+          });
+        }
       }
       renderSheet();
       return;
