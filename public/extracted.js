@@ -1646,9 +1646,12 @@
     const pendientes = (t.porCobrar || []).filter((p) => p.tipo === "persona" && !p.pagado && p.direccion !== "debo");
     if (pendientes.length === 0) return null;
     const lines = ["Pendiente de pago"];
-    pendientes.forEach((p) => {
-      lines.push((p.persona || "Sin nombre") + " " + fmt.format(Math.round(p.monto || 0)));
+    pendientes.forEach((p, i) => {
+      lines.push(i + 1 + ". " + (p.persona || "Sin nombre") + " " + fmt.format(Math.round(p.monto || 0)));
     });
+    const total = pendientes.reduce((s, p) => s + Math.round(p.monto || 0), 0);
+    lines.push("");
+    lines.push("Total: " + fmt.format(total));
     const d = TRANSFER_INFO;
     const datosLines = [];
     if (d.nombre) datosLines.push(d.nombre);
@@ -3555,11 +3558,6 @@
         renderMenuView();
         return;
       }
-      if (group === "compartir-pagador" && state.shareDraft) {
-        state.shareDraft.pagadoPorId = val;
-        renderSheet();
-        return;
-      }
       if (group === "division-tipo" && state.shareDraft) {
         const d = state.shareDraft;
         const tipoAnterior = d.divisionTipo;
@@ -5347,6 +5345,12 @@
       renderSheet();
       return;
     }
+    const sharePagadorSelect = e.target.closest("[data-share-pagador]");
+    if (sharePagadorSelect && state.shareDraft) {
+      state.shareDraft.pagadoPorId = sharePagadorSelect.value;
+      renderSheet();
+      return;
+    }
     const compartirIncluirBox = e.target.closest("[data-share-include]");
     if (compartirIncluirBox && state.shareDraft) {
       const pid = compartirIncluirBox.getAttribute("data-share-include");
@@ -6019,6 +6023,14 @@
     TRANSACTIONS.forEach(function(t) {
       if (t.estado === "pendiente" && t.categorias.length > 0) t.estado = "confirmado";
     });
+    TRANSACTIONS.forEach(function(t) {
+      if (t.cuotas && t.cuotas.montoTotal == null) {
+        const montoTotal = t.monto;
+        t.cuotas.montoTotal = montoTotal;
+        applyCuotaMonto(t, Math.round(montoTotal / t.cuotas.total));
+        regenerateInstallmentsFor(t.id);
+      }
+    });
     setContacts(blob.contactos || []);
     setBudgets(blob.presupuestos || {});
     setMonthlyBudgetTotal(blob.monthlyBudgetTotal || 0);
@@ -6563,7 +6575,9 @@
       return '<div class="split-row" style="align-items:center;"><input type="checkbox" data-share-include="' + p.id + '" ' + (incluido ? "checked" : "") + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">' + avatarHtml(p.nombre, p.color, 24) + '<span style="flex:1;margin-left:8px;">' + p.nombre + "</span>" + valueField + (isContact ? '<button type="button" class="rm-btn" data-open-edit-contact="' + p.id + '" aria-label="Editar a ' + p.nombre + '">' + ICONS.edit + '</button><button type="button" class="rm-btn" data-ask-delete-contact="' + p.id + '" aria-label="Quitar a ' + p.nombre + '">' + ICONS.trash + "</button>" : "") + "</div>";
     }).join("");
     const addPersonRow = d.groupId ? "" : '<div class="split-row" style="align-items:center;"><input type="text" class="draft-input" data-share-new-name placeholder="Agregar otra persona\u2026" style="flex:1;"><button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">' + ICONS.plus + "</button></div>";
-    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">' + (d.groupId ? "Compartir con un grupo" : "Dividir este gasto") + "</div>" + groupSelectHtml + '<label class="draft-label" style="margin-top:12px;">\xBFC\xF3mo se divide?</label>' + modalidadSeg + '<label class="draft-label" style="margin-top:12px;">\xBFQui\xE9n pag\xF3?</label>' + segmentedHtml("compartir-pagador", participantes.map((p) => ({ id: p.id, label: p.nombre })), d.pagadoPorId) + '<label class="draft-label" style="margin-top:12px;">\xBFEntre qui\xE9nes se divide?</label>' + rows + addPersonRow + '<div class="split-remaining"><span>Total repartido</span><span class="' + (ok ? "ok" : "bad") + ' tabular">' + money(suma) + " de " + money(tx.monto) + '</span></div><div class="field-error" style="' + (ok ? "display:none;" : "") + '">' + (remaining > 0 ? "Faltan " + money(remaining) + " por repartir" : remaining < 0 ? "Sobran " + money(-remaining) + " por repartir" : "") + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-share-confirm="' + tx.id + '" ' + (ok ? "" : "disabled") + ">" + (d.groupId ? "Compartir" : "Guardar reparto") + "</button></div></div>";
+    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">' + (d.groupId ? "Compartir con un grupo" : "Dividir este gasto") + "</div>" + groupSelectHtml + '<label class="draft-label" style="margin-top:12px;">\xBFC\xF3mo se divide?</label>' + modalidadSeg + // Un segmented (fila de botones) se ve bien con 2-4 opciones, pero con un grupo grande (10+
+    // personas) se desborda y queda ilegible -- un <select> escala a cualquier cantidad de gente.
+    '<label class="draft-label" style="margin-top:12px;">\xBFQui\xE9n pag\xF3?</label><select data-share-pagador>' + participantes.map((p) => '<option value="' + p.id + '" ' + (p.id === d.pagadoPorId ? "selected" : "") + ">" + p.nombre + "</option>").join("") + '</select><label class="draft-label" style="margin-top:12px;">\xBFEntre qui\xE9nes se divide?</label>' + rows + addPersonRow + '<div class="split-remaining"><span>Total repartido</span><span class="' + (ok ? "ok" : "bad") + ' tabular">' + money(suma) + " de " + money(tx.monto) + '</span></div><div class="field-error" style="' + (ok ? "display:none;" : "") + '">' + (remaining > 0 ? "Faltan " + money(remaining) + " por repartir" : remaining < 0 ? "Sobran " + money(-remaining) + " por repartir" : "") + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-share-confirm="' + tx.id + '" ' + (ok ? "" : "disabled") + ">" + (d.groupId ? "Compartir" : "Guardar reparto") + "</button></div></div>";
   }
   __name(renderSplitDraftForm, "renderSplitDraftForm");
   function renderGroupsView() {
@@ -7432,16 +7446,19 @@
   }
   __name(defaultPersonaSplitDraft, "defaultPersonaSplitDraft");
   function draftFromExistingSplit(t) {
-    const divisionTipo = t.divisionTipo || "iguales";
+    const storedTipo = t.divisionTipo || "iguales";
+    const divisionTipo = storedTipo === "iguales" ? "montos" : storedTipo;
     const personaRows = (t.porCobrar || []).filter((p) => p.tipo === "persona");
     const deboRow = personaRows.find((p) => p.direccion === "debo");
+    const seed = /* @__PURE__ */ __name((id, monto, customValues2) => {
+      customValues2[id] = divisionTipo === "pct" ? String(t.monto ? Math.round(monto / t.monto * 1e3) / 10 : 0) : String(monto);
+    }, "seed");
     if (t.pagador || deboRow) {
       const pagadoPorId = t.pagador || (deboRow ? deboRow.persona : "tu");
       const monto = deboRow ? deboRow.monto || 0 : 0;
       const customValues2 = {};
-      if (divisionTipo === "montos") customValues2["tu"] = String(monto);
-      else if (divisionTipo === "pct") customValues2["tu"] = String(t.monto ? Math.round(monto / t.monto * 1e3) / 10 : 0);
-      else if (divisionTipo === "iguales") customValues2["tu"] = String(monto);
+      seed("tu", monto, customValues2);
+      seed(pagadoPorId, t.monto - monto, customValues2);
       return {
         txId: t.id,
         groupId: null,
@@ -7454,11 +7471,9 @@
     }
     const participantesIncluidos = ["tu", ...personaRows.map((p) => p.persona)];
     const customValues = {};
-    personaRows.forEach((p) => {
-      if (divisionTipo === "montos") customValues[p.persona] = String(p.monto || 0);
-      else if (divisionTipo === "pct") customValues[p.persona] = String(t.monto ? Math.round((p.monto || 0) / t.monto * 1e3) / 10 : 0);
-      else if (divisionTipo === "iguales") customValues[p.persona] = String(p.monto || 0);
-    });
+    const sumaOtros = personaRows.reduce((s, p) => s + (p.monto || 0), 0);
+    seed("tu", t.monto - sumaOtros, customValues);
+    personaRows.forEach((p) => seed(p.persona, p.monto || 0, customValues));
     return {
       txId: t.id,
       groupId: null,

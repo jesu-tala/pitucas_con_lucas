@@ -201,11 +201,6 @@ phone.addEventListener('click', function(e: any){
       renderMenuView();
       return;
     }
-    if(group==='compartir-pagador' && state.shareDraft){
-      state.shareDraft.pagadoPorId = val;
-      renderSheet();
-      return;
-    }
     if(group==='division-tipo' && state.shareDraft){
       const d = state.shareDraft;
       const tipoAnterior = d.divisionTipo;
@@ -1918,6 +1913,12 @@ phone.addEventListener('change', function(e: any){
   const shareGroupSelect = e.target.closest('[data-share-group]');
   if(shareGroupSelect && state.shareDraft){
     state.shareDraft = defaultShareDraft(state.shareDraft.txId, shareGroupSelect.value);
+    renderSheet();
+    return;
+  }
+  const sharePagadorSelect = e.target.closest('[data-share-pagador]');
+  if(sharePagadorSelect && state.shareDraft){
+    state.shareDraft.pagadoPorId = sharePagadorSelect.value;
     renderSheet();
     return;
   }

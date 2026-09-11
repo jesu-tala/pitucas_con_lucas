@@ -376,8 +376,9 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(150);
   await page.click('[data-share-include="Fran"]');
   await page.waitForTimeout(100);
-  // Fran actually paid, not you -- switching the payer produces the 'debo' case.
-  await page.click('[data-seg="compartir-pagador"] [data-seg-val="Fran"]');
+  // Fran actually paid, not you -- switching the payer produces the 'debo' case. "¿Quién pagó?"
+  // is a <select> now (a row of buttons doesn't scale to a group with many people).
+  await page.selectOption('select[data-share-pagador]', 'Fran');
   await page.waitForTimeout(150);
   const pagadorEsFran = await page.evaluate(() => window.__debug.state.shareDraft.pagadoPorId);
   check('(e) Elegir a Fran como "¿Quién pagó?" actualiza el draft (pagadoPorId = Fran)', pagadorEsFran === 'Fran');

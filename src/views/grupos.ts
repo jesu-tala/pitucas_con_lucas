@@ -156,8 +156,10 @@ export function renderSplitDraftForm(tx, d){
     '<div class="sheet-block-title">'+(d.groupId?'Compartir con un grupo':'Dividir este gasto')+'</div>'+
     groupSelectHtml+
     '<label class="draft-label" style="margin-top:12px;">¿Cómo se divide?</label>'+modalidadSeg+
+    // Un segmented (fila de botones) se ve bien con 2-4 opciones, pero con un grupo grande (10+
+    // personas) se desborda y queda ilegible -- un <select> escala a cualquier cantidad de gente.
     '<label class="draft-label" style="margin-top:12px;">¿Quién pagó?</label>'+
-    segmentedHtml('compartir-pagador', participantes.map(p=>({id:p.id,label:p.nombre})), d.pagadoPorId)+
+    '<select data-share-pagador>'+participantes.map(p=>'<option value="'+p.id+'" '+(p.id===d.pagadoPorId?'selected':'')+'>'+p.nombre+'</option>').join('')+'</select>'+
     '<label class="draft-label" style="margin-top:12px;">¿Entre quiénes se divide?</label>'+
     rows+addPersonRow+
     '<div class="split-remaining"><span>Total repartido</span><span class="'+(ok?'ok':'bad')+' tabular">'+money(suma)+' de '+money(tx.monto)+'</span></div>'+

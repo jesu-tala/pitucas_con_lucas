@@ -1,6 +1,7 @@
 import { phone } from './events';
+import { applyCuotaMonto } from './helpers';
 import { render } from './render';
-import { monthLabelFor } from './shared-expenses';
+import { monthLabelFor, regenerateInstallmentsFor } from './shared-expenses';
 import { CATEGORIES, CATEGORY_SEED_DEFAULTS, CONTACTS, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, MONTH_LABEL, PLANNER, PLATFORM_DATA, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, currentMonthIndex, getPlannerDefaults, importIdCounter, goalIdCounter, monthlyBudgetTotal, setTransferInfo, setSharedExpenses, setGroups, setGroupParticipants, setImportIdCounter, setCategoryMappings, setContacts, setSpendingGoalPct, setInvestmentGoals, setTotalGoalChecks, setGoalIdCounter, setPlanner, setPlatformData, setBudgets, setBudgetAlertsSent, setMonthlyBudgetTotal, setPaidBalances, setTransactions, state, todayISO } from './state';
 import { absorbImportedRows, loadSharedExpenses, checkBudgetPushAlerts, groupsRealtimeChannel, setGroupsRealtimeChannel, subscribeToGroupsLive } from './views/menu';
 /* ===================== SUPABASE: ACCOUNTS + CLOUD SAVING =====================
@@ -106,6 +107,20 @@ export function applyStateBlob(blob){
   // corrige datos que ya estaban guardados así en Supabase).
   TRANSACTIONS.forEach(function(t){
     if(t.estado==='pendiente' && t.categorias.length>0) t.estado='confirmado';
+  });
+  // Repara compras en cuotas guardadas ANTES del arreglo de applyCuotaMonto (events.ts/helpers.ts):
+  // el monto de la transacción quedaba en el precio TOTAL de la compra en vez de en la cuota de
+  // ese mes (cuotas.montoTotal ni siquiera existía todavía), así que cada mes proyectado repetía
+  // ese mismo total completo. Igual que el repaso de "pendiente" de arriba, el arreglo en sí solo
+  // actúa hacia adelante (al tocar el switch/stepper) -- esto sana cualquier compra en cuotas que
+  // ya haya quedado guardada así desde antes.
+  TRANSACTIONS.forEach(function(t){
+    if(t.cuotas && t.cuotas.montoTotal==null){
+      const montoTotal = t.monto;
+      t.cuotas.montoTotal = montoTotal;
+      applyCuotaMonto(t, Math.round(montoTotal / t.cuotas.total));
+      regenerateInstallmentsFor(t.id);
+    }
   });
   setContacts(blob.contactos || []);
   setBudgets(blob.presupuestos || {});
