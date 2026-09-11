@@ -4820,6 +4820,7 @@
         if (!d.extraParticipants.includes(name)) d.extraParticipants.push(name);
         if (!d.participantesIncluidos.includes(name)) d.participantesIncluidos.push(name);
         if (!CONTACTS.includes(name)) CONTACTS.push(name);
+        resetCustomValuesOnMembershipChange(d);
         renderSheet();
       }
       return;
@@ -4892,6 +4893,7 @@
         const i3 = d.extraParticipants.indexOf(name);
         if (i3 !== -1) d.extraParticipants.splice(i3, 1);
         if (d.pagadoPorId === name) d.pagadoPorId = "tu";
+        resetCustomValuesOnMembershipChange(d);
       }
       state.confirmDeleteContactName = null;
       toast("Quitado de la lista de personas");
@@ -5362,6 +5364,7 @@
       const idx = d.participantesIncluidos.indexOf(pid);
       if (compartirIncluirBox.checked && idx === -1) d.participantesIncluidos.push(pid);
       else if (!compartirIncluirBox.checked && idx !== -1) d.participantesIncluidos.splice(idx, 1);
+      resetCustomValuesOnMembershipChange(d);
       renderSheet();
       return;
     }
@@ -6575,7 +6578,8 @@
       }
       const incluido = d.participantesIncluidos.includes(p.id);
       const raw = d.customValues[p.id] || "";
-      const valueField = !incluido ? '<span class="tabular muted">\u2014</span>' : d.divisionTipo === "iguales" ? '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '" placeholder="1" style="width:44px;"><span>partes</span></span><span class="tabular muted" data-share-computed="' + p.id + '" style="margin-left:8px;font-size:12px;flex-shrink:0;">' + money(reparto[p.id] || 0) + "</span>" : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '"><span>' + (d.divisionTipo === "pct" ? "%" : "$") + "</span></span>";
+      const computedReadout = '<span class="tabular muted" data-share-computed="' + p.id + '" style="margin-left:8px;font-size:12px;flex-shrink:0;">' + money(reparto[p.id] || 0) + "</span>";
+      const valueField = !incluido ? '<span class="tabular muted">\u2014</span>' : d.divisionTipo === "iguales" ? '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '" placeholder="1" style="width:44px;"><span>partes</span></span>' + computedReadout : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '"><span>' + (d.divisionTipo === "pct" ? "%" : "$") + "</span></span>" + (raw === "" ? computedReadout : "");
       return '<div class="split-row" style="align-items:center;"><input type="checkbox" data-share-include="' + p.id + '" ' + (incluido ? "checked" : "") + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">' + avatarHtml(p.nombre, p.color, 24) + '<span style="flex:1;margin-left:8px;">' + p.nombre + "</span>" + valueField + (isContact ? '<button type="button" class="rm-btn" data-open-edit-contact="' + p.id + '" aria-label="Editar a ' + p.nombre + '">' + ICONS.edit + '</button><button type="button" class="rm-btn" data-ask-delete-contact="' + p.id + '" aria-label="Quitar a ' + p.nombre + '">' + ICONS.trash + "</button>" : "") + "</div>";
     }).join("");
     const addPersonRow = d.groupId ? "" : '<div class="split-row" style="align-items:center;"><input type="text" class="draft-input" data-share-new-name placeholder="Agregar otra persona\u2026" style="flex:1;"><button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">' + ICONS.plus + "</button></div>";
@@ -7421,18 +7425,36 @@
       return splitByShares(total, ids, partes);
     }
     const out = {};
+    const blancos = [];
+    let asignado = 0;
     ids.forEach((id) => {
       const raw = draft.customValues[id];
       const v = raw == null || raw === "" ? null : safeEvalExpr(raw);
       if (v == null) {
-        out[id] = 0;
+        blancos.push(id);
         return;
       }
-      out[id] = draft.divisionTipo === "pct" ? Math.round(total * v / 100) : Math.round(v);
+      const monto = draft.divisionTipo === "pct" ? Math.round(total * v / 100) : Math.round(v);
+      out[id] = monto;
+      asignado += monto;
     });
+    if (blancos.length) {
+      const partesIguales = {};
+      blancos.forEach((id) => {
+        partesIguales[id] = 1;
+      });
+      Object.assign(out, splitByShares(total - asignado, blancos, partesIguales));
+    }
     return out;
   }
   __name(computeShareAmounts, "computeShareAmounts");
+  function resetCustomValuesOnMembershipChange(d) {
+    if (d.divisionTipo === "iguales") return;
+    d.participantesIncluidos.forEach((id) => {
+      delete d.customValues[id];
+    });
+  }
+  __name(resetCustomValuesOnMembershipChange, "resetCustomValuesOnMembershipChange");
   function shareAmountsSum(amounts, includedIds) {
     return includedIds.reduce((s, id) => s + (amounts[id] || 0), 0);
   }

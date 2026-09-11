@@ -1,6 +1,6 @@
 import { allCollected, applyCuotaMonto, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
-import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup } from './shared-expenses';
+import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
 import { CATEGORIES, CONTACTS, GROUP_PARTICIPANTS, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
@@ -1473,6 +1473,7 @@ phone.addEventListener('click', function(e: any){
       // queda en CONTACTS (persistido, ver buildFullStateBlob/applyStateBlob en supabase.ts),
       // así que aparece solo la próxima vez que reparta con alguien.
       if(!CONTACTS.includes(name)) CONTACTS.push(name);
+      resetCustomValuesOnMembershipChange(d);
       renderSheet();
     }
     return;
@@ -1547,6 +1548,7 @@ phone.addEventListener('click', function(e: any){
       const i3 = d.extraParticipants.indexOf(name);
       if(i3!==-1) d.extraParticipants.splice(i3,1);
       if(d.pagadoPorId===name) d.pagadoPorId = 'tu';
+      resetCustomValuesOnMembershipChange(d);
     }
     state.confirmDeleteContactName = null;
     toast('Quitado de la lista de personas');
@@ -1943,6 +1945,7 @@ phone.addEventListener('change', function(e: any){
     const idx = d.participantesIncluidos.indexOf(pid);
     if(compartirIncluirBox.checked && idx===-1) d.participantesIncluidos.push(pid);
     else if(!compartirIncluirBox.checked && idx!==-1) d.participantesIncluidos.splice(idx,1);
+    resetCustomValuesOnMembershipChange(d);
     renderSheet();
     return;
   }
