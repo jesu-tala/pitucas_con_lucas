@@ -57,7 +57,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
     const checks = Array.from(document.querySelectorAll('[data-share-include]'));
     return {
       tieneSelectGrupo: !!document.querySelector('[data-share-group]'),
-      pagadorSeleccionado: document.querySelector('.segmented[data-seg="compartir-pagador"] button.active')?.textContent || null,
+      pagadorSeleccionado: document.querySelector('select[data-share-pagador] option:checked')?.textContent || null,
       cantidadCheckboxes: checks.length,
       todosMarcados: checks.every(c => c.checked),
       totalRepartido: content.textContent.includes('$18.000 de $18.000'),
@@ -87,10 +87,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   // (e) Changing the payer to Fran via the segmented control updates the in-memory draft.
   await page.click('[data-share-include="p2"]'); // include them again
   await page.waitForTimeout(100);
-  await page.evaluate(() => {
-    const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === 'Fran' && b.closest('.segmented'));
-    if (btn) btn.click();
-  });
+  await page.selectOption('select[data-share-pagador]', 'p2');
   await page.waitForTimeout(150);
   const pagadorCambiado = await page.evaluate(() => window.__debug.state.shareDraft.pagadoPorId);
   check('(e) Elegir a Fran como pagador actualiza el draft (pagadoPorId = p2)', pagadorCambiado === 'p2', pagadorCambiado);

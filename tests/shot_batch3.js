@@ -255,8 +255,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
     ];
     return { texto: window.__debug.buildChargeWhatsAppText(t), txId: t.id };
   });
-  const contieneEsperado = whatsappTxt.texto === 'Pendiente de pago\nJose $3.500\nMamá $3.000\n\nDatos transferencia\nJesu Tala\nBanco Edwards · Cuenta Corriente\nCuenta 000123456789\nRUT 12.345.678-9';
-  check('Coincide exactamente con el formato esperado (persona + monto, sin la ya pagada, + datos de transferencia)', contieneEsperado, whatsappTxt.texto);
+  const contieneEsperado = whatsappTxt.texto === 'Pendiente de pago\n1. Jose $3.500\n2. Mamá $3.000\n\nTotal: $6.500\n\nDatos transferencia\nJesu Tala\nBanco Edwards · Cuenta Corriente\nCuenta 000123456789\nRUT 12.345.678-9';
+  check('Coincide exactamente con el formato esperado (nombres numerados + monto, sin la ya pagada, + total, + datos de transferencia)', contieneEsperado, whatsappTxt.texto);
 
   // the "Copiar para WhatsApp" button appears in the sheet when there are pending persona-type charges
   await page.evaluate((id) => {

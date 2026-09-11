@@ -1065,7 +1065,10 @@ export function buildChargeWhatsAppText(t){
   const pendientes = (t.porCobrar||[]).filter(p=>p.tipo==='persona' && !p.pagado && p.direccion!=='debo');
   if(pendientes.length===0) return null;
   const lines = ['Pendiente de pago'];
-  pendientes.forEach(p=>{ lines.push((p.persona||'Sin nombre')+' '+fmt.format(Math.round(p.monto||0))); });
+  pendientes.forEach((p,i)=>{ lines.push((i+1)+'. '+(p.persona||'Sin nombre')+' '+fmt.format(Math.round(p.monto||0))); });
+  const total = pendientes.reduce((s,p)=>s+Math.round(p.monto||0),0);
+  lines.push('');
+  lines.push('Total: '+fmt.format(total));
   const d = TRANSFER_INFO;
   const datosLines = [];
   if(d.nombre) datosLines.push(d.nombre);

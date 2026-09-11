@@ -182,20 +182,33 @@ export function defaultPersonaSplitDraft(txId: string){
 // 2-person draft (you + whoever paid); anyone else who was really there has to be added back by
 // hand, same deliberate scope limit as the rest of this feature (no full N-way ledger here).
 export function draftFromExistingSplit(t: Transaction){
-  const divisionTipo: SplitType = t.divisionTipo || 'iguales';
+  // 'iguales' ("por partes") never stores the original weights that were typed (only the final
+  // peso amount each person ended up with) -- reopening it as 'iguales' used to seed the "número
+  // de partes" input with that raw peso amount instead (e.g. "21333"), which reads as nonsense
+  // in a field meant for a small weight like "1" or "2". It also only did that for the OTHER
+  // participants, never for whoever's implied share balances the total (see seed() below), so
+  // the weights didn't add back up to the transaction's real total and "Guardar reparto" looked
+  // broken (total repartido never matched). 'montos' (monto fijo) is always exact AND legible for
+  // a reopened split, so 'iguales' collapses into it here; 'montos'/'pct' reopen as themselves,
+  // both fully recoverable from the amounts already on record.
+  const storedTipo: SplitType = t.divisionTipo || 'iguales';
+  const divisionTipo: SplitType = storedTipo==='iguales' ? 'montos' : storedTipo;
   const personaRows = (t.porCobrar||[]).filter(p=>p.tipo==='persona');
   const deboRow = personaRows.find(p=>p.direccion==='debo');
+  const seed = (id: string, monto: number, customValues: Record<string,string>) => {
+    customValues[id] = divisionTipo==='pct'
+      ? String(t.monto ? Math.round((monto/t.monto)*1000)/10 : 0)
+      : String(monto);
+  };
   if(t.pagador || deboRow){
     const pagadoPorId = t.pagador || (deboRow ? deboRow.persona : 'tu');
     const monto = deboRow ? (deboRow.monto||0) : 0;
     const customValues: Record<string,string> = {};
-    if(divisionTipo==='montos') customValues['tu'] = String(monto);
-    else if(divisionTipo==='pct') customValues['tu'] = String(t.monto ? Math.round((monto/t.monto)*1000)/10 : 0);
-    // 'iguales' ("por partes"): there's no original weight kept, only the final peso amount --
-    // seeding the "número de partes" with that same amount reproduces the exact same split when
-    // recomputed (partes proporcionales a un monto ya calzan solas), without pretending to recover
-    // whatever small integers were originally typed.
-    else if(divisionTipo==='iguales') customValues['tu'] = String(monto);
+    // Both rows get seeded (not just "tu"): the payer's own implied share is whatever's left of
+    // the total, so the two amounts always add back up to t.monto -- otherwise the payer's field
+    // defaulted to blank/0 and the split could never balance back to the full amount.
+    seed('tu', monto, customValues);
+    seed(pagadoPorId, t.monto - monto, customValues);
     return {
       txId: t.id, groupId: null, divisionTipo, pagadoPorId,
       participantesIncluidos: ['tu', pagadoPorId], customValues, extraParticipants: [pagadoPorId]
@@ -203,11 +216,12 @@ export function draftFromExistingSplit(t: Transaction){
   }
   const participantesIncluidos = ['tu', ...personaRows.map(p=>p.persona)];
   const customValues: Record<string,string> = {};
-  personaRows.forEach(p=>{
-    if(divisionTipo==='montos') customValues[p.persona] = String(p.monto||0);
-    else if(divisionTipo==='pct') customValues[p.persona] = String(t.monto ? Math.round(((p.monto||0)/t.monto)*1000)/10 : 0);
-    else if(divisionTipo==='iguales') customValues[p.persona] = String(p.monto||0);
-  });
+  // Same reasoning: "tu" (the payer here) is never a row in porCobrar (only the OTHER people's
+  // shares are), so its own implied amount -- the total minus everyone else's share -- has to be
+  // seeded by hand too, or its field defaults to blank/0 and the total never balances.
+  const sumaOtros = personaRows.reduce((s,p)=>s+(p.monto||0),0);
+  seed('tu', t.monto - sumaOtros, customValues);
+  personaRows.forEach(p=>seed(p.persona, p.monto||0, customValues));
   return {
     txId: t.id, groupId: null, divisionTipo, pagadoPorId: 'tu',
     participantesIncluidos, customValues, extraParticipants: personaRows.map(p=>p.persona)
