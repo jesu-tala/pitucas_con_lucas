@@ -135,9 +135,15 @@ export function splitByShares(total: number, participantIds: string[], partes: R
 // draft.customValues (a blank value defaults to 1 part, same as everyone starting equal) and
 // derives the money via splitByShares -- always sums exactly, nothing to balance by hand.
 // 'pct'/'montos' read each included participant's own typed value from draft.customValues (a
-// percentage, or a plain amount) and round it -- nothing here tries to auto-balance what the user
-// types: the "sum must match the total exactly" rule is enforced by disabling the confirm button
-// (see renderSplitDraftForm), never by silently nudging a number the person typed themselves.
+// percentage, or a plain amount) and round it -- nothing here auto-balances a number the user
+// actually TYPED: the "sum must match the total exactly" rule is enforced by disabling the
+// confirm button (see renderSplitDraftForm), never by silently nudging it. A participant left
+// BLANK is different, though: same as 'iguales' treats a blank "partes" field as "1 part, same
+// as everyone starting equal" rather than "0 partes", a blank monto/% here means "split whatever
+// isn't explicitly assigned yet, evenly, among whoever else is also blank" -- so someone just
+// added to the draft (always blank) gets a real share of the total instead of $0/0%, and
+// removing someone grows everyone else's blank share back up automatically, the same "changes
+// react by themselves, then fine-tune by hand" feel 'iguales' already had.
 export function computeShareAmounts(total: number, draft): Record<string, number> {
   const ids: string[] = draft.participantesIncluidos;
   if(draft.divisionTipo==='iguales'){
@@ -150,13 +156,34 @@ export function computeShareAmounts(total: number, draft): Record<string, number
     return splitByShares(total, ids, partes);
   }
   const out: Record<string, number> = {};
+  const blancos: string[] = [];
+  let asignado = 0;
   ids.forEach(id=>{
     const raw = draft.customValues[id];
     const v = (raw==null || raw==='') ? null : safeEvalExpr(raw);
-    if(v==null){ out[id] = 0; return; }
-    out[id] = draft.divisionTipo==='pct' ? Math.round(total*v/100) : Math.round(v);
+    if(v==null){ blancos.push(id); return; }
+    const monto = draft.divisionTipo==='pct' ? Math.round(total*v/100) : Math.round(v);
+    out[id] = monto;
+    asignado += monto;
   });
+  if(blancos.length){
+    const partesIguales: Record<string,number> = {};
+    blancos.forEach(id=>{ partesIguales[id] = 1; });
+    Object.assign(out, splitByShares(total-asignado, blancos, partesIguales));
+  }
   return out;
+}
+// Whenever WHO's included in a split changes (someone added or removed), a 'montos'/'pct' draft's
+// already-typed amounts stop summing to the total on their own -- unlike 'iguales', where a blank
+// field already means "1 part" and recomputes correctly by itself on every render, monto fijo/
+// por % have no such living default UNLESS every remaining field is also blank (see
+// computeShareAmounts' "blank participants split what's left" rule above). Clearing every
+// included participant's value here lets them all fall back to that even split of the whole
+// total, giving 'montos'/'pct' the same "reacts by itself, then fine-tune by hand" feel 'iguales'
+// already had -- called from the add-person/toggle-include handlers in events.ts.
+export function resetCustomValuesOnMembershipChange(d){
+  if(d.divisionTipo==='iguales') return;
+  d.participantesIncluidos.forEach(id=>{ delete d.customValues[id]; });
 }
 export function shareAmountsSum(amounts: Record<string, number>, includedIds: string[]): number {
   return includedIds.reduce((s,id)=>s+(amounts[id]||0),0);

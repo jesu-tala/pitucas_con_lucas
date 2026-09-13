@@ -72,6 +72,93 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(100);
   const pagadorTrasElegir = await page.evaluate(() => window.__debug.state.shareDraft.pagadoPorId);
   check('Elegir a alguien del <select> actualiza quién pagó', pagadorTrasElegir === 'Beto', pagadorTrasElegir);
+  await page.selectOption('select[data-share-pagador]', 'tu'); // volver a "Tú" para el resto del test
+
+  // ---------- Segundo reporte: cambiar a "Por partes" seguía sin cambiar nada, y agregar a
+  // alguien más no reajustaba lo que le toca pagar a cada uno ----------
+  await page.click('[data-seg="division-tipo"] [data-seg-val="iguales"]');
+  await page.waitForTimeout(150);
+  const trasCambiarAPartes = await page.evaluate(() => ({
+    valores: ['tu', 'Ana', 'Beto', 'Cami', 'Diego'].map(id => document.querySelector('[data-share-value="' + id + '"]').value),
+    computados: ['tu', 'Ana', 'Beto', 'Cami', 'Diego'].map(id => document.querySelector('[data-share-computed="' + id + '"]').textContent),
+  }));
+  check('Cambiar a "Por partes" SÍ se nota: arranca en blanco (1 parte cada uno), no con los $20.000 de antes',
+    trasCambiarAPartes.valores.every(v => v === ''), trasCambiarAPartes.valores);
+  check('   y de entrada sigue siendo $20.000 cada uno (5 personas, reparto igualitario real)',
+    trasCambiarAPartes.computados.every(c => c === '$20.000'), trasCambiarAPartes.computados);
+
+  // Agregar una 6ª persona -- el total tiene que reajustarse entre las 6, no dejar a la nueva en
+  // $0. "+ agregar persona" ya la deja incluida (checkbox marcado) de entrada.
+  await page.fill('[data-share-new-name]', 'Elena');
+  await page.click('[data-share-add-name]');
+  await page.waitForTimeout(150);
+  const conElena = await page.evaluate(() => ({
+    elenaIncluida: document.querySelector('[data-share-include="Elena"]').checked,
+    computados: ['tu', 'Ana', 'Beto', 'Cami', 'Diego', 'Elena'].map(id => document.querySelector('[data-share-computed="' + id + '"]')?.textContent),
+    total: Array.from(document.querySelectorAll('.split-remaining')).find(e => e.textContent.includes('Total repartido'))?.textContent,
+  }));
+  // splitByShares reparte 100.000/6 = $16.666,67 -> $16.667 para los primeros 5 (redondeo normal),
+  // y la última persona del orden (Elena, la recién agregada) se lleva el resto exacto ($16.665)
+  // para que la suma calce a la moneda -- por eso no son 6 cifras idénticas.
+  check('Agregar a Elena la deja incluida de entrada (no hay que marcarla a mano)', conElena.elenaIncluida === true, conElena);
+  check('Agregar a Elena reajusta el monto de TODOS (ya no $20.000 fijo): $16.667 x5 + $16.665 la última, no $0 para la nueva',
+    conElena.computados.slice(0,5).every(c => c === '$16.667') && conElena.computados[5] === '$16.665', conElena.computados);
+  check('   y el total repartido sigue calzando exacto con los $100.000 de la transacción',
+    conElena.total && conElena.total.includes('de $100.000'), conElena.total);
+
+  // ---------- Tercer reporte: "debería ser también para % y monto fijo", no solo por partes ----------
+  await page.click('[data-share-cancel]');
+  await page.waitForTimeout(100);
+  await page.click('#sheet-close, .sheet-close');
+  await page.waitForTimeout(150);
+
+  await page.evaluate(() => {
+    const D = window.__debug;
+    D.CONTACTS = [];
+    D.TRANSACTIONS.push({
+      id: 'txMontoFijo', fecha: D.todayISO(), hora: '11:00', comercio: 'Cena Monto Fijo', monto: 30000, medio: 'visa_bch',
+      tipo: 'gasto', recurrencia: 'variable', estado: 'confirmado', categorias: [{ cat: 'restoranes', monto: 30000 }],
+      porCobrar: [], reglaAuto: false, nota: ''
+    });
+    D.state.openTxId = 'txMontoFijo';
+    D.state.creatingNew = false;
+    document.getElementById('sheet-overlay').classList.add('open');
+    D.render();
+  });
+  await page.waitForTimeout(150);
+  await page.click('[data-action="porcobrar_persona"]');
+  await page.waitForTimeout(150);
+  await page.fill('[data-share-new-name]', 'Fran');
+  await page.click('[data-share-add-name]');
+  await page.waitForTimeout(150);
+  await page.click('[data-seg="division-tipo"] [data-seg-val="montos"]');
+  await page.waitForTimeout(150);
+  // "Tú" y Fran ya vienen sembrados en $15.000 c/u (mitad y mitad) al cambiar a "Monto fijo" --
+  // valores explícitos en el input (no en blanco), así que todavía no hay lectura "computada".
+  const antesDeAgregar = await page.evaluate(() => ['tu', 'Fran'].map(id => document.querySelector('[data-share-value="' + id + '"]').value));
+  check('"Monto fijo" con 2 personas arranca en $15.000/$15.000 (mitad y mitad de $30.000)', antesDeAgregar.every(v => v === '15000'), antesDeAgregar);
+  await page.fill('[data-share-new-name]', 'Gaby');
+  await page.click('[data-share-add-name]');
+  await page.waitForTimeout(150);
+  const conGabyMontoFijo = await page.evaluate(() => ['tu', 'Fran', 'Gaby'].map(id => document.querySelector('[data-share-computed="' + id + '"]')?.textContent));
+  check('En "Monto fijo", agregar a Gaby SÍ reajusta a los 3 a $10.000 c/u (30.000/3), no la deja en $0 con los otros en $15.000',
+    conGabyMontoFijo.every(c => c === '$10.000'), conGabyMontoFijo);
+
+  // ---------- Lo mismo, en "Por %" ----------
+  await page.click('[data-share-cancel]');
+  await page.waitForTimeout(100);
+  await page.click('[data-action="porcobrar_persona"]');
+  await page.waitForTimeout(150);
+  await page.click('[data-share-include="Fran"]');
+  await page.waitForTimeout(100);
+  await page.click('[data-seg="division-tipo"] [data-seg-val="pct"]');
+  await page.waitForTimeout(150);
+  await page.fill('[data-share-new-name]', 'Hugo');
+  await page.click('[data-share-add-name]');
+  await page.waitForTimeout(150);
+  const conHugoPct = await page.evaluate(() => ['tu', 'Fran', 'Hugo'].map(id => document.querySelector('[data-share-computed="' + id + '"]')?.textContent));
+  check('En "Por %", agregar a Hugo también reajusta a los 3 a $10.000 c/u (30.000/3), no lo deja en $0',
+    conHugoPct.every(c => c === '$10.000'), conHugoPct);
 
   await finish({ context, browser, errors });
 })();
