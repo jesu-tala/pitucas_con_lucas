@@ -372,7 +372,7 @@ export const state: AppState = {
   summarySub:'balance',       // balance | presupuesto | evolucion | inversiones
   filter:'todas',             // todas | entradas | porcobrar | pendientes
   categoryFilter:null,        // cat id or null
-  categoryFilterMonth:null,   // 'YYYY-MM' or null, set together with categoryFilter from a Balance drill-down
+  categoryFilterMonth:null,   // 'YYYY-MM', a bare 'YYYY' (Balance año mode -- the whole year, not just one month), or null, set together with categoryFilter from a Balance drill-down
   monthIndex: currentMonthIndex(),
   balancePeriodo:'mes',       // mes | año — Resumen > Balance shows the current month or the full current year (never a past/future year)
   openTxId:null,

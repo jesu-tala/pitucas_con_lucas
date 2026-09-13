@@ -3,10 +3,14 @@
 // Causa: draftFromExistingSplit (shared-expenses.ts) reconstruía un reparto "por partes" sin
 // sembrar el "número de partes" de "Tú" (el pagador) -- solo el de las otras personas, con su
 // monto en pesos crudo -- así que el input de partes mostraba un número de pesos sin sentido, y
-// la suma de pesos ya no daba el total real (a "Tú" le tocaba un peso mínimo por defecto). Ahora
-// "por partes" se reabre como "Monto fijo" (siempre exacto y legible), sembrando el monto
-// implícito de "Tú" también. Además, "¿Quién pagó?" pasa de fila de botones a <select> -- con
-// varias personas la fila de botones se desborda.
+// la suma de pesos ya no daba el total real (a "Tú" le tocaba un peso mínimo por defecto).
+// Arreglo real: ReceivableItem.divisionValor/Transaction.pagadorDivisionValor (types.ts) guardan
+// el INPUT crudo de cada participante (partes/%/pesos según el modo), no solo el monto ya
+// calculado -- así "por partes" se reabre como "por partes" de verdad, mostrando "1 parte" (o lo
+// que sea que tenía cada uno), nunca el monto. Datos legado (guardados ANTES de este campo, como
+// el fixture de este test) no tienen divisionValor -- para 'iguales' eso ya significa "1 parte"
+// (el default), así que igual reconstruyen un reparto igualitario correcto. Además, "¿Quién
+// pagó?" pasa de fila de botones a <select> -- con varias personas la fila de botones se desborda.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -41,8 +45,9 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(150);
 
   const draft = await page.evaluate(() => window.__debug.state.shareDraft);
-  check('Al reabrir un reparto "por partes", pasa a mostrarse como "Monto fijo" (no como "por partes")', draft.divisionTipo === 'montos', draft);
-  check('El monto implícito de "Tú" también quedó sembrado ($20.000, no vacío/0)', draft.customValues['tu'] === '20000', draft.customValues);
+  check('Al reabrir un reparto "por partes", sigue siendo "por partes" de verdad (no colapsa a "Monto fijo")', draft.divisionTipo === 'iguales', draft);
+  check('Sin divisionValor guardado (fixture legado), el input de "Tú" queda en blanco -- que para "por partes" ya significa "1 parte"',
+    draft.customValues['tu'] === '' || draft.customValues['tu'] == null, draft.customValues);
 
   const totales = await page.evaluate(() => {
     // .split-remaining también lo usa, más arriba en el mismo sheet, el bloque de categorías
@@ -72,6 +77,94 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(100);
   const pagadorTrasElegir = await page.evaluate(() => window.__debug.state.shareDraft.pagadoPorId);
   check('Elegir a alguien del <select> actualiza quién pagó', pagadorTrasElegir === 'Beto', pagadorTrasElegir);
+  await page.selectOption('select[data-share-pagador]', 'tu'); // volver a "Tú" para el resto del test
+
+  // ---------- Segundo reporte: cambiar a "Por partes" seguía sin cambiar nada, y agregar a
+  // alguien más no reajustaba lo que le toca pagar a cada uno ----------
+  await page.click('[data-seg="division-tipo"] [data-seg-val="iguales"]');
+  await page.waitForTimeout(150);
+  const trasCambiarAPartes = await page.evaluate(() => ({
+    valores: ['tu', 'Ana', 'Beto', 'Cami', 'Diego'].map(id => document.querySelector('[data-share-value="' + id + '"]').value),
+    computados: ['tu', 'Ana', 'Beto', 'Cami', 'Diego'].map(id => document.querySelector('[data-share-computed="' + id + '"]').textContent),
+  }));
+  check('Cambiar a "Por partes" SÍ se nota: arranca en blanco (1 parte cada uno), no con los $20.000 de antes',
+    trasCambiarAPartes.valores.every(v => v === ''), trasCambiarAPartes.valores);
+  check('   y de entrada sigue siendo $20.000 cada uno (5 personas, reparto igualitario real)',
+    trasCambiarAPartes.computados.every(c => c === '$20.000'), trasCambiarAPartes.computados);
+
+  // Agregar una 6ª persona -- el total tiene que reajustarse entre las 6, no dejar a la nueva en
+  // $0. "+ agregar persona" ya la deja incluida (checkbox marcado) de entrada.
+  await page.fill('[data-share-new-name]', 'Elena');
+  await page.click('[data-share-add-name]');
+  await page.waitForTimeout(150);
+  const conElena = await page.evaluate(() => ({
+    elenaIncluida: document.querySelector('[data-share-include="Elena"]').checked,
+    computados: ['tu', 'Ana', 'Beto', 'Cami', 'Diego', 'Elena'].map(id => document.querySelector('[data-share-computed="' + id + '"]')?.textContent),
+    total: Array.from(document.querySelectorAll('.split-remaining')).find(e => e.textContent.includes('Total repartido'))?.textContent,
+  }));
+  // splitByShares reparte 100.000/6 = $16.666,67 -> piso $16.666 para los 6, y el peso que sobra
+  // ($100.000 - 6*16.666 = $4) se reparte de a 1 peso entre los primeros 4 de la lista (tu, Ana,
+  // Beto, Cami), nunca todo junto en el último -- por eso son $16.667 x4 y $16.666 x2, no un
+  // salto grande concentrado en una sola persona.
+  check('Agregar a Elena la deja incluida de entrada (no hay que marcarla a mano)', conElena.elenaIncluida === true, conElena);
+  check('Agregar a Elena reajusta el monto de TODOS (ya no $20.000 fijo): $16.667 x4 + $16.666 x2, el resto repartido de a 1 peso',
+    conElena.computados.slice(0,4).every(c => c === '$16.667') && conElena.computados.slice(4).every(c => c === '$16.666'), conElena.computados);
+  check('   y el total repartido sigue calzando exacto con los $100.000 de la transacción',
+    conElena.total && conElena.total.includes('de $100.000'), conElena.total);
+
+  // ---------- Tercer reporte: "debería ser también para % y monto fijo", no solo por partes ----------
+  await page.click('[data-share-cancel]');
+  await page.waitForTimeout(100);
+  await page.click('#sheet-close, .sheet-close');
+  await page.waitForTimeout(150);
+
+  await page.evaluate(() => {
+    const D = window.__debug;
+    D.CONTACTS = [];
+    D.TRANSACTIONS.push({
+      id: 'txMontoFijo', fecha: D.todayISO(), hora: '11:00', comercio: 'Cena Monto Fijo', monto: 30000, medio: 'visa_bch',
+      tipo: 'gasto', recurrencia: 'variable', estado: 'confirmado', categorias: [{ cat: 'restoranes', monto: 30000 }],
+      porCobrar: [], reglaAuto: false, nota: ''
+    });
+    D.state.openTxId = 'txMontoFijo';
+    D.state.creatingNew = false;
+    document.getElementById('sheet-overlay').classList.add('open');
+    D.render();
+  });
+  await page.waitForTimeout(150);
+  await page.click('[data-action="porcobrar_persona"]');
+  await page.waitForTimeout(150);
+  await page.fill('[data-share-new-name]', 'Fran');
+  await page.click('[data-share-add-name]');
+  await page.waitForTimeout(150);
+  await page.click('[data-seg="division-tipo"] [data-seg-val="montos"]');
+  await page.waitForTimeout(150);
+  // "Tú" y Fran ya vienen sembrados en $15.000 c/u (mitad y mitad) al cambiar a "Monto fijo" --
+  // valores explícitos en el input (no en blanco), así que todavía no hay lectura "computada".
+  const antesDeAgregar = await page.evaluate(() => ['tu', 'Fran'].map(id => document.querySelector('[data-share-value="' + id + '"]').value));
+  check('"Monto fijo" con 2 personas arranca en $15.000/$15.000 (mitad y mitad de $30.000)', antesDeAgregar.every(v => v === '15000'), antesDeAgregar);
+  await page.fill('[data-share-new-name]', 'Gaby');
+  await page.click('[data-share-add-name]');
+  await page.waitForTimeout(150);
+  const conGabyMontoFijo = await page.evaluate(() => ['tu', 'Fran', 'Gaby'].map(id => document.querySelector('[data-share-computed="' + id + '"]')?.textContent));
+  check('En "Monto fijo", agregar a Gaby SÍ reajusta a los 3 a $10.000 c/u (30.000/3), no la deja en $0 con los otros en $15.000',
+    conGabyMontoFijo.every(c => c === '$10.000'), conGabyMontoFijo);
+
+  // ---------- Lo mismo, en "Por %" ----------
+  await page.click('[data-share-cancel]');
+  await page.waitForTimeout(100);
+  await page.click('[data-action="porcobrar_persona"]');
+  await page.waitForTimeout(150);
+  await page.click('[data-share-include="Fran"]');
+  await page.waitForTimeout(100);
+  await page.click('[data-seg="division-tipo"] [data-seg-val="pct"]');
+  await page.waitForTimeout(150);
+  await page.fill('[data-share-new-name]', 'Hugo');
+  await page.click('[data-share-add-name]');
+  await page.waitForTimeout(150);
+  const conHugoPct = await page.evaluate(() => ['tu', 'Fran', 'Hugo'].map(id => document.querySelector('[data-share-computed="' + id + '"]')?.textContent));
+  check('En "Por %", agregar a Hugo también reajusta a los 3 a $10.000 c/u (30.000/3), no lo deja en $0',
+    conHugoPct.every(c => c === '$10.000'), conHugoPct);
 
   await finish({ context, browser, errors });
 })();

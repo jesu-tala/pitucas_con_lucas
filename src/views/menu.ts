@@ -1233,8 +1233,11 @@ export async function absorbImportedRows(){
    These tables NEVER travel inside app_state (see supabase/schema_gastos_compartidos.sql) —
    they're read/written directly, and "my share" of an expense that someone else recorded is
    recalculated right here every time (syncSharedExpenses), it's never persisted. */
+// Exported (not just a local literal) so the filter chips in sheet.ts can exclude it by id --
+// see the note there for why it can never be offered as a real "tarjeta/medio" to filter by.
+export const SHARED_EXPENSE_PAYMENT_METHOD_ID = 'grupo_compartido';
 export function ensureSharedExpensePaymentMethod(){
-  const id = 'grupo_compartido';
+  const id = SHARED_EXPENSE_PAYMENT_METHOD_ID;
   if(!PAYMENT_METHODS[id]){ PAYMENT_METHODS[id] = {nombre:'Gasto de grupo', corto:'Grupo', icon:'users'}; }
   return id;
 }

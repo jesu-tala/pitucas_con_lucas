@@ -42,7 +42,13 @@ export function polar(cx,cy,r,angleDeg){
   return {x:(cx+r*Math.cos(a)).toFixed(2), y:(cy+r*Math.sin(a)).toFixed(2)};
 }
 
-export function renderDonutBlock(titulo, subtitulo, tipo, monthTx){
+// `periodoFiltro` is what a legend-row tap should filter Transacciones by if you drill down into
+// a category from here: a 'YYYY-MM' month, or a bare 'YYYY' year (see state.categoryFilterMonth
+// in state.ts, and the data-cat click handler in events.ts, which reads it off this same
+// .donut-card via data-periodo instead of always assuming "the currently selected month" --
+// Balance's año mode calls this with a year, not a month, precisely so that drill-down brings
+// the whole year, not just whatever single month happened to be selected).
+export function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro?){
   const byCat = {};
   monthTx.filter(t=>t.tipo===tipo && t.estado!=='no_es_gasto').forEach(t=>{
     t.categorias.forEach(c=>{
@@ -70,7 +76,7 @@ export function renderDonutBlock(titulo, subtitulo, tipo, monthTx){
           '<span class="legend-value tabular">'+money(e.value)+'</span>'+
         '</button>';
       }).join('');
-  return '<div class="card donut-card">'+
+  return '<div class="card donut-card" '+(periodoFiltro?'data-periodo="'+periodoFiltro+'"':'')+'>'+
     '<div class="donut-card-title">'+titulo+'</div>'+
     '<div class="donut-card-sub">'+subtitulo+'</div>'+
     '<div class="donut-row">'+

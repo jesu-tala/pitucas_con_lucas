@@ -86,20 +86,22 @@ export function suggestedTransfers(groupId: string): SuggestedTransfer[] {
 }
 
 // Splits a total amount among N participants exactly (never a $1 difference from rounding):
-// everyone gets the same floor, and the remainder (always < N) is absorbed by the LAST
-// participant in the list, in one lump sum -- unlike installments (which hand it out $1 at a
-// time to the first ones), a bill split reads oddly if "whoever happens to be first" silently
-// gets charged a few pesos more than everyone else; putting the whole remainder on one person
-// (last in the list, arbitrary but stable) keeps it dead simple to explain: "everyone pays the
-// same, except <last person>, who covers the last few pesos of rounding".
+// everyone gets the same floor, and the remainder (always between 0 and N-1 pesos -- CLP has no
+// decimals) gets handed out ONE PESO AT A TIME to the first `resto` participants, in list order,
+// instead of dumping the whole thing on a single person. Concentrating it all on the last
+// participant used to be the deliberate design here, on the reasoning that it's simpler to
+// explain ("everyone pays the same except X") -- but for a real split with many people that
+// reads as a genuine, visible unfairness (one person paying several pesos more than everyone
+// else) rather than an explainable rounding footnote, so it's spread out instead: the worst-case
+// difference between any two participants is now at most 1 peso, never more.
 export function splitEqually(monto: number, participantIds: string[]): Record<string, number> {
   const n = participantIds.length;
   const out: Record<string, number> = {};
   if(n===0) return out;
-  const floor = Math.floor(monto/n);
-  const remainder = Math.round(monto) - floor*n;
+  const base = Math.floor(monto/n);
+  const resto = Math.round(monto) - base*n;
   participantIds.forEach((id, idx)=>{
-    out[id] = floor + (idx===n-1 ? remainder : 0);
+    out[id] = base + (idx<resto ? 1 : 0);
   });
   return out;
 }
@@ -109,20 +111,28 @@ export function splitEqually(monto: number, participantIds: string[]): Record<st
 // derived proportionally, never typed directly. This is the whole point of this modality: unlike
 // pct/montos (where the person types money-ish numbers that must add up exactly, or saving stays
 // blocked), a share split ALWAYS sums to the total by construction, whatever positive weights are
-// chosen -- there's nothing to "balance" by hand. Same last-absorbs-the-remainder rounding rule as
-// splitEqually (a plain equal split, weights all 1, is just a special case of this).
+// chosen -- there's nothing to "balance" by hand. Same 1-peso-at-a-time rounding rule as
+// splitEqually (a plain equal split, weights all 1, is just a special case of this): every
+// participant's ideal proportional share gets floored first, and whatever's left of the total
+// after all those floors (always between 0 and N-1 pesos, by construction) is handed out one
+// peso at a time in list order -- never concentrated on whoever happens to be last.
 export function splitByShares(total: number, participantIds: string[], partes: Record<string, number>): Record<string, number> {
   const n = participantIds.length;
   const out: Record<string, number> = {};
   if(n===0) return out;
   const sumPartes = participantIds.reduce((s,id)=>s+Math.max(0,partes[id]||0),0);
   if(sumPartes<=0) return splitEqually(total, participantIds);
-  let asignado = 0;
-  participantIds.forEach((id, idx)=>{
-    if(idx===n-1){ out[id] = total-asignado; return; }
-    const monto = Math.round(total*Math.max(0,partes[id]||0)/sumPartes);
-    out[id] = monto;
-    asignado += monto;
+  const base: Record<string, number> = {};
+  let sumaBase = 0;
+  participantIds.forEach(id=>{
+    const b = Math.floor(total*Math.max(0,partes[id]||0)/sumPartes);
+    base[id] = b;
+    sumaBase += b;
+  });
+  let resto = Math.round(total) - sumaBase;
+  participantIds.forEach(id=>{
+    out[id] = base[id] + (resto>0 ? 1 : 0);
+    if(resto>0) resto--;
   });
   return out;
 }
@@ -135,9 +145,15 @@ export function splitByShares(total: number, participantIds: string[], partes: R
 // draft.customValues (a blank value defaults to 1 part, same as everyone starting equal) and
 // derives the money via splitByShares -- always sums exactly, nothing to balance by hand.
 // 'pct'/'montos' read each included participant's own typed value from draft.customValues (a
-// percentage, or a plain amount) and round it -- nothing here tries to auto-balance what the user
-// types: the "sum must match the total exactly" rule is enforced by disabling the confirm button
-// (see renderSplitDraftForm), never by silently nudging a number the person typed themselves.
+// percentage, or a plain amount) and round it -- nothing here auto-balances a number the user
+// actually TYPED: the "sum must match the total exactly" rule is enforced by disabling the
+// confirm button (see renderSplitDraftForm), never by silently nudging it. A participant left
+// BLANK is different, though: same as 'iguales' treats a blank "partes" field as "1 part, same
+// as everyone starting equal" rather than "0 partes", a blank monto/% here means "split whatever
+// isn't explicitly assigned yet, evenly, among whoever else is also blank" -- so someone just
+// added to the draft (always blank) gets a real share of the total instead of $0/0%, and
+// removing someone grows everyone else's blank share back up automatically, the same "changes
+// react by themselves, then fine-tune by hand" feel 'iguales' already had.
 export function computeShareAmounts(total: number, draft): Record<string, number> {
   const ids: string[] = draft.participantesIncluidos;
   if(draft.divisionTipo==='iguales'){
@@ -150,13 +166,34 @@ export function computeShareAmounts(total: number, draft): Record<string, number
     return splitByShares(total, ids, partes);
   }
   const out: Record<string, number> = {};
+  const blancos: string[] = [];
+  let asignado = 0;
   ids.forEach(id=>{
     const raw = draft.customValues[id];
     const v = (raw==null || raw==='') ? null : safeEvalExpr(raw);
-    if(v==null){ out[id] = 0; return; }
-    out[id] = draft.divisionTipo==='pct' ? Math.round(total*v/100) : Math.round(v);
+    if(v==null){ blancos.push(id); return; }
+    const monto = draft.divisionTipo==='pct' ? Math.round(total*v/100) : Math.round(v);
+    out[id] = monto;
+    asignado += monto;
   });
+  if(blancos.length){
+    const partesIguales: Record<string,number> = {};
+    blancos.forEach(id=>{ partesIguales[id] = 1; });
+    Object.assign(out, splitByShares(total-asignado, blancos, partesIguales));
+  }
   return out;
+}
+// Whenever WHO's included in a split changes (someone added or removed), a 'montos'/'pct' draft's
+// already-typed amounts stop summing to the total on their own -- unlike 'iguales', where a blank
+// field already means "1 part" and recomputes correctly by itself on every render, monto fijo/
+// por % have no such living default UNLESS every remaining field is also blank (see
+// computeShareAmounts' "blank participants split what's left" rule above). Clearing every
+// included participant's value here lets them all fall back to that even split of the whole
+// total, giving 'montos'/'pct' the same "reacts by itself, then fine-tune by hand" feel 'iguales'
+// already had -- called from the add-person/toggle-include handlers in events.ts.
+export function resetCustomValuesOnMembershipChange(d){
+  if(d.divisionTipo==='iguales') return;
+  d.participantesIncluidos.forEach(id=>{ delete d.customValues[id]; });
 }
 export function shareAmountsSum(amounts: Record<string, number>, includedIds: string[]): number {
   return includedIds.reduce((s,id)=>s+(amounts[id]||0),0);
@@ -182,23 +219,21 @@ export function defaultPersonaSplitDraft(txId: string){
 // 2-person draft (you + whoever paid); anyone else who was really there has to be added back by
 // hand, same deliberate scope limit as the rest of this feature (no full N-way ledger here).
 export function draftFromExistingSplit(t: Transaction){
-  // 'iguales' ("por partes") never stores the original weights that were typed (only the final
-  // peso amount each person ended up with) -- reopening it as 'iguales' used to seed the "número
-  // de partes" input with that raw peso amount instead (e.g. "21333"), which reads as nonsense
-  // in a field meant for a small weight like "1" or "2". It also only did that for the OTHER
-  // participants, never for whoever's implied share balances the total (see seed() below), so
-  // the weights didn't add back up to the transaction's real total and "Guardar reparto" looked
-  // broken (total repartido never matched). 'montos' (monto fijo) is always exact AND legible for
-  // a reopened split, so 'iguales' collapses into it here; 'montos'/'pct' reopen as themselves,
-  // both fully recoverable from the amounts already on record.
-  const storedTipo: SplitType = t.divisionTipo || 'iguales';
-  const divisionTipo: SplitType = storedTipo==='iguales' ? 'montos' : storedTipo;
+  const divisionTipo: SplitType = t.divisionTipo || 'iguales';
   const personaRows = (t.porCobrar||[]).filter(p=>p.tipo==='persona');
   const deboRow = personaRows.find(p=>p.direccion==='debo');
-  const seed = (id: string, monto: number, customValues: Record<string,string>) => {
-    customValues[id] = divisionTipo==='pct'
-      ? String(t.monto ? Math.round((monto/t.monto)*1000)/10 : 0)
-      : String(monto);
+  // ReceivableItem.divisionValor/Transaction.pagadorDivisionValor (types.ts) hold the raw input
+  // each participant actually had, in the CURRENT divisionTipo's own unit -- reopening seeds the
+  // input fields with exactly that, so "por partes" shows "1 parte" again, not the peso amount it
+  // happened to compute to. Data saved before these fields existed (both undefined) falls back to
+  // the mode's own default: blank for 'iguales' (which already means "1 part, same as everyone"),
+  // and the derived value from `monto` for 'pct'/'montos' (fully recoverable exactly, since
+  // those two units and pesos convert losslessly into each other).
+  const seed = (monto: number, divisionValor?: number) => {
+    if(divisionValor!=null) return String(divisionValor);
+    if(divisionTipo==='iguales') return '';
+    if(divisionTipo==='pct') return String(t.monto ? Math.round((monto/t.monto)*1000)/10 : 0);
+    return String(monto);
   };
   if(t.pagador || deboRow){
     const pagadoPorId = t.pagador || (deboRow ? deboRow.persona : 'tu');
@@ -207,8 +242,8 @@ export function draftFromExistingSplit(t: Transaction){
     // Both rows get seeded (not just "tu"): the payer's own implied share is whatever's left of
     // the total, so the two amounts always add back up to t.monto -- otherwise the payer's field
     // defaulted to blank/0 and the split could never balance back to the full amount.
-    seed('tu', monto, customValues);
-    seed(pagadoPorId, t.monto - monto, customValues);
+    customValues['tu'] = seed(monto, deboRow ? deboRow.divisionValor : undefined);
+    customValues[pagadoPorId] = seed(t.monto - monto, t.pagadorDivisionValor);
     return {
       txId: t.id, groupId: null, divisionTipo, pagadoPorId,
       participantesIncluidos: ['tu', pagadoPorId], customValues, extraParticipants: [pagadoPorId]
@@ -217,11 +252,12 @@ export function draftFromExistingSplit(t: Transaction){
   const participantesIncluidos = ['tu', ...personaRows.map(p=>p.persona)];
   const customValues: Record<string,string> = {};
   // Same reasoning: "tu" (the payer here) is never a row in porCobrar (only the OTHER people's
-  // shares are), so its own implied amount -- the total minus everyone else's share -- has to be
-  // seeded by hand too, or its field defaults to blank/0 and the total never balances.
+  // shares are), so its own implied input has to be seeded from pagadorDivisionValor by hand too,
+  // or its field defaults to blank/0 and the total never balances (for 'montos'/'pct'; 'iguales'
+  // blank correctly means "1 part" either way).
   const sumaOtros = personaRows.reduce((s,p)=>s+(p.monto||0),0);
-  seed('tu', t.monto - sumaOtros, customValues);
-  personaRows.forEach(p=>seed(p.persona, p.monto||0, customValues));
+  customValues['tu'] = seed(t.monto - sumaOtros, t.pagadorDivisionValor);
+  personaRows.forEach(p=>{ customValues[p.persona] = seed(p.monto||0, p.divisionValor); });
   return {
     txId: t.id, groupId: null, divisionTipo, pagadoPorId: 'tu',
     participantesIncluidos, customValues, extraParticipants: personaRows.map(p=>p.persona)
@@ -241,22 +277,38 @@ export function draftFromExistingSplit(t: Transaction){
 //    show if this ever needs it.
 // Any 'reembolso' rows already on the transaction are untouched -- this only ever replaces the
 // 'persona' rows.
+// The raw input typed for `id` in the draft's current unit, or undefined if left blank -- see
+// ReceivableItem.divisionValor/Transaction.pagadorDivisionValor (types.ts) for why this has to
+// be kept separate from `amounts[id]` (the derived peso figure).
+function rawDivisionValor(draft, id): number | undefined {
+  const raw = draft.customValues[id];
+  if(raw==null || raw==='') return undefined;
+  const v = safeEvalExpr(raw);
+  return v==null ? undefined : v;
+}
 export function commitPersonaSplit(t: Transaction, draft, amounts: Record<string, number>){
   const reembolsoRows = (t.porCobrar||[]).filter(p=>p.tipo==='reembolso');
   let personaRows: ReceivableItem[];
   if(draft.pagadoPorId==='tu'){
     personaRows = draft.participantesIncluidos.filter(id=>id!=='tu').map(id=>({
       persona: id, monto: amounts[id]||0, pagado:false, tipo:'persona' as const,
-      montoRecibido:null, linkedTxId:null, direccion:'me_deben' as const
+      montoRecibido:null, linkedTxId:null, direccion:'me_deben' as const,
+      divisionValor: rawDivisionValor(draft, id)
     }));
     delete t.pagador;
   } else {
     personaRows = [{
       persona: draft.pagadoPorId, monto: amounts['tu']||0, pagado:false, tipo:'persona' as const,
-      montoRecibido:null, linkedTxId:null, direccion:'debo' as const
+      montoRecibido:null, linkedTxId:null, direccion:'debo' as const,
+      divisionValor: rawDivisionValor(draft, 'tu')
     }];
     t.pagador = draft.pagadoPorId;
   }
+  // Whoever actually paid (draft.pagadoPorId, "tu" or someone else) never gets their own
+  // porCobrar row -- their share is always implicit ("whatever's left of the total") -- so their
+  // own raw division input is kept on the transaction itself instead, or a custom (non-equal)
+  // split would silently reset back to the mode's default for the payer on the next reload.
+  t.pagadorDivisionValor = rawDivisionValor(draft, draft.pagadoPorId);
   t.divisionTipo = draft.divisionTipo;
   t.porCobrar = personaRows.concat(reembolsoRows);
   t.estado = (personaRows.length>0 || reembolsoRows.length>0)

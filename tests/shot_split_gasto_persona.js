@@ -20,7 +20,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.evaluate(() => { window.__debug.state.tab = 'transacciones'; window.__debug.render(); });
   await page.waitForTimeout(150);
 
-  // ---------- (a) "iguales", with the rounding case: last participant absorbs the remainder ----------
+  // ---------- (a) "iguales", with the rounding case: the leftover peso(s) spread 1 at a time,
+  // in list order -- never all dumped on whoever happens to be last ----------
   const txIguales = await page.evaluate(() => {
     const D = window.__debug;
     const t = { id: 'test-split-iguales', fecha: D.todayISO(), hora: '12:00', comercio: 'Test Split Iguales',
@@ -38,7 +39,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.click('[data-action="porcobrar_persona"]');
   await page.waitForTimeout(150);
   // include Fran then Pancho, in that order -- participantesIncluidos ends up ['tu','Fran','Pancho'],
-  // so with $10.000 among 3 people (floor 3333, remainder 1), Pancho (last) should get $3.334.
+  // so with $10.000 among 3 people (floor 3333, remainder 1), "tu" (first in the list) should
+  // get the extra peso: $3.334.
   await page.click('[data-share-include="Fran"]');
   await page.waitForTimeout(100);
   await page.click('[data-share-include="Pancho"]');
@@ -55,11 +57,11 @@ const { openApp, check, finish } = require('./lib/test_kit');
       confirmHabilitado: !document.querySelector('[data-share-confirm]').disabled,
     };
   });
-  check('(a) "Partes iguales" con 3 personas y $10.000: Tú y Fran quedan en $3.333 cada uno',
-    igualesPreview.filas.find(f => f.id === 'tu').amt === '$3.333' && igualesPreview.filas.find(f => f.id === 'Fran').amt === '$3.333',
+  check('(a) "Partes iguales" con 3 personas y $10.000: Fran y Pancho quedan en $3.333 cada uno',
+    igualesPreview.filas.find(f => f.id === 'Fran').amt === '$3.333' && igualesPreview.filas.find(f => f.id === 'Pancho').amt === '$3.333',
     igualesPreview.filas);
-  check('   y Pancho (el último en la lista) absorbe el resto de la división: $3.334',
-    igualesPreview.filas.find(f => f.id === 'Pancho').amt === '$3.334', igualesPreview.filas);
+  check('   y "tu" (primero en la lista) se lleva el peso que sobra: $3.334',
+    igualesPreview.filas.find(f => f.id === 'tu').amt === '$3.334', igualesPreview.filas);
   check('   el total repartido cuadra exacto con el total ($10.000 de $10.000) y el botón queda habilitado',
     igualesPreview.totalTexto.includes('$10.000 de $10.000') && igualesPreview.confirmHabilitado === true, igualesPreview);
 
@@ -69,10 +71,10 @@ const { openApp, check, finish } = require('./lib/test_kit');
     const t = window.__debug.TRANSACTIONS.find(t => t.id === id);
     return { porCobrar: t.porCobrar, divisionTipo: t.divisionTipo, pagador: t.pagador };
   }, txIguales);
-  check('   al confirmar, se crea una fila por CADA OTRO participante (Fran $3.333, Pancho $3.334), nada para "tu"',
+  check('   al confirmar, se crea una fila por CADA OTRO participante (Fran $3.333, Pancho $3.333), nada para "tu"',
     trasIguales.porCobrar.length === 2 &&
     trasIguales.porCobrar.find(p => p.persona === 'Fran').monto === 3333 &&
-    trasIguales.porCobrar.find(p => p.persona === 'Pancho').monto === 3334,
+    trasIguales.porCobrar.find(p => p.persona === 'Pancho').monto === 3333,
     trasIguales.porCobrar);
   check('   ambas quedan direccion "me_deben" (o sin dirección, mismo significado) y sin pagador (pagaste tú)',
     trasIguales.porCobrar.every(p => p.direccion === 'me_deben' || p.direccion === undefined) && trasIguales.pagador === undefined,
@@ -123,8 +125,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
 
   // Cambiar UN SOLO peso mueve el denominador compartido -- se repinta el readout de TODAS las
   // filas, no solo la que se está editando. Con tu=3, Fran=5, Pancho vacío (cuenta como 1 parte
-  // por defecto): 9 partes de $12.000 -> 4.000/6.667/1.333 (Pancho, último de la lista, absorbe
-  // el resto del redondeo).
+  // por defecto): 9 partes de $12.000 -> pisos 4.000/6.666/1.333 (suman 11.999), y el peso que
+  // sobra ($1) se lo lleva "tu" (primero en la lista), no Pancho.
   await page.fill('[data-share-value="Fran"]', '5');
   await page.waitForTimeout(80);
   await page.fill('[data-share-value="Pancho"]', '');
@@ -134,8 +136,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
     fran: document.querySelector('[data-share-computed="Fran"]')?.textContent,
     pancho: document.querySelector('[data-share-computed="Pancho"]')?.textContent,
   }));
-  check('   dejar una fila vacía cuenta como 1 parte por defecto, y mover un peso recalcula TODAS las filas (tu=3,Fran=5,Pancho vacío: $4.000/$6.667/$1.333)',
-    partesConBlanco.tu === '$4.000' && partesConBlanco.fran === '$6.667' && partesConBlanco.pancho === '$1.333', partesConBlanco);
+  check('   dejar una fila vacía cuenta como 1 parte por defecto, y mover un peso recalcula TODAS las filas (tu=3,Fran=5,Pancho vacío: $4.001/$6.666/$1.333, el peso sobrante para "tu")',
+    partesConBlanco.tu === '$4.001' && partesConBlanco.fran === '$6.666' && partesConBlanco.pancho === '$1.333', partesConBlanco);
 
   await page.click('[data-share-confirm="' + txPartes + '"]');
   await page.waitForTimeout(150);
@@ -145,7 +147,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   }, txPartes);
   check('   al confirmar, queda guardado el reparto ya calculado en pesos (no los números de partes crudos)',
     trasPartes.divisionTipo === 'iguales' &&
-    (trasPartes.porCobrar.find(p => p.persona === 'Fran') || {}).monto === 6667 &&
+    (trasPartes.porCobrar.find(p => p.persona === 'Fran') || {}).monto === 6666 &&
     (trasPartes.porCobrar.find(p => p.persona === 'Pancho') || {}).monto === 1333,
     trasPartes.porCobrar);
 
@@ -253,10 +255,12 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('(b2) Cambiar de "%" a "Monto fijo" con un % ya tipeado convierte a los pesos reales (Cata $12.000, no "60")',
     convAMontos.cata === '12000' && convAMontos.tu === '10000', convAMontos);
 
-  // Y de vuelta a "Por partes": esos mismos pesos ($12.000/$10.000) pasan a ser el peso de cada
-  // parte -- el "número de partes" es una proporción, no un monto absoluto, así que lo que se
-  // preserva es la PROPORCIÓN entre las dos personas (Cata:Tú = 12000:10000 = 1,2), no las cifras
-  // exactas de antes (eso solo pasaría si los pesos sumaran justo el total, que no es el caso).
+  // Y de vuelta a "Por partes": reusar esos mismos pesos ($12.000/$10.000) como "número de
+  // partes" se ve como si nada hubiera cambiado (un campo llamado "partes" mostrando miles de
+  // pesos no tiene sentido), y si después se agrega a alguien más su peso por defecto (1) queda
+  // insignificante al lado de esos miles -- su parte prácticamente no se nota. "Por partes" ahora
+  // arranca en blanco (1 parte cada uno = reparto igualitario de verdad), y desde ahí se ajusta
+  // a mano si hace falta.
   await page.click('[data-seg="division-tipo"] [data-seg-val="iguales"]');
   await page.waitForTimeout(150);
   const convAPartes = await page.evaluate(() => ({
@@ -265,9 +269,8 @@ const { openApp, check, finish } = require('./lib/test_kit');
     cataComputado: document.querySelector('[data-share-computed="Cata"]')?.textContent,
     tuComputado: document.querySelector('[data-share-computed="tu"]')?.textContent,
   }));
-  const proporcionOk = Math.abs(parseFloat(convAPartes.cataPartes)/parseFloat(convAPartes.tuPartes) - 1.2) < 0.001;
-  check('   y de "Monto fijo" a "Por partes" usa esos pesos como partes, preservando la proporción real entre personas (Cata:Tú = 1,2), no montos crudos al azar',
-    proporcionOk && convAPartes.cataPartes === '12000' && convAPartes.tuPartes === '10000', convAPartes);
+  check('   y de "Monto fijo" a "Por partes" arranca en blanco (1 parte cada uno = mitad y mitad, $10.000/$10.000), no con los pesos anteriores como "partes"',
+    convAPartes.cataPartes === '' && convAPartes.tuPartes === '' && convAPartes.cataComputado === '$10.000' && convAPartes.tuComputado === '$10.000', convAPartes);
 
   await page.click('[data-share-cancel]');
   await page.waitForTimeout(100);

@@ -1667,7 +1667,7 @@
     return { x: (cx + r * Math.cos(a)).toFixed(2), y: (cy + r * Math.sin(a)).toFixed(2) };
   }
   __name(polar, "polar");
-  function renderDonutBlock(titulo, subtitulo, tipo, monthTx) {
+  function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro) {
     const byCat = {};
     monthTx.filter((t) => t.tipo === tipo && t.estado !== "no_es_gasto").forEach((t) => {
       t.categorias.forEach((c) => {
@@ -1683,7 +1683,7 @@
       const pct = total > 0 ? Math.round(e.value / total * 100) : 0;
       return '<button class="legend-row" data-cat="' + e.id + '"><span class="legend-dot" style="--fill:var(--cat-' + e.info.color + '-fill)"></span><span class="legend-icon">' + catIconMarkup(e.info.icon) + '</span><span class="legend-name">' + e.info.nombre + '</span><span class="legend-pct">' + pct + '%</span><span class="legend-value tabular">' + money(e.value) + "</span></button>";
     }).join("");
-    return '<div class="card donut-card"><div class="donut-card-title">' + titulo + '</div><div class="donut-card-sub">' + subtitulo + '</div><div class="donut-row"><div class="donut-svg-wrap">' + donutSvg + '<div class="donut-center"><span class="dc-total tabular">' + (total > 0 ? moneyPlainMasked(total) : "$0") + '</span><span class="dc-label">total</span></div></div><div class="donut-legend">' + legend + "</div></div></div>";
+    return '<div class="card donut-card" ' + (periodoFiltro ? 'data-periodo="' + periodoFiltro + '"' : "") + '><div class="donut-card-title">' + titulo + '</div><div class="donut-card-sub">' + subtitulo + '</div><div class="donut-row"><div class="donut-svg-wrap">' + donutSvg + '<div class="donut-center"><span class="dc-total tabular">' + (total > 0 ? moneyPlainMasked(total) : "$0") + '</span><span class="dc-label">total</span></div></div><div class="donut-legend">' + legend + "</div></div></div>";
   }
   __name(renderDonutBlock, "renderDonutBlock");
   function monthlyInvestmentGoalCLP() {
@@ -2072,7 +2072,7 @@
       else if (t.tipo === "inversion") inversiones += monto;
     });
     const balance = ingresos - gastos - inversiones;
-    const html = balancePeriodoSelectorHtml() + monthSwitcherHtml() + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">' + money(ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(balance) + "</div></div></div>" + renderReembolsoCard(monthlyReimbursementTotal(month), "Reembolsado este mes") + renderGoalSummaryCard(monthTx, ingresos, investmentGoalPct()) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este mes", "ingreso", monthTx) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este mes", "gasto", monthTx) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este mes", "inversion", monthTx);
+    const html = balancePeriodoSelectorHtml() + monthSwitcherHtml() + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">' + money(ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(balance) + "</div></div></div>" + renderReembolsoCard(monthlyReimbursementTotal(month), "Reembolsado este mes") + renderGoalSummaryCard(monthTx, ingresos, investmentGoalPct()) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este mes", "ingreso", monthTx, month) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este mes", "gasto", monthTx, month) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este mes", "inversion", monthTx, month);
     document.getElementById("resumen-content").innerHTML = html;
   }
   __name(renderBalanceView, "renderBalanceView");
@@ -2084,7 +2084,7 @@
     const mesesTranscurridos = fullYearMonths(year).filter((m) => m <= todayISO().slice(0, 7));
     const objetivoInversionAcumulado = monthlyInvestmentGoalCLP() * mesesTranscurridos.length;
     const metaInvPctAnio = yr.ingresos > 0 ? objetivoInversionAcumulado / yr.ingresos * 100 : 0;
-    const html = balancePeriodoSelectorHtml() + yearSwitcherHtml(year) + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">' + money(yr.ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(yr.gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(yr.inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(balance) + "</div></div></div>" + renderReembolsoCard(reimbursementTotalForMonths(fullYearMonths(year)), "Reembolsado este a\xF1o") + renderGoalSummaryCard(yearTx, yr.ingresos, metaInvPctAnio) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este a\xF1o", "ingreso", yearTx) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este a\xF1o", "gasto", yearTx) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este a\xF1o", "inversion", yearTx);
+    const html = balancePeriodoSelectorHtml() + yearSwitcherHtml(year) + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">' + money(yr.ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(yr.gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(yr.inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(balance) + "</div></div></div>" + renderReembolsoCard(reimbursementTotalForMonths(fullYearMonths(year)), "Reembolsado este a\xF1o") + renderGoalSummaryCard(yearTx, yr.ingresos, metaInvPctAnio) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este a\xF1o", "ingreso", yearTx, year) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este a\xF1o", "gasto", yearTx, year) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este a\xF1o", "inversion", yearTx, year);
     document.getElementById("resumen-content").innerHTML = html;
   }
   __name(renderBalanceViewAnio, "renderBalanceViewAnio");
@@ -3081,8 +3081,9 @@
     }
   }
   __name(absorbImportedRows, "absorbImportedRows");
+  var SHARED_EXPENSE_PAYMENT_METHOD_ID = "grupo_compartido";
   function ensureSharedExpensePaymentMethod() {
-    const id = "grupo_compartido";
+    const id = SHARED_EXPENSE_PAYMENT_METHOD_ID;
     if (!PAYMENT_METHODS[id]) {
       PAYMENT_METHODS[id] = { nombre: "Gasto de grupo", corto: "Grupo", icon: "users" };
     }
@@ -4440,7 +4441,7 @@
       list = list.filter((t) => t.categorias.some((c) => categoryFilterMatches(c.cat, state.categoryFilter)));
     }
     if (state.categoryFilterMonth) {
-      list = list.filter((t) => t.fecha.slice(0, 7) === state.categoryFilterMonth);
+      list = state.categoryFilterMonth.length === 4 ? list.filter((t) => t.fecha.slice(0, 4) === state.categoryFilterMonth) : list.filter((t) => t.fecha.slice(0, 7) === state.categoryFilterMonth);
     }
     if (state.searchQuery.trim()) {
       const q = normalize(state.searchQuery);
@@ -4526,7 +4527,9 @@
     else if (t.estado === "por_cobrar") stateTag = hasReceivableType(t, "reembolso") ? '<span class="tx-state state-reembolso">Reembolso</span>' : '<span class="tx-state state-porcobrar">Por cobrar</span>';
     else if (t.estado === "no_es_gasto") stateTag = '<span class="tx-state state-noesgasto">' + (isIncome ? "No es ingreso" : "No es gasto") + "</span>";
     const medio = paymentMethodInfo(t.medio);
-    return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="--fill:var(--cat-' + primaryCat.color + "-fill);--ink:var(--cat-" + primaryCat.color + '-ink)">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name' + (isCobrado ? " tachado" : "") + '">' + t.comercio + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + leftLabel + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + '">' + amtDisplay + '</span><div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + medio.corto + "</div></span></button>";
+    const reembolsoRows = !isIncome && !isNoGasto ? (t.porCobrar || []).filter((p) => p.tipo === "reembolso") : [];
+    const netoLine = reembolsoRows.length === 0 ? "" : '<div class="tx-right-sub tx-neto-reembolso">' + (reembolsoRows.every((p) => p.pagado) ? "Pagado real: " : "Neto estimado: ") + money(netExpenseTx(t)) + "</div>";
+    return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="--fill:var(--cat-' + primaryCat.color + "-fill);--ink:var(--cat-" + primaryCat.color + '-ink)">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name' + (isCobrado ? " tachado" : "") + '">' + t.comercio + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + leftLabel + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + '">' + amtDisplay + '</span><div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + medio.corto + "</div>" + netoLine + "</span></button>";
   }
   __name(renderTxItem, "renderTxItem");
   function advFilterCount() {
@@ -4574,7 +4577,8 @@
     let chipsHtml = chips.map((c) => '<button class="chip ' + (state.filter === c.id ? "active" : "") + '" data-filter="' + c.id + '">' + c.label + "</button>").join("");
     let filterPill = "";
     if (state.categoryFilter) {
-      const pillLabel = catInfo(state.categoryFilter).nombre + (state.categoryFilterMonth ? " \xB7 " + MONTH_LABEL[state.categoryFilterMonth] : "");
+      const periodoLabel = !state.categoryFilterMonth ? "" : state.categoryFilterMonth.length === 4 ? state.categoryFilterMonth : MONTH_LABEL[state.categoryFilterMonth];
+      const pillLabel = catInfo(state.categoryFilter).nombre + (periodoLabel ? " \xB7 " + periodoLabel : "");
       filterPill = '<button class="chip filter-active" data-clear-catfilter="1">' + pillLabel + " " + ICONS.close + "</button>";
     }
     const advCount = advFilterCount();
@@ -4789,7 +4793,8 @@
     if (legendRow && (legendRow.classList.contains("legend-row") || legendRow.classList.contains("arc-seg"))) {
       const cid = legendRow.getAttribute("data-cat");
       state.categoryFilter = cid;
-      state.categoryFilterMonth = MONTHS[state.monthIndex];
+      const donutCard = legendRow.closest("[data-periodo]");
+      state.categoryFilterMonth = donutCard ? donutCard.getAttribute("data-periodo") : MONTHS[state.monthIndex];
       state.filter = "todas";
       state.tab = "transacciones";
       render();
@@ -4850,12 +4855,16 @@
         d.divisionTipo = val;
         const t2 = currentEditableTx();
         if (t2) {
-          const base = computeShareAmounts(t2.monto, { ...d, divisionTipo: tipoAnterior });
-          d.participantesIncluidos.forEach((id) => {
-            if (val === "pct") d.customValues[id] = String(t2.monto ? Math.round((base[id] || 0) / t2.monto * 1e3) / 10 : 0);
-            else if (val === "montos") d.customValues[id] = String(base[id] || 0);
-            else d.customValues[id] = String(base[id] || 0);
-          });
+          if (val === "iguales") {
+            d.participantesIncluidos.forEach((id) => {
+              delete d.customValues[id];
+            });
+          } else {
+            const base = computeShareAmounts(t2.monto, { ...d, divisionTipo: tipoAnterior });
+            d.participantesIncluidos.forEach((id) => {
+              d.customValues[id] = val === "pct" ? String(t2.monto ? Math.round((base[id] || 0) / t2.monto * 1e3) / 10 : 0) : String(base[id] || 0);
+            });
+          }
         }
         renderSheet();
         return;
@@ -6120,6 +6129,7 @@
         if (!d.extraParticipants.includes(name)) d.extraParticipants.push(name);
         if (!d.participantesIncluidos.includes(name)) d.participantesIncluidos.push(name);
         if (!CONTACTS.includes(name)) CONTACTS.push(name);
+        resetCustomValuesOnMembershipChange(d);
         renderSheet();
       }
       return;
@@ -6192,6 +6202,7 @@
         const i3 = d.extraParticipants.indexOf(name);
         if (i3 !== -1) d.extraParticipants.splice(i3, 1);
         if (d.pagadoPorId === name) d.pagadoPorId = "tu";
+        resetCustomValuesOnMembershipChange(d);
       }
       state.confirmDeleteContactName = null;
       toast("Quitado de la lista de personas");
@@ -6662,6 +6673,7 @@
       const idx = d.participantesIncluidos.indexOf(pid);
       if (compartirIncluirBox.checked && idx === -1) d.participantesIncluidos.push(pid);
       else if (!compartirIncluirBox.checked && idx !== -1) d.participantesIncluidos.splice(idx, 1);
+      resetCustomValuesOnMembershipChange(d);
       renderSheet();
       return;
     }
@@ -7875,7 +7887,8 @@
       }
       const incluido = d.participantesIncluidos.includes(p.id);
       const raw = d.customValues[p.id] || "";
-      const valueField = !incluido ? '<span class="tabular muted">\u2014</span>' : d.divisionTipo === "iguales" ? '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '" placeholder="1" style="width:44px;"><span>partes</span></span><span class="tabular muted" data-share-computed="' + p.id + '" style="margin-left:8px;font-size:12px;flex-shrink:0;">' + money(reparto[p.id] || 0) + "</span>" : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '"><span>' + (d.divisionTipo === "pct" ? "%" : "$") + "</span></span>";
+      const computedReadout = '<span class="tabular muted" data-share-computed="' + p.id + '" style="margin-left:8px;font-size:12px;flex-shrink:0;">' + money(reparto[p.id] || 0) + "</span>";
+      const valueField = !incluido ? '<span class="tabular muted">\u2014</span>' : d.divisionTipo === "iguales" ? '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '" placeholder="1" style="width:44px;"><span>partes</span></span>' + computedReadout : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="' + p.id + '" value="' + raw + '"><span>' + (d.divisionTipo === "pct" ? "%" : "$") + "</span></span>" + (raw === "" ? computedReadout : "");
       return '<div class="split-row" style="align-items:center;"><input type="checkbox" data-share-include="' + p.id + '" ' + (incluido ? "checked" : "") + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">' + avatarHtml(p.nombre, p.color, 24) + '<span style="flex:1;margin-left:8px;">' + p.nombre + "</span>" + valueField + (isContact ? '<button type="button" class="rm-btn" data-open-edit-contact="' + p.id + '" aria-label="Editar a ' + p.nombre + '">' + ICONS.edit + '</button><button type="button" class="rm-btn" data-ask-delete-contact="' + p.id + '" aria-label="Quitar a ' + p.nombre + '">' + ICONS.trash + "</button>" : "") + "</div>";
     }).join("");
     const addPersonRow = d.groupId ? "" : '<div class="split-row" style="align-items:center;"><input type="text" class="draft-input" data-share-new-name placeholder="Agregar otra persona\u2026" style="flex:1;"><button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">' + ICONS.plus + "</button></div>";
@@ -8193,9 +8206,19 @@
     return '<div class="card placeholder-card" style="padding:18px 14px;">' + ICONS.inbox + "<h3>No tienes metas creadas</h3><p>Crea tu primera meta de inversi\xF3n para poder clasificar tus aportes.</p>" + (platId ? '<button class="save-tx-btn" style="width:100%;margin-top:10px;" data-goto-create-goal="' + platId + '">+ Crear meta de inversi\xF3n</button>' : "") + "</div>";
   }
   __name(renderInvestGoalEmptyState, "renderInvestGoalEmptyState");
+  function pendingCardTitle(t, tieneCobro) {
+    const tieneReembolso = hasReceivableType(t, "reembolso");
+    if (tieneCobro && tieneReembolso) return "Cobros y reembolsos pendientes";
+    if (tieneCobro) return "Cobros pendientes";
+    if (tieneReembolso) return "Reembolso pendiente";
+    return null;
+  }
+  __name(pendingCardTitle, "pendingCardTitle");
   function renderQuickActionsBlock(t) {
     const draftPersonaAbierto = !!(state.shareDraft && state.shareDraft.txId === t.id && !state.shareDraft.groupId);
-    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones r\xE1pidas</div><div class="quick-actions"><button class="action-btn ' + (t.estado === "confirmado" ? "selected" : "") + '" data-action="confirmar" data-tx="' + t.id + '">' + ICONS.checkCircle + ' Confirmar gasto</button><button class="action-btn ' + (hasReceivableType(t, "persona") || draftPersonaAbierto ? "selected" : "") + '" data-action="porcobrar_persona" data-tx="' + t.id + '">' + ICONS.users + ' Por cobrar a alguien</button><button class="action-btn ' + (hasReceivableType(t, "reembolso") ? "selected" : "") + '" data-action="porcobrar_reembolso" data-tx="' + t.id + '">' + ICONS.inbox + ' Reembolso pendiente</button><button class="action-btn ' + (t.estado === "no_es_gasto" ? "selected" : "") + '" data-action="noesgasto" data-tx="' + t.id + '">' + ICONS.ban + " No es gasto</button></div></div>" + (t.estado === "por_cobrar" ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>' + renderChargeSplitBlock(t) + "</div>" : "");
+    const tieneCobro = hasReceivableType(t, "persona") || draftPersonaAbierto;
+    const cardTitle = pendingCardTitle(t, tieneCobro);
+    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones r\xE1pidas</div><div class="quick-actions"><button class="action-btn ' + (t.estado === "confirmado" ? "selected" : "") + '" data-action="confirmar" data-tx="' + t.id + '">' + ICONS.checkCircle + ' Confirmar gasto</button><button class="action-btn ' + (tieneCobro ? "selected" : "") + '" data-action="porcobrar_persona" data-tx="' + t.id + '">' + ICONS.users + ' Por cobrar a alguien</button><button class="action-btn ' + (hasReceivableType(t, "reembolso") ? "selected" : "") + '" data-action="porcobrar_reembolso" data-tx="' + t.id + '">' + ICONS.inbox + ' Reembolso pendiente</button><button class="action-btn ' + (t.estado === "no_es_gasto" ? "selected" : "") + '" data-action="noesgasto" data-tx="' + t.id + '">' + ICONS.ban + " No es gasto</button></div></div>" + (t.estado === "por_cobrar" && cardTitle ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">' + cardTitle + "</div>" + renderChargeSplitBlock(t) + "</div>" : "");
   }
   __name(renderQuickActionsBlock, "renderQuickActionsBlock");
   function renderIncomeQuickActionsBlock(t) {
@@ -8509,7 +8532,7 @@
   function renderFilterSheetContent() {
     const af = state.advFilters;
     const catChips = '<div class="cat-picker-grid">' + chipToggle("toggle-filter-cat", "__sin_cat__", "Sin categor\xEDa", null, af.cats.includes("__sin_cat__")) + Object.keys(CATEGORIES).filter((k) => CATEGORIES[k].tipo !== "inversion").map((k) => chipToggle("toggle-filter-cat", k, CATEGORIES[k].nombre, CATEGORIES[k].icon, af.cats.includes(k))).join("") + investmentCatOptions().map((o) => chipToggle("toggle-filter-cat", o.value, o.label, o.icon, af.cats.includes(o.value))).join("") + "</div>";
-    const medioChips = '<div class="cat-picker-grid">' + Object.keys(PAYMENT_METHODS).map((k) => chipToggle("toggle-filter-medio", k, PAYMENT_METHODS[k].nombre, PAYMENT_METHODS[k].icon, af.medios.includes(k))).join("") + "</div>";
+    const medioChips = '<div class="cat-picker-grid">' + Object.keys(PAYMENT_METHODS).filter((k) => k !== SHARED_EXPENSE_PAYMENT_METHOD_ID).map((k) => chipToggle("toggle-filter-medio", k, PAYMENT_METHODS[k].nombre, PAYMENT_METHODS[k].icon, af.medios.includes(k))).join("") + "</div>";
     const grupoChips = GROUPS.length ? '<div class="cat-picker-grid">' + chipToggle("toggle-filter-grupo", PERSONAL_GROUP_ID, "Personal", "\u{1F64B}", af.grupos.includes(PERSONAL_GROUP_ID)) + GROUPS.map((g) => chipToggle("toggle-filter-grupo", g.id, g.nombre, g.icono, af.grupos.includes(g.id))).join("") + "</div>" : "";
     const count = advFilterCount();
     return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">Filtros</div><div class="meta">Filtra las transacciones por categor\xEDa, tarjeta, grupo o fecha.</div></div><div class="sheet-block"><div class="sheet-block-title">Categor\xEDa</div>' + catChips + '</div><div class="sheet-block"><div class="sheet-block-title">Tarjeta / medio</div>' + medioChips + "</div>" + (grupoChips ? '<div class="sheet-block"><div class="sheet-block-title">Grupo</div>' + grupoChips + "</div>" : "") + '<div class="sheet-block"><div class="sheet-block-title">Rango de fechas</div><div class="filter-date-row"><input type="date" data-filter-date="from" value="' + (af.dateFrom || "") + '" aria-label="Desde"><input type="date" data-filter-date="to" value="' + (af.dateTo || "") + '" aria-label="Hasta"></div></div><div class="sheet-block" style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-clear-advfilters>Limpiar' + (count ? " (" + count + ")" : "") + '</button><button class="save-tx-btn" style="flex:1;" data-apply-advfilters>Ver resultados</button></div>';
@@ -8688,10 +8711,10 @@
     const n = participantIds.length;
     const out = {};
     if (n === 0) return out;
-    const floor = Math.floor(monto / n);
-    const remainder = Math.round(monto) - floor * n;
+    const base = Math.floor(monto / n);
+    const resto = Math.round(monto) - base * n;
     participantIds.forEach((id, idx) => {
-      out[id] = floor + (idx === n - 1 ? remainder : 0);
+      out[id] = base + (idx < resto ? 1 : 0);
     });
     return out;
   }
@@ -8702,15 +8725,17 @@
     if (n === 0) return out;
     const sumPartes = participantIds.reduce((s, id) => s + Math.max(0, partes[id] || 0), 0);
     if (sumPartes <= 0) return splitEqually(total, participantIds);
-    let asignado = 0;
-    participantIds.forEach((id, idx) => {
-      if (idx === n - 1) {
-        out[id] = total - asignado;
-        return;
-      }
-      const monto = Math.round(total * Math.max(0, partes[id] || 0) / sumPartes);
-      out[id] = monto;
-      asignado += monto;
+    const base = {};
+    let sumaBase = 0;
+    participantIds.forEach((id) => {
+      const b = Math.floor(total * Math.max(0, partes[id] || 0) / sumPartes);
+      base[id] = b;
+      sumaBase += b;
+    });
+    let resto = Math.round(total) - sumaBase;
+    participantIds.forEach((id) => {
+      out[id] = base[id] + (resto > 0 ? 1 : 0);
+      if (resto > 0) resto--;
     });
     return out;
   }
@@ -8727,18 +8752,36 @@
       return splitByShares(total, ids, partes);
     }
     const out = {};
+    const blancos = [];
+    let asignado = 0;
     ids.forEach((id) => {
       const raw = draft.customValues[id];
       const v = raw == null || raw === "" ? null : safeEvalExpr(raw);
       if (v == null) {
-        out[id] = 0;
+        blancos.push(id);
         return;
       }
-      out[id] = draft.divisionTipo === "pct" ? Math.round(total * v / 100) : Math.round(v);
+      const monto = draft.divisionTipo === "pct" ? Math.round(total * v / 100) : Math.round(v);
+      out[id] = monto;
+      asignado += monto;
     });
+    if (blancos.length) {
+      const partesIguales = {};
+      blancos.forEach((id) => {
+        partesIguales[id] = 1;
+      });
+      Object.assign(out, splitByShares(total - asignado, blancos, partesIguales));
+    }
     return out;
   }
   __name(computeShareAmounts, "computeShareAmounts");
+  function resetCustomValuesOnMembershipChange(d) {
+    if (d.divisionTipo === "iguales") return;
+    d.participantesIncluidos.forEach((id) => {
+      delete d.customValues[id];
+    });
+  }
+  __name(resetCustomValuesOnMembershipChange, "resetCustomValuesOnMembershipChange");
   function shareAmountsSum(amounts, includedIds) {
     return includedIds.reduce((s, id) => s + (amounts[id] || 0), 0);
   }
@@ -8756,19 +8799,21 @@
   }
   __name(defaultPersonaSplitDraft, "defaultPersonaSplitDraft");
   function draftFromExistingSplit(t) {
-    const storedTipo = t.divisionTipo || "iguales";
-    const divisionTipo = storedTipo === "iguales" ? "montos" : storedTipo;
+    const divisionTipo = t.divisionTipo || "iguales";
     const personaRows = (t.porCobrar || []).filter((p) => p.tipo === "persona");
     const deboRow = personaRows.find((p) => p.direccion === "debo");
-    const seed = /* @__PURE__ */ __name((id, monto, customValues2) => {
-      customValues2[id] = divisionTipo === "pct" ? String(t.monto ? Math.round(monto / t.monto * 1e3) / 10 : 0) : String(monto);
+    const seed = /* @__PURE__ */ __name((monto, divisionValor) => {
+      if (divisionValor != null) return String(divisionValor);
+      if (divisionTipo === "iguales") return "";
+      if (divisionTipo === "pct") return String(t.monto ? Math.round(monto / t.monto * 1e3) / 10 : 0);
+      return String(monto);
     }, "seed");
     if (t.pagador || deboRow) {
       const pagadoPorId = t.pagador || (deboRow ? deboRow.persona : "tu");
       const monto = deboRow ? deboRow.monto || 0 : 0;
       const customValues2 = {};
-      seed("tu", monto, customValues2);
-      seed(pagadoPorId, t.monto - monto, customValues2);
+      customValues2["tu"] = seed(monto, deboRow ? deboRow.divisionValor : void 0);
+      customValues2[pagadoPorId] = seed(t.monto - monto, t.pagadorDivisionValor);
       return {
         txId: t.id,
         groupId: null,
@@ -8782,8 +8827,10 @@
     const participantesIncluidos = ["tu", ...personaRows.map((p) => p.persona)];
     const customValues = {};
     const sumaOtros = personaRows.reduce((s, p) => s + (p.monto || 0), 0);
-    seed("tu", t.monto - sumaOtros, customValues);
-    personaRows.forEach((p) => seed(p.persona, p.monto || 0, customValues));
+    customValues["tu"] = seed(t.monto - sumaOtros, t.pagadorDivisionValor);
+    personaRows.forEach((p) => {
+      customValues[p.persona] = seed(p.monto || 0, p.divisionValor);
+    });
     return {
       txId: t.id,
       groupId: null,
@@ -8795,6 +8842,13 @@
     };
   }
   __name(draftFromExistingSplit, "draftFromExistingSplit");
+  function rawDivisionValor(draft, id) {
+    const raw = draft.customValues[id];
+    if (raw == null || raw === "") return void 0;
+    const v = safeEvalExpr(raw);
+    return v == null ? void 0 : v;
+  }
+  __name(rawDivisionValor, "rawDivisionValor");
   function commitPersonaSplit(t, draft, amounts) {
     const reembolsoRows = (t.porCobrar || []).filter((p) => p.tipo === "reembolso");
     let personaRows;
@@ -8806,7 +8860,8 @@
         tipo: "persona",
         montoRecibido: null,
         linkedTxId: null,
-        direccion: "me_deben"
+        direccion: "me_deben",
+        divisionValor: rawDivisionValor(draft, id)
       }));
       delete t.pagador;
     } else {
@@ -8817,10 +8872,12 @@
         tipo: "persona",
         montoRecibido: null,
         linkedTxId: null,
-        direccion: "debo"
+        direccion: "debo",
+        divisionValor: rawDivisionValor(draft, "tu")
       }];
       t.pagador = draft.pagadoPorId;
     }
+    t.pagadorDivisionValor = rawDivisionValor(draft, draft.pagadoPorId);
     t.divisionTipo = draft.divisionTipo;
     t.porCobrar = personaRows.concat(reembolsoRows);
     t.estado = personaRows.length > 0 || reembolsoRows.length > 0 ? "por_cobrar" : t.categorias.length > 0 ? "confirmado" : "pendiente";
@@ -9318,7 +9375,7 @@
     categoryFilter: null,
     // cat id or null
     categoryFilterMonth: null,
-    // 'YYYY-MM' or null, set together with categoryFilter from a Balance drill-down
+    // 'YYYY-MM', a bare 'YYYY' (Balance año mode -- the whole year, not just one month), or null, set together with categoryFilter from a Balance drill-down
     monthIndex: currentMonthIndex(),
     balancePeriodo: "mes",
     // mes | año — Resumen > Balance shows the current month or the full current year (never a past/future year)

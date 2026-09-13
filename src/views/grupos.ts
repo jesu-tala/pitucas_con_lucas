@@ -131,11 +131,15 @@ export function renderSplitDraftForm(tx, d){
     // everyone else's peso amount too (the denominator moves), so this readout gets repainted for
     // every row on every keystroke (see the data-share-value handler in events.ts), not just the
     // row being edited.
+    // Left blank in "Monto fijo"/"Por %" (unlike a typed value, always authoritative as-is), a
+    // participant now implicitly splits whatever's left of the total evenly with anyone else
+    // also blank (see computeShareAmounts) -- same computed readout "Por partes" already has, so
+    // that implied share is visible instead of the field just looking empty/broken.
+    const computedReadout = '<span class="tabular muted" data-share-computed="'+p.id+'" style="margin-left:8px;font-size:12px;flex-shrink:0;">'+money(reparto[p.id]||0)+'</span>';
     const valueField = !incluido ? '<span class="tabular muted">—</span>'
       : d.divisionTipo==='iguales'
-        ? '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="'+p.id+'" value="'+raw+'" placeholder="1" style="width:44px;"><span>partes</span></span>'+
-          '<span class="tabular muted" data-share-computed="'+p.id+'" style="margin-left:8px;font-size:12px;flex-shrink:0;">'+money(reparto[p.id]||0)+'</span>'
-        : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="'+p.id+'" value="'+raw+'"><span>'+(d.divisionTipo==='pct'?'%':'$')+'</span></span>';
+        ? '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="'+p.id+'" value="'+raw+'" placeholder="1" style="width:44px;"><span>partes</span></span>'+computedReadout
+        : '<span class="num-wrap"><input type="text" inputmode="decimal" data-share-value="'+p.id+'" value="'+raw+'"><span>'+(d.divisionTipo==='pct'?'%':'$')+'</span></span>'+(raw===''?computedReadout:'');
     return '<div class="split-row" style="align-items:center;">'+
       '<input type="checkbox" data-share-include="'+p.id+'" '+(incluido?'checked':'')+' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
       avatarHtml(p.nombre, p.color, 24)+
