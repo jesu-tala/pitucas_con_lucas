@@ -9,28 +9,32 @@ import { round1 } from './views/inversiones';
 // categories: they're the real investment platforms, tied to PLATFORM_DATA and to
 // INVESTMENT_GOALS.plataformaId — that's why they were left with their usual icon instead of
 // an emoji.
+// colorHue values below are just an evenly-spaced starting point per tipo (360°/count) picked
+// once by hand for this seed data -- any category created from here on gets its hue from
+// nextCategoryHue() instead (see category-colors.ts), which spreads new hues into the largest
+// remaining gap rather than a fixed division.
 export const CATEGORIES: Record<string, Category> = {
-  supermercado:{nombre:'Supermercado', tipo:'gasto', color:'mint', icon:'🛒'},
-  restoranes:{nombre:'Restoranes y bares', tipo:'gasto', color:'peach', icon:'🍽️'},
-  transporte:{nombre:'Transporte', tipo:'gasto', color:'sky', icon:'🚕'},
-  hogar:{nombre:'Hogar', tipo:'gasto', color:'lavender', icon:'🏠'},
-  salud:{nombre:'Salud', tipo:'gasto', color:'pink', icon:'💊'},
-  entretenimiento:{nombre:'Entretenimiento', tipo:'gasto', color:'neutral', icon:'🎬'},
-  deporte:{nombre:'Deporte', tipo:'gasto', color:'mint', icon:'🏃'},
-  carrete:{nombre:'Carrete', tipo:'gasto', color:'butter', icon:'🍻'},
-  suscripciones:{nombre:'Suscripciones', tipo:'gasto', color:'sage', icon:'📺'},
-  compras:{nombre:'Compras', tipo:'gasto', color:'peach', icon:'🛍️'},
-  viajes:{nombre:'Viajes', tipo:'gasto', color:'sky', icon:'✈️'},
-  regalos:{nombre:'Regalos y donaciones', tipo:'gasto', color:'lavender', icon:'🎁'},
-  gastos_hormiga:{nombre:'Gastos hormiga', tipo:'gasto', color:'neutral', icon:'🐜'},
+  supermercado:{nombre:'Supermercado', tipo:'gasto', colorHue:0, icon:'🛒'},
+  restoranes:{nombre:'Restoranes y bares', tipo:'gasto', colorHue:28, icon:'🍽️'},
+  transporte:{nombre:'Transporte', tipo:'gasto', colorHue:55, icon:'🚕'},
+  hogar:{nombre:'Hogar', tipo:'gasto', colorHue:83, icon:'🏠'},
+  salud:{nombre:'Salud', tipo:'gasto', colorHue:111, icon:'💊'},
+  entretenimiento:{nombre:'Entretenimiento', tipo:'gasto', colorHue:138, icon:'🎬'},
+  deporte:{nombre:'Deporte', tipo:'gasto', colorHue:166, icon:'🏃'},
+  carrete:{nombre:'Carrete', tipo:'gasto', colorHue:194, icon:'🍻'},
+  suscripciones:{nombre:'Suscripciones', tipo:'gasto', colorHue:222, icon:'📺'},
+  compras:{nombre:'Compras', tipo:'gasto', colorHue:249, icon:'🛍️'},
+  viajes:{nombre:'Viajes', tipo:'gasto', colorHue:277, icon:'✈️'},
+  regalos:{nombre:'Regalos y donaciones', tipo:'gasto', colorHue:305, icon:'🎁'},
+  gastos_hormiga:{nombre:'Gastos hormiga', tipo:'gasto', colorHue:332, icon:'🐜'},
 
-  sueldo:{nombre:'Sueldo', tipo:'ingreso', color:'mint', icon:'💼'},
-  pololos_extra:{nombre:'Pololos extra', tipo:'ingreso', color:'sky', icon:'✨'},
+  sueldo:{nombre:'Sueldo', tipo:'ingreso', colorHue:0, icon:'💼'},
+  pololos_extra:{nombre:'Pololos extra', tipo:'ingreso', colorHue:180, icon:'✨'},
 
-  fintual:{nombre:'Fintual', tipo:'inversion', color:'mint', icon:'trending'},
-  racional:{nombre:'Racional', tipo:'inversion', color:'peach', icon:'trending'},
-  banco_chile:{nombre:'Banco de Chile', tipo:'inversion', color:'butter', icon:'bank'},
-  buda:{nombre:'Buda (cripto)', tipo:'inversion', color:'pink', icon:'coin'},
+  fintual:{nombre:'Fintual', tipo:'inversion', colorHue:0, icon:'trending'},
+  racional:{nombre:'Racional', tipo:'inversion', colorHue:72, icon:'trending'},
+  banco_chile:{nombre:'Banco de Chile', tipo:'inversion', colorHue:144, icon:'bank'},
+  buda:{nombre:'Buda (cripto)', tipo:'inversion', colorHue:216, icon:'coin'},
   // "Otros": a catch-all system-seeded platform (same family as the 4 above -- not something
   // the user creates by hand via "+ Agregar nueva plataforma") for one-off investments that
   // don't belong anywhere else and don't warrant their own platform/goal (see PLATFORM_DATA.otros
@@ -38,7 +42,7 @@ export const CATEGORIES: Record<string, Category> = {
   // last on purpose: several fallbacks (activePlatformIds()[0], etc.) pick "the first active
   // platform" as a default when creating a goal, and 'otros' can never host a goal -- see
   // goalCapablePlatformIds() in views/inversiones.ts for the explicit guard against that anyway.
-  otros:{nombre:'Otros', tipo:'inversion', color:'sage', icon:'layers'}
+  otros:{nombre:'Otros', tipo:'inversion', colorHue:288, icon:'layers'}
 };
 // Snapshot of the "factory" categories (only gasto/ingreso, no investment platforms — each
 // person creates those from scratch) — taken ONCE here, before anything touches it, so the
@@ -408,7 +412,7 @@ export const state: AppState = {
   creatingPlatform:false,      // true while the "new platform" form is shown
   confirmDeletePlatformId:null, // id of the platform showing "are you sure?" before actually deleting it
   confirmArchivePlatformId:null, // same "are you sure?" but for "closing" a platform (reversible, but still asked)
-  newPlatformDraft:{nombre:'', icon:'bank', color:'butter', valor:'', plazo:''},
+  newPlatformDraft:{nombre:'', icon:'bank', colorHue:0, colorHueTouched:false, valor:'', plazo:''},
   // Monthly amount the user typed by hand in the Investments simulator, replacing the real
   // average of their last 3 months -- null while untouched (uses the average).
   simulatedContribution:null,
@@ -433,7 +437,7 @@ export const state: AppState = {
   salaryBannerDismissedMonth:null, // 'YYYY-MM' of the month "Not now" was tapped on the salary suggestion
   editingCategoryId:null,      // catId being edited, 'nueva', or null
   confirmDeleteCatId:null,     // catId showing "are you sure?" before actually deleting it
-  catDraft:{nombre:'', tipo:'gasto', color:'sage', icon:'more'},
+  catDraft:{nombre:'', tipo:'gasto', colorHue:95, colorHueTouched:false, icon:'more'},
   editingPaymentMethodId:null, // medioId being edited, 'nueva', or null (different from the mini-form inside the new-transaction sheet)
   confirmDeletePaymentMethodId:null, // medioId showing "are you sure?" before actually deleting it
   medioDraft:{nombre:'', corto:'', icon:'card'},

@@ -263,7 +263,12 @@ export interface SuggestedTransfer {
 export interface Category {
   nombre: string;
   tipo: TxType;
-  color: string;   // one of CATEGORY_COLOR_CHOICES
+  // Hue angle (0-359) in a fixed pastel OKLCH band -- see category-colors.ts. Assigned once at
+  // creation time via farthest-point-on-the-hue-circle insertion (nextCategoryHue) so a brand
+  // new category starts out as visually distinct from its siblings as the current set allows,
+  // then persisted forever (never recomputed on the fly, so it stays stable across renders and
+  // as other categories come and go). The user can still override it by hand afterwards.
+  colorHue: number;
   icon: string;     // an ICONS name, or a bare emoji (see catIconMarkup)
 }
 

@@ -1,16 +1,18 @@
 import { catInfo, catNetAmount, catTotalAmount, netExpenseTx, netIncomeFactor, lastSalaryTx } from '../helpers';
+import { categoryFillCss } from '../category-colors';
 import { ICONS, catIconMarkup, icon } from '../icons';
 import { SPENDING_GOAL_PCT, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, money, moneyPlainMasked, state, todayISO } from '../state';
 import { monthTotals } from '../views/evolucion';
 /* ===================== DONUT SVG ===================== */
 export function buildDonut(segments, size, strokeW){
-  // segments: [{value, color, id, nombre}]
+  // segments: [{value, color, id, nombre, extraAttrs?}]
   const total = segments.reduce((s,x)=>s+x.value,0);
   const r = (size/2) - strokeW/2 - 2;
   const cx=size/2, cy=size/2;
   // 6° (used to be 3°) -- a wider gap helps tell apart two neighboring segments that happened
-  // to end up with the same color (see categoriesWithColor), without which they look like a
-  // single continuous block.
+  // to end up with a similar color, without which they look like a single continuous block.
+  // Every category now gets its own unique hue (see category-colors.ts), so this is mostly a
+  // safety margin rather than the main way of telling segments apart.
   const gapDeg = segments.length>1 ? 6 : 0;
   let startAngle = -90;
   let paths = '';
@@ -22,16 +24,22 @@ export function buildDonut(segments, size, strokeW){
     // instead of a ring. A full <circle> draws it correctly.
     paths = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+segments[0].color+'" stroke-width="'+strokeW+'"/>';
   } else {
+    // A real (nonzero) segment always gets at least this much visible sweep -- without a floor,
+    // a small-but-real slice (e.g. a single category just under the "Otros" grouping threshold,
+    // which by design draws directly instead of being grouped -- see DONUT_OTROS_THRESHOLD_PCT)
+    // could end up with frac*360 smaller than the gap itself and silently vanish from the ring
+    // even though its full amount is still listed in the legend below.
+    const MIN_VISIBLE_SWEEP_DEG = 3;
     segments.forEach(seg=>{
       const frac = seg.value/total;
-      const sweep = frac*360 - gapDeg;
-      if(sweep<=0){ startAngle += frac*360; return; }
+      if(frac<=0) return;
+      const sweep = Math.max(frac*360 - gapDeg, MIN_VISIBLE_SWEEP_DEG);
       const a0 = startAngle;
       const a1 = startAngle + sweep;
       const large = sweep>180 ? 1 : 0;
       const p0 = polar(cx,cy,r,a0);
       const p1 = polar(cx,cy,r,a1);
-      paths += '<path class="arc-seg" data-cat="'+seg.id+'" d="M '+p0.x+' '+p0.y+' A '+r+' '+r+' 0 '+large+' 1 '+p1.x+' '+p1.y+'" fill="none" stroke="'+seg.color+'" stroke-width="'+strokeW+'" stroke-linecap="round"/>';
+      paths += '<path class="arc-seg" data-cat="'+seg.id+'"'+(seg.extraAttrs||'')+' d="M '+p0.x+' '+p0.y+' A '+r+' '+r+' 0 '+large+' 1 '+p1.x+' '+p1.y+'" fill="none" stroke="'+seg.color+'" stroke-width="'+strokeW+'" stroke-linecap="round"/>';
       startAngle += frac*360;
     });
   }
@@ -41,6 +49,14 @@ export function polar(cx,cy,r,angleDeg){
   const a = angleDeg*Math.PI/180;
   return {x:(cx+r*Math.cos(a)).toFixed(2), y:(cy+r*Math.sin(a)).toFixed(2)};
 }
+
+// Ring-only grouping threshold: a category under this % of the month/year's total gets folded
+// into a single "Otros" arc so the ring doesn't dissolve into slivers -- adjustable here, not
+// hardcoded at each call site. The LEGEND never groups anything -- it always lists 100% of
+// categories individually, however small, so nothing is actually hidden, just visually
+// simplified in the ring. A single small category never gets wrapped into a 1-item "Otros"
+// (that would just be a worse label for the same slice) -- it's drawn directly instead.
+export const DONUT_OTROS_THRESHOLD_PCT = 3;
 
 // `periodoFiltro` is what a legend-row tap should filter Transacciones by if you drill down into
 // a category from here: a 'YYYY-MM' month, or a bare 'YYYY' year (see state.categoryFilterMonth
@@ -62,16 +78,40 @@ export function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro
   const entries = Object.keys(byCat).map(id=>({id, value:byCat[id], info:catInfo(id)}))
     .sort((a,b)=>b.value-a.value);
   const total = entries.reduce((s,e)=>s+e.value,0);
-  const segs = entries.map(e=>({value:e.value, color:'var(--cat-'+e.info.color+'-fill)', id:e.id, nombre:e.info.nombre}));
+
+  // Ring: fold every entry under the threshold into one "Otros" arc -- unless there's only one
+  // such entry, in which case grouping it alone would gain nothing.
+  const smallIds = total>0
+    ? entries.filter(e => (e.value/total)*100 < DONUT_OTROS_THRESHOLD_PCT).map(e=>e.id)
+    : [];
+  const grouped = smallIds.length > 1;
+  const otrosIds = grouped ? smallIds : [];
+  const ringEntries = !grouped ? entries : (function(){
+    const big = entries.filter(e=>!otrosIds.includes(e.id));
+    const otrosValue = entries.filter(e=>otrosIds.includes(e.id)).reduce((s,e)=>s+e.value,0);
+    return (big as any[]).concat([{id:'otros', value:otrosValue, info:{nombre:'Otros', icon:'more', colorHue:0, tipo:tipo}, isOtros:true}]);
+  })();
+  const segs = ringEntries.map(e=>({
+    value: e.value,
+    color: (e as any).isOtros ? 'var(--text-tertiary)' : categoryFillCss(e.info.colorHue),
+    id: e.id,
+    nombre: e.info.nombre,
+    extraAttrs: (e as any).isOtros ? ' data-otros-ids="'+otrosIds.join(',')+'"' : ''
+  }));
   const donutSvg = buildDonut(segs, 172, 24);
+  // The legend, unlike the ring, is never grouped -- every category shows its own row, however
+  // small its slice, so 100% of the breakdown is always visible somewhere on screen even when
+  // the ring itself simplifies. A legend row folded into the ring's "Otros" arc gets a small
+  // badge instead so it's clear where it went on the chart.
   const legend = entries.length===0
     ? '<div class="empty-state" style="padding:14px 4px;">'+icon('inbox')+'<div>Sin movimientos este mes.</div></div>'
     : entries.map(e=>{
         const pct = total>0 ? Math.round((e.value/total)*100) : 0;
-        return '<button class="legend-row" data-cat="'+e.id+'">'+
-          '<span class="legend-dot" style="--fill:var(--cat-'+e.info.color+'-fill)"></span>'+
+        const enOtros = otrosIds.includes(e.id);
+        return '<button class="legend-row'+(enOtros?' legend-row-otros':'')+'" data-cat="'+e.id+'">'+
+          '<span class="legend-dot" style="--fill:'+categoryFillCss(e.info.colorHue)+'"></span>'+
           '<span class="legend-icon">'+catIconMarkup(e.info.icon)+'</span>'+
-          '<span class="legend-name">'+e.info.nombre+'</span>'+
+          '<span class="legend-name">'+e.info.nombre+(enOtros?' <span class="legend-otros-badge">Otros</span>':'')+'</span>'+
           '<span class="legend-pct">'+pct+'%</span>'+
           '<span class="legend-value tabular">'+money(e.value)+'</span>'+
         '</button>';

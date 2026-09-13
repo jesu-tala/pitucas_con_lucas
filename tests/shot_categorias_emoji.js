@@ -57,9 +57,9 @@ const { openApp, check, finish } = require('./lib/test_kit');
     return out;
   });
 
-  check('1) Supermercado con nombre/tipo/color/ícono correctos', JSON.stringify(resultado.supermercado)==='{"nombre":"Supermercado","tipo":"gasto","color":"mint","icon":"🛒"}', resultado.supermercado);
+  check('1) Supermercado con nombre/tipo/color/ícono correctos', resultado.supermercado.nombre==='Supermercado' && resultado.supermercado.tipo==='gasto' && typeof resultado.supermercado.colorHue==='number' && resultado.supermercado.icon==='🛒', resultado.supermercado);
   check('   Restoranes y bares', resultado.restoranes.nombre==='Restoranes y bares' && resultado.restoranes.icon==='🍽️', resultado.restoranes);
-  check('   Hogar', resultado.hogar.icon==='🏠' && resultado.hogar.color==='lavender', resultado.hogar);
+  check('   Hogar', resultado.hogar.icon==='🏠' && typeof resultado.hogar.colorHue==='number', resultado.hogar);
   check('   Sueldo (ingreso)', resultado.sueldo.icon==='💼' && resultado.sueldo.tipo==='ingreso', resultado.sueldo);
   check('   Pololos extra (ingreso)', resultado.pololosExtra.icon==='✨' && resultado.pololosExtra.tipo==='ingreso', resultado.pololosExtra);
   check('   Gastos hormiga', resultado.gastosHormiga.icon==='🐜', resultado.gastosHormiga);
@@ -78,7 +78,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
     window.__debug.state.tab = 'menu';
     window.__debug.state.menuSection = 'categorias';
     window.__debug.state.editingCategoryId = 'nueva';
-    window.__debug.state.catDraft = {nombre:'', tipo:'gasto', color:'sage', icon:'🏷️'};
+    window.__debug.state.catDraft = {nombre:'', tipo:'gasto', colorHue:95, icon:'🏷️'};
     window.__debug.render();
   });
   await page.waitForTimeout(150);
@@ -111,7 +111,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   // 10) The free-text field also allows an emoji that's not in the grid.
   await page.evaluate(() => {
     window.__debug.state.editingCategoryId = 'nueva';
-    window.__debug.state.catDraft = {nombre:'', tipo:'gasto', color:'sage', icon:'🏷️'};
+    window.__debug.state.catDraft = {nombre:'', tipo:'gasto', colorHue:95, icon:'🏷️'};
     window.__debug.render();
   });
   await page.waitForTimeout(150);

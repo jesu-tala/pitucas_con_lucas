@@ -1,4 +1,5 @@
 import { allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
+import { categoryFillCss, nextCategoryHue } from './category-colors';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
@@ -140,6 +141,22 @@ phone.addEventListener('click', function(e: any){
     return;
   }
 
+  // The ring's "Otros" arc isn't a real category -- filtering Transacciones by it would just show
+  // an empty list. Tapping it instead briefly highlights the legend rows it groups together
+  // (already listed individually, in full, right below -- see DONUT_OTROS_THRESHOLD_PCT in
+  // ui/donut.ts), so it "expands" without needing a second, duplicate breakdown UI.
+  const otrosArc = e.target.closest('[data-cat="otros"]');
+  if(otrosArc){
+    const ids = (otrosArc.getAttribute('data-otros-ids')||'').split(',').filter(Boolean);
+    const card = otrosArc.closest('.donut-card');
+    (card || document).querySelectorAll('.legend-row-otros').forEach(function(row: any){
+      if(ids.includes(row.getAttribute('data-cat'))) row.classList.add('legend-otros-flash');
+    });
+    setTimeout(function(){
+      (card || document).querySelectorAll('.legend-otros-flash').forEach(function(row: any){ row.classList.remove('legend-otros-flash'); });
+    }, 1200);
+    return;
+  }
   const legendRow = e.target.closest('[data-cat]');
   if(legendRow && (legendRow.classList.contains('legend-row') || legendRow.classList.contains('arc-seg'))){
     const cid = legendRow.getAttribute('data-cat');
@@ -204,6 +221,7 @@ phone.addEventListener('click', function(e: any){
     }
     if(group==='cat-draft-tipo'){
       state.catDraft.tipo = val;
+      if(!state.catDraft.colorHueTouched) state.catDraft.colorHue = nextCategoryHue(CATEGORIES, val);
       renderMenuView();
       return;
     }
@@ -833,7 +851,7 @@ phone.addEventListener('click', function(e: any){
   const addPlatformBtn = e.target.closest('[data-add-platform]');
   if(addPlatformBtn){
     state.creatingPlatform = true;
-    state.newPlatformDraft = {nombre:'', icon:'bank', color:'butter', valor:'', plazo:''};
+    state.newPlatformDraft = {nombre:'', icon:'bank', colorHue:nextCategoryHue(CATEGORIES,'inversion'), colorHueTouched:false, valor:'', plazo:''};
     renderInvestmentsView();
     return;
   }
@@ -845,8 +863,6 @@ phone.addEventListener('click', function(e: any){
   }
   const newPlatformIconBtn = e.target.closest('[data-newplatform-icon]');
   if(newPlatformIconBtn){ state.newPlatformDraft.icon = newPlatformIconBtn.getAttribute('data-newplatform-icon'); renderInvestmentsView(); return; }
-  const newPlatformColorBtn = e.target.closest('[data-newplatform-color]');
-  if(newPlatformColorBtn){ state.newPlatformDraft.color = newPlatformColorBtn.getAttribute('data-newplatform-color'); renderInvestmentsView(); return; }
   const saveNewPlatformBtn = e.target.closest('[data-save-newplatform]');
   if(saveNewPlatformBtn){
     const d = state.newPlatformDraft;
@@ -854,7 +870,7 @@ phone.addEventListener('click', function(e: any){
     const valor = d.valor.trim()==='' ? 0 : safeEvalExpr(d.valor);
     if(valor===null || valor<0){ toast('Pon un valor válido (o déjalo en 0)'); return; }
     const id = 'plataforma_'+Date.now();
-    CATEGORIES[id] = {nombre:d.nombre.trim(), tipo:'inversion', color:d.color, icon:d.icon};
+    CATEGORIES[id] = {nombre:d.nombre.trim(), tipo:'inversion', colorHue:d.colorHue, icon:d.icon};
     // all existing months are filled in with the same initial value (a flat line before it was
     // created) so as not to break the shared "Aportado vs. valor mes a mes" chart, which only
     // graphs months where ALL platforms have data.
@@ -1622,7 +1638,7 @@ phone.addEventListener('click', function(e: any){
   const addCatBtn = e.target.closest('[data-add-cat]');
   if(addCatBtn){
     state.editingCategoryId = 'nueva';
-    state.catDraft = {nombre:'', tipo:'gasto', color:'sage', icon:'🏷️'};
+    state.catDraft = {nombre:'', tipo:'gasto', colorHue:nextCategoryHue(CATEGORIES,'gasto'), colorHueTouched:false, icon:'🏷️'};
     renderMenuView();
     return;
   }
@@ -1632,7 +1648,7 @@ phone.addEventListener('click', function(e: any){
     const c = CATEGORIES[id];
     state.editingCategoryId = id;
     state.confirmDeleteCatId = null; // a stale "are you sure?" from a different category shouldn't carry over
-    state.catDraft = {nombre:c.nombre, tipo:c.tipo, color:c.color, icon:c.icon};
+    state.catDraft = {nombre:c.nombre, tipo:c.tipo, colorHue:c.colorHue, colorHueTouched:true, icon:c.icon};
     renderMenuView();
     return;
   }
@@ -1640,19 +1656,17 @@ phone.addEventListener('click', function(e: any){
   if(cancelCatEditBtn){ state.editingCategoryId = null; state.confirmDeleteCatId = null; renderMenuView(); return; }
   const catDraftIconBtn = e.target.closest('[data-cat-draft-icon]');
   if(catDraftIconBtn){ state.catDraft.icon = catDraftIconBtn.getAttribute('data-cat-draft-icon'); renderMenuView(); return; }
-  const catDraftColorBtn = e.target.closest('[data-cat-draft-color]');
-  if(catDraftColorBtn){ state.catDraft.color = catDraftColorBtn.getAttribute('data-cat-draft-color'); renderMenuView(); return; }
   const saveCatBtn = e.target.closest('[data-save-cat]');
   if(saveCatBtn){
     const idAttr = saveCatBtn.getAttribute('data-save-cat');
     const d = state.catDraft;
     if(!d.nombre.trim()){ toast('Ponle un nombre a la categoría'); return; }
     if(idAttr==='nueva'){
-      CATEGORIES['cat_'+Date.now()] = {nombre:d.nombre.trim(), tipo:d.tipo, color:d.color, icon:d.icon};
+      CATEGORIES['cat_'+Date.now()] = {nombre:d.nombre.trim(), tipo:d.tipo, colorHue:d.colorHue, icon:d.icon};
       toast('Categoría creada');
     } else {
       CATEGORIES[idAttr].nombre = d.nombre.trim();
-      CATEGORIES[idAttr].color = d.color;
+      CATEGORIES[idAttr].colorHue = d.colorHue;
       CATEGORIES[idAttr].icon = d.icon;
       toast('Categoría actualizada');
     }
@@ -1897,6 +1911,10 @@ phone.addEventListener('click', function(e: any){
 });
 
 phone.addEventListener('change', function(e: any){
+  const catDraftHueChange = e.target.closest('[data-cat-draft-hue]');
+  if(catDraftHueChange){ renderMenuView(); return; }
+  const newPlatformHueChange = e.target.closest('[data-newplatform-hue]');
+  if(newPlatformHueChange){ renderInvestmentsView(); return; }
   const sel = e.target.closest('[data-cat-select]');
   if(sel){
     const t = getTx(state.openTxId);
@@ -2366,6 +2384,33 @@ phone.addEventListener('input', function(e: any){
   const catDraftField = e.target.closest('[data-cat-draft-field]');
   if(catDraftField){
     state.catDraft[catDraftField.getAttribute('data-cat-draft-field')] = catDraftField.value;
+    return;
+  }
+  const catDraftHue = e.target.closest('[data-cat-draft-hue]');
+  if(catDraftHue){
+    // Update the swatch preview directly on the DOM instead of a full renderMenuView() on every
+    // 'input' tick -- replacing the <input type="range"> node mid-drag (as a re-render would)
+    // drops the browser's pointer capture and stops the slider from tracking the drag. The
+    // collision warning (which does need a re-render) is refreshed on 'change' instead, once
+    // the user lets go -- see the 'change' listener below.
+    state.catDraft.colorHue = parseInt(catDraftHue.value, 10);
+    state.catDraft.colorHueTouched = true;
+    const swatch = catDraftHue.parentElement ? catDraftHue.parentElement.querySelector('.hue-swatch') : null;
+    if(swatch){
+      const css = categoryFillCss(state.catDraft.colorHue);
+      swatch.style.background = css; swatch.style.color = css; swatch.style.borderColor = css;
+    }
+    return;
+  }
+  const newPlatformHue = e.target.closest('[data-newplatform-hue]');
+  if(newPlatformHue){
+    state.newPlatformDraft.colorHue = parseInt(newPlatformHue.value, 10);
+    state.newPlatformDraft.colorHueTouched = true;
+    const swatch = newPlatformHue.parentElement ? newPlatformHue.parentElement.querySelector('.hue-swatch') : null;
+    if(swatch){
+      const css = categoryFillCss(state.newPlatformDraft.colorHue);
+      swatch.style.background = css; swatch.style.color = css; swatch.style.borderColor = css;
+    }
     return;
   }
   const paymentMethodDraftField = e.target.closest('[data-payment-method-draft-field]');

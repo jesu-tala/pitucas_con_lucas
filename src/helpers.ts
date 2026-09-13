@@ -14,15 +14,15 @@ export function catInfo(id){
   if(CATEGORIES[id]) return CATEGORIES[id];
   const goal = INVESTMENT_GOALS.find(m=>m.id===id);
   if(goal){
-    const plat = CATEGORIES[goal.plataformaId] || {color:'neutral', icon:'trending'};
-    return {nombre:goal.nombre, tipo:'inversion', color:plat.color, icon:plat.icon, plataformaId:goal.plataformaId, goalId:goal.id};
+    const plat = CATEGORIES[goal.plataformaId] || {colorHue:265, icon:'trending'};
+    return {nombre:goal.nombre, tipo:'inversion', colorHue:plat.colorHue, icon:plat.icon, plataformaId:goal.plataformaId, goalId:goal.id};
   }
   if(typeof id==='string' && id.endsWith('__general')){
     const platId = id.slice(0, -'__general'.length);
     const plat = CATEGORIES[platId];
-    if(plat) return {nombre:plat.nombre+' · General', tipo:'inversion', color:plat.color, icon:plat.icon, plataformaId:platId, general:true};
+    if(plat) return {nombre:plat.nombre+' · General', tipo:'inversion', colorHue:plat.colorHue, icon:plat.icon, plataformaId:platId, general:true};
   }
-  return {nombre:'Sin categoría', color:'neutral', icon:'more', tipo:'gasto'};
+  return {nombre:'Sin categoría', colorHue:265, icon:'more', tipo:'gasto'};
 }
 // "Ver transacciones →" on a platform card wants every transaction that rolls up into that
 // platform -- any of its goals, or its General bucket -- not just an exact id match (a bare

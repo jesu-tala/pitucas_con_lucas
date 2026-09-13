@@ -1,4 +1,5 @@
 import { allCollected, capitalizeFirst, catInfo, categoryFilterMatches, dayLabel, netExpenseTx, netIncomeTx, lastSalaryTx, paymentMethodInfo, paymentMethodTagIcon, currentMonthHasSalary, pendingEffectiveAmount, hasReceivableType } from '../helpers';
+import { categoryColorVars } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
 import { getTx, openNewTxSheet, renderSheet } from '../sheet';
 import { MONTH_LABEL, TRANSACTIONS, money, normalize, state, todayISO } from '../state';
@@ -110,7 +111,7 @@ export function renderFilterSummary(){
 export function renderTxItem(t){
   const cats = t.categorias;
   const isUnclassified = cats.length===0 && t.estado!=='no_es_gasto';
-  const primaryCat = cats[0] ? catInfo(cats[0].cat) : {nombre:'Sin categoría', color:'neutral', icon: isUnclassified?'question':'more'};
+  const primaryCat = cats[0] ? catInfo(cats[0].cat) : {nombre:'Sin categoría', colorHue:265, icon: isUnclassified?'question':'more'};
   const isMulti = cats.length>1;
   const isIncome = t.tipo==='ingreso';
   const isNoGasto = t.estado==='no_es_gasto';
@@ -145,7 +146,7 @@ export function renderTxItem(t){
     '<div class="tx-right-sub tx-neto-reembolso">'+(reembolsoRows.every(p=>p.pagado)?'Pagado real: ':'Neto estimado: ')+money(netExpenseTx(t))+'</div>';
 
   return '<button class="tx-item" data-tx="'+t.id+'">'+
-    '<span class="tx-avatar" style="--fill:var(--cat-'+primaryCat.color+'-fill);--ink:var(--cat-'+primaryCat.color+'-ink)">'+catIconMarkup(primaryCat.icon)+'</span>'+
+    '<span class="tx-avatar" style="'+categoryColorVars(primaryCat)+'">'+catIconMarkup(primaryCat.icon)+'</span>'+
     '<span class="tx-info">'+
       '<span class="tx-name'+(isCobrado?' tachado':'')+'">'+t.comercio+'</span>'+
       '<span class="tx-sub">'+(t.reglaAuto?'<span class="lock-badge">'+ICONS.lockSmall+'</span>':'')+

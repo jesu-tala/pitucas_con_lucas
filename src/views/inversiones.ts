@@ -1,11 +1,12 @@
 import { GOAL_TERM, catInfo, aggregatedTxAmount, termChip } from '../helpers';
+import { categoriesCollidingWithHue, categoryColorVars, categoryFillCss } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
 import { segmentedHtml } from '../sheet';
 import { ensureMonthExists } from '../shared-expenses';
 import { CATEGORIES, UPDATE_THRESHOLD_DAYS, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, PLANNER, PLATFORM_DATA, TRANSACTIONS, computeDefaultPlanBase, money, moneyPlain, moneyPlainMasked, moneyShort, monthAbbr, state, todayISO } from '../state';
 import { monthlyInvestmentGoalCLP, investmentGoalPct } from '../ui/donut';
 import { annualInvestmentGoalProgress, goalsForPlatform, metaAportadoNeto, metaHistorialAt, platformGoalsSummary, projectedContributions, renderEvolutionView, renderGoalEditForm, renderGoalCard, renderTotalChecksGrid } from './evolucion';
-import { CATEGORY_COLOR_CHOICES, CATEGORY_ICON_CHOICES, isCategoryInUse } from './menu';
+import { CATEGORY_ICON_CHOICES, isCategoryInUse } from './menu';
 import { renderBalanceView, renderComingSoon, renderBudgetView } from './presupuesto';
 /* ===================== INVESTMENTS (Phase 4) ===================== */
 export function platformIds(){
@@ -266,7 +267,7 @@ export function renderPlatformEditForm(id){
   const d = state.platformDraft;
   return '<div class="card platform-card editing">'+
     '<div class="platform-head">'+
-      '<span class="platform-icon" style="--fill:var(--cat-'+cat.color+'-fill);--ink:var(--cat-'+cat.color+'-ink)">'+catIconMarkup(cat.icon)+'</span>'+
+      '<span class="platform-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
       '<span class="platform-name">'+cat.nombre+'</span>'+
     '</div>'+
     '<label class="draft-label">Valor actual aproximado</label>'+
@@ -341,7 +342,16 @@ export function renderNewPlatformForm(){
     '<label class="draft-label" style="margin-top:12px;">Ícono</label>'+
     '<div class="icon-picker">'+CATEGORY_ICON_CHOICES.map(ic=>'<button type="button" data-newplatform-icon="'+ic+'" class="'+(d.icon===ic?'active':'')+'">'+ICONS[ic]+'</button>').join('')+'</div>'+
     '<label class="draft-label" style="margin-top:12px;">Color</label>'+
-    '<div class="color-picker">'+CATEGORY_COLOR_CHOICES.map(c=>'<button type="button" data-newplatform-color="'+c+'" class="'+(d.color===c?'active':'')+'" style="--sw:var(--cat-'+c+'-fill)"></button>').join('')+'</div>'+
+    '<div class="hue-picker-row">'+
+      '<span class="hue-swatch" style="background:'+categoryFillCss(d.colorHue)+';color:'+categoryFillCss(d.colorHue)+';border-color:'+categoryFillCss(d.colorHue)+'"></span>'+
+      '<input type="range" min="0" max="359" value="'+d.colorHue+'" data-newplatform-hue class="hue-slider">'+
+    '</div>'+
+    (function(){
+      const colision = categoriesCollidingWithHue(CATEGORIES, 'inversion', d.colorHue, null);
+      return colision.length
+        ? '<div class="file-format-hint" style="color:var(--expense-ink);">Ese color queda muy parecido al de "'+colision.join('", "')+'" -- en los gráficos de torta se pueden ver como un solo bloque. Prueba otro tono.</div>'
+        : '';
+    })()+
     '<label class="draft-label" style="margin-top:12px;">Valor actual aproximado</label>'+
     '<input type="text" inputmode="decimal" class="draft-input tabular" data-newplatform-field="valor" value="'+d.valor+'" placeholder="0">'+
     '<div class="platform-hint muted">Si ya tienes plata en esta plataforma, pon cuánto vale hoy — si acabas de abrirla, déjalo en 0.</div>'+
@@ -392,7 +402,7 @@ export function renderPlatformGroup(id){
 
   const header =
     '<button class="platform-head-toggle" data-toggle-platform="'+id+'" aria-expanded="'+(open?'true':'false')+'">'+
-      '<span class="platform-icon" style="--fill:var(--cat-'+cat.color+'-fill);--ink:var(--cat-'+cat.color+'-ink)">'+catIconMarkup(cat.icon)+'</span>'+
+      '<span class="platform-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
       '<span class="platform-head-body">'+
         '<span class="platform-name">'+cat.nombre+'</span>'+
         (sinValuacion ? '' : '<span class="platform-update-tag'+(stale?' stale':'')+'">Actualizado hace '+dias+' '+(dias===1?'día':'días')+'</span>')+

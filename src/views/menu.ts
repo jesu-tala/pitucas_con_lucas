@@ -1,4 +1,5 @@
 import { catInfo, dayLabel, txsOfMonth } from '../helpers';
+import { categoriesCollidingWithHue, categoryColorVars, categoryFillCss, nextCategoryHue } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
 import { render } from '../render';
 import { buildReconcileDiff, movementLineId } from '../reconcile';
@@ -12,7 +13,6 @@ import { generalCatIdFor, isPlatformArchived } from './inversiones';
 import { catMonthExpense } from './presupuesto';
 /* ===================== MENU (Phase 4) ===================== */
 export const CATEGORY_ICON_CHOICES = ['tags','cart','car','utensils','home','film','heart','repeat','briefcase','laptop','plusCircle','trending','bank','coin','card','cash','users','layers','sparkle','more'];
-export const CATEGORY_COLOR_CHOICES = ['lavender','mint','peach','sky','pink','butter','sage','neutral'];
 export const MEDIO_ICON_CHOICES = ['card','bank','cash','coin'];
 // Curated set of emojis for a category's icon — it's not the full Unicode set (that's
 // covered by the "or type any other emoji" field, which uses the phone's native emoji
@@ -23,14 +23,6 @@ export const CAT_EMOJI_CHOICES = ['🛒','🍽️','🚕','🏠','💊','🍻','
 
 export function isCategoryInUse(catId){ return TRANSACTIONS.some(t=>t.categorias.some(c=>c.cat===catId)); }
 export function isPaymentMethodInUse(medioId){ return TRANSACTIONS.some(t=>t.medio===medioId); }
-// Other categories of the same type (expense/income/investment) that already use this color --
-// used to warn in the category editor, because two categories of the same type with the
-// same color look like a single block in the pie charts (they can't be told apart).
-export function categoriesWithColor(tipo, color, excludeId){
-  return Object.keys(CATEGORIES)
-    .filter(id => id!==excludeId && CATEGORIES[id].tipo===tipo && CATEGORIES[id].color===color)
-    .map(id => CATEGORIES[id].nombre);
-}
 
 // Groups transactions flagged with reglaAuto by comercio, for the "Reglas de clasificación"
 // (classification rules) screen — this only reads, nothing new is created here (rules are
@@ -197,12 +189,15 @@ export function renderMenuCatEditForm(){
     '<div class="icon-picker emoji-icon-picker">'+CAT_EMOJI_CHOICES.map(em=>'<button type="button" data-cat-draft-icon="'+em+'" class="'+(d.icon===em?'active':'')+'">'+em+'</button>').join('')+'</div>'+
     '<input type="text" class="draft-input" data-cat-draft-field="icon" value="'+d.icon+'" maxlength="8" placeholder="O escribe/pega cualquier otro emoji 😊" style="margin-top:8px;text-align:center;">'+
     '<label class="draft-label" style="margin-top:12px;">Color</label>'+
-    '<div class="color-picker">'+CATEGORY_COLOR_CHOICES.map(c=>'<button type="button" data-cat-draft-color="'+c+'" class="'+(d.color===c?'active':'')+'" style="--sw:var(--cat-'+c+'-fill)"></button>').join('')+'</div>'+
+    '<div class="hue-picker-row">'+
+      '<span class="hue-swatch" style="background:'+categoryFillCss(d.colorHue)+';color:'+categoryFillCss(d.colorHue)+';border-color:'+categoryFillCss(d.colorHue)+'"></span>'+
+      '<input type="range" min="0" max="359" value="'+d.colorHue+'" data-cat-draft-hue class="hue-slider">'+
+    '</div>'+
     (function(){
       const excludeId = isNew ? null : state.editingCategoryId;
-      const colision = categoriesWithColor(d.tipo, d.color, excludeId);
+      const colision = categoriesCollidingWithHue(CATEGORIES, d.tipo, d.colorHue, excludeId);
       return colision.length
-        ? '<div class="file-format-hint" style="color:var(--expense-ink);">Ese color ya lo usa "'+colision.join('", "')+'" -- en los gráficos de torta se van a ver como un solo bloque. Prueba otro color.</div>'
+        ? '<div class="file-format-hint" style="color:var(--expense-ink);">Ese color queda muy parecido al de "'+colision.join('", "')+'" -- en los gráficos de torta se pueden ver como un solo bloque. Prueba otro tono.</div>'
         : '';
     })()+
     '<div style="display:flex;gap:10px;margin-top:16px;">'+
@@ -228,7 +223,7 @@ export function renderMenuCategorias(){
   function rowFor(id){
     const c = CATEGORIES[id];
     return '<div class="card menu-item-card">'+
-      '<span class="menu-item-card-icon" style="--fill:var(--cat-'+c.color+'-fill);--ink:var(--cat-'+c.color+'-ink)">'+catIconMarkup(c.icon)+'</span>'+
+      '<span class="menu-item-card-icon" style="'+categoryColorVars(c)+'">'+catIconMarkup(c.icon)+'</span>'+
       '<div class="menu-item-card-body"><div class="menu-item-card-name">'+c.nombre+'</div></div>'+
       '<div class="menu-item-card-actions"><button class="budget-edit-btn" data-edit-cat="'+id+'" aria-label="Editar '+c.nombre+'">'+ICONS.edit+'</button></div>'+
     '</div>';
@@ -236,7 +231,7 @@ export function renderMenuCategorias(){
   function readonlyRowFor(id){
     const c = CATEGORIES[id];
     return '<div class="card menu-item-card">'+
-      '<span class="menu-item-card-icon" style="--fill:var(--cat-'+c.color+'-fill);--ink:var(--cat-'+c.color+'-ink)">'+catIconMarkup(c.icon)+'</span>'+
+      '<span class="menu-item-card-icon" style="'+categoryColorVars(c)+'">'+catIconMarkup(c.icon)+'</span>'+
       '<div class="menu-item-card-body"><div class="menu-item-card-name">'+c.nombre+'</div><div class="menu-item-card-sub">Se administra desde Inversiones</div></div>'+
     '</div>';
   }
@@ -315,7 +310,7 @@ export function renderMenuReglas(){
             (confirmando ? '' : '<button class="budget-edit-btn" data-ask-delete-rule="'+encodeURIComponent(r.comercio)+'" aria-label="Eliminar regla de '+r.comercio+'">'+ICONS.trash+'</button>')+
           '</div>'+
           '<div class="rule-card-detail">'+
-            (cat ? '<span class="rule-card-catchip" style="--fill:var(--cat-'+cat.color+'-fill);--ink:var(--cat-'+cat.color+'-ink)">'+catIconMarkup(cat.icon)+' '+cat.nombre+'</span>' : '')+
+            (cat ? '<span class="rule-card-catchip" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+' '+cat.nombre+'</span>' : '')+
             '<span>'+(r.tipo==='gasto'?'Gasto':r.tipo==='ingreso'?'Ingreso':'Inversión')+'</span>'+
             '<span>·</span><span>'+(r.recurrencia==='mensual'?'Fijo mensual':'Variable')+'</span>'+
           '</div>'+
