@@ -1397,7 +1397,8 @@
     const deboRow = (t.porCobrar || []).find((p) => p.tipo === "persona" && p.direccion === "debo");
     if (deboRow) return Math.max(deboRow.monto || 0, 0);
     const personSplits = (t.porCobrar || []).filter((p) => p.tipo === "persona").reduce((s, p) => s + (p.monto || 0), 0);
-    return Math.max(catTotalAmount(t) - personSplits, 0);
+    const reembolsos = (t.porCobrar || []).filter((p) => p.tipo === "reembolso").reduce((s, p) => s + pendingEffectiveAmount(p), 0);
+    return Math.max(catTotalAmount(t) - personSplits - reembolsos, 0);
   }
   __name(netExpenseTx, "netExpenseTx");
   function netExpenseFactor(t) {
@@ -1410,20 +1411,31 @@
     return c.monto * netExpenseFactor(t);
   }
   __name(catNetAmount, "catNetAmount");
-  function incomeIsPersonSettlement(t) {
-    if (t.tipo !== "ingreso") return false;
-    const link = pendingLinkedTo(t.id);
-    if (!link) return false;
-    const expenseTx = getTx(link.expenseTxId);
-    const p = expenseTx && expenseTx.porCobrar[link.idx];
-    return !!(p && p.tipo === "persona");
+  function reimbursementExcess(t) {
+    if (t.tipo !== "gasto") return 0;
+    const personSplits = (t.porCobrar || []).filter((p) => p.tipo === "persona").reduce((s, p) => s + (p.monto || 0), 0);
+    const disponibleParaReembolso = Math.max(catTotalAmount(t) - personSplits, 0);
+    const reembolsos = (t.porCobrar || []).filter((p) => p.tipo === "reembolso").reduce((s, p) => s + pendingEffectiveAmount(p), 0);
+    return Math.max(reembolsos - disponibleParaReembolso, 0);
   }
-  __name(incomeIsPersonSettlement, "incomeIsPersonSettlement");
+  __name(reimbursementExcess, "reimbursementExcess");
   function netIncomeTx(t) {
     if (t.tipo !== "ingreso") return catTotalAmount(t);
-    return incomeIsPersonSettlement(t) ? 0 : catTotalAmount(t);
+    const link = pendingLinkedTo(t.id);
+    if (!link) return catTotalAmount(t);
+    const expenseTx = getTx(link.expenseTxId);
+    const p = expenseTx && expenseTx.porCobrar[link.idx];
+    if (!p) return catTotalAmount(t);
+    if (p.tipo === "persona") return 0;
+    if (p.tipo === "reembolso") return reimbursementExcess(expenseTx);
+    return catTotalAmount(t);
   }
   __name(netIncomeTx, "netIncomeTx");
+  function netIncomeFactor(t) {
+    const gross = catTotalAmount(t);
+    return gross > 0 ? netIncomeTx(t) / gross : 1;
+  }
+  __name(netIncomeFactor, "netIncomeFactor");
   function aggregatedTxAmount(t) {
     if (t.tipo === "gasto") return netExpenseTx(t);
     if (t.tipo === "ingreso") return netIncomeTx(t);
@@ -1459,6 +1471,21 @@
     return true;
   }
   __name(resolvePending, "resolvePending");
+  function applyUnexpectedReimbursement(gastoTxId, incomeTxId) {
+    const gastoTx = getTx(gastoTxId), incomeTx = getTx(incomeTxId);
+    if (!gastoTx || !incomeTx || gastoTx.tipo !== "gasto") return false;
+    gastoTx.porCobrar.push({
+      persona: incomeTx.comercio || "Reembolso",
+      monto: incomeTx.monto,
+      pagado: true,
+      tipo: "reembolso",
+      montoRecibido: incomeTx.monto,
+      linkedTxId: incomeTx.id
+    });
+    gastoTx.estado = "por_cobrar";
+    return true;
+  }
+  __name(applyUnexpectedReimbursement, "applyUnexpectedReimbursement");
   function writeOffReceivable(expenseTxId, idx) {
     const expenseTx = getTx(expenseTxId);
     if (!expenseTx || !expenseTx.porCobrar[idx]) return false;
@@ -1643,9 +1670,8 @@
   function renderDonutBlock(titulo, subtitulo, tipo, monthTx) {
     const byCat = {};
     monthTx.filter((t) => t.tipo === tipo && t.estado !== "no_es_gasto").forEach((t) => {
-      if (tipo === "ingreso" && incomeIsPersonSettlement(t)) return;
       t.categorias.forEach((c) => {
-        const v = tipo === "gasto" ? catNetAmount(t, c) : c.monto;
+        const v = tipo === "gasto" ? catNetAmount(t, c) : tipo === "ingreso" ? c.monto * netIncomeFactor(t) : c.monto;
         byCat[c.cat] = (byCat[c.cat] || 0) + v;
       });
     });
@@ -5697,6 +5723,24 @@
       }
       return;
     }
+    const toggleMostrarGastosReembolso = e.target.closest("[data-toggle-mostrar-gastos-reembolso]");
+    if (toggleMostrarGastosReembolso && state.linkFlow && state.linkFlow.mode === "fromIngreso") {
+      state.linkFlow.mostrarGastos = !state.linkFlow.mostrarGastos;
+      renderSheet();
+      return;
+    }
+    const pickGastoReembolsoBtn = e.target.closest("[data-pick-gasto-reembolso]");
+    if (pickGastoReembolsoBtn && state.linkFlow && state.linkFlow.mode === "fromIngreso") {
+      const gastoTxId = pickGastoReembolsoBtn.getAttribute("data-pick-gasto-reembolso");
+      const incomeTxId = state.linkFlow.incomeTxId;
+      if (applyUnexpectedReimbursement(gastoTxId, incomeTxId)) {
+        state.linkFlow = null;
+        toast("Reembolso aplicado \u2014 el gasto se descont\xF3 en su categor\xEDa");
+        openSheet(incomeTxId);
+        renderIfListVisible();
+      }
+      return;
+    }
     const rmChargeRow = e.target.closest("[data-charge-remove]");
     if (rmChargeRow) {
       const t = currentEditableTx();
@@ -8178,7 +8222,8 @@
     const tipoRecurrenciaCard = isInvest ? '<div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + tipoSelector + "</div>" : '<div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + tipoSelector + '<div class="draft-label" style="margin:16px 0 7px;">Recurrencia</div>' + recurrenciaSelector + '<p class="cat-picker-hint" style="margin-top:8px;">"Mensual" y "Anual" cuentan como <b>gasto fijo</b> en tus metas de Resumen \xB7 Balance \u2014 "Variable" es todo lo dem\xE1s. No existe una opci\xF3n separada llamada "Fijo".</p></div>';
     return '<div class="sheet-top"><div class="merchant" id="sheet-title-el">' + t.comercio + '</div><div class="meta">' + dayLabel(t.fecha) + " \xB7 " + t.hora + " \xB7 " + paymentMethodInfo(t.medio).nombre + '</div><div class="sheet-amount ' + (isIncome ? "pos" : "") + ' tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</div><div class="meta" data-note-echo style="margin-top:6px;' + (t.nota ? "" : "display:none;") + '">' + (t.nota || "") + '</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nombre, monto y fecha</div><div class="draft-field"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-tx-field="comercio" data-tx="' + t.id + '" value="' + t.comercio.replace(/"/g, "&quot;") + '"></div><div class="draft-field"><label class="draft-label">Monto</label><div class="edit-amount-row"><input type="text" inputmode="decimal" class="draft-input tabular" data-tx-field="monto" data-tx="' + t.id + '" value="' + t.monto + '"><span class="edit-amount-echo tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</span></div></div><div class="edit-field-pair"><div class="edit-field-col draft-field"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-tx-field="fecha" data-tx="' + t.id + '" value="' + t.fecha + '"></div><div class="edit-field-col draft-field"><label class="draft-label">Hora</label><input type="time" class="draft-input" data-tx-field="hora" data-tx="' + t.id + '" value="' + t.hora + '"></div></div><div class="muted edit-day-hint">' + dayLabel(t.fecha) + '</div><div class="draft-field" style="margin:14px 0 0;"><label class="draft-label">Con qu\xE9 pagaste</label><select class="draft-select" data-tx-payment-method-select="' + t.id + '">' + medioOptsExisting + "</select></div></div>" + tipoRecurrenciaCard + cuotaBlock + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa' + (cats.length > 1 ? "s" : "") + "</div>" + categoriaSection + "</div>" + (isInvest ? "" : '<div class="sheet-block card lock-card' + (t.reglaAuto ? " active-rule" : "") + '" style="padding:14px 16px;"><div class="lock-row"><span class="lock-icon">' + ICONS.lock + '</span><span class="lock-text">' + (t.reglaAuto ? "Ya clasificamos siempre as\xED lo de <b>" + t.comercio + "</b>" : "Clasificar siempre as\xED los gastos de <b>" + t.comercio + "</b>") + '</span><button class="switch ' + (t.reglaAuto ? "on" : "") + '" data-toggle-lock="' + t.id + '" aria-label="Activar regla autom\xE1tica" aria-pressed="' + (t.reglaAuto ? "true" : "false") + '"></button></div></div>') + (isInvest ? "" : isIncome ? renderIncomeQuickActionsBlock(t) + (function() {
       const vinculo = pendingLinkedTo(t.id);
-      if (t.estado === "no_es_gasto" || !vinculo && (t.categorias.length > 0 || allPendingReceivables().length === 0)) return "";
+      const hayAlgoQueVincular = allPendingReceivables().length > 0 || TRANSACTIONS.some((g) => g.tipo === "gasto" && g.estado !== "no_es_gasto");
+      if (t.estado === "no_es_gasto" || !vinculo && (t.categorias.length > 0 || !hayAlgoQueVincular)) return "";
       return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos</div>' + (vinculo ? '<div class="cobro-banner-done">' + ICONS.checkCircle + "<span>Vinculado a " + (vinculo.persona || "un pendiente") + " \xB7 " + vinculo.comercio + '</span></div><button class="split-toggle-link" data-unlink-income="' + t.id + '">Quitar v\xEDnculo</button>' : '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Si este dep\xF3sito corresponde a un cobro o reembolso pendiente, vinc\xFAlalo para tacharlo de la lista.</p><button class="action-btn" data-open-link-income="' + t.id + '">' + ICONS.inbox + " Vincular a un pendiente</button>") + "</div>";
     })() : renderQuickActionsBlock(t)) + renderShareGroupSection(t) + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nota</div><input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="' + t.id + '" value="' + (t.nota || "").replace(/"/g, "&quot;") + '" placeholder="Agregar notas personales"></div>' + importedBlock + (state.confirmDeleteTxId === t.id ? '<div class="sheet-delete-confirm"><p class="muted" style="font-size:12.5px;margin:0 0 10px;">\xBFSeguro que quieres eliminar esta transacci\xF3n? No se puede deshacer.</p><div style="display:flex;gap:8px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="' + t.id + '">Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="' + t.id + '">S\xED, eliminar</button></div></div>' : '<div class="sheet-bottom-actions"><button class="sheet-delete-btn" data-ask-delete-tx="' + t.id + '" aria-label="Eliminar transacci\xF3n">' + ICONS.trash + '</button><button class="sheet-done-btn" data-close-sheet-done>' + ICONS.check + " Listo</button></div>");
   }
@@ -8274,7 +8319,7 @@
   }
   __name(openLinkFromPending, "openLinkFromPending");
   function openLinkFromIncome(incomeTxId) {
-    state.linkFlow = { mode: "fromIngreso", incomeTxId };
+    state.linkFlow = { mode: "fromIngreso", incomeTxId, mostrarGastos: false };
     document.getElementById("sheet-overlay").classList.add("open");
     renderSheet();
     document.getElementById("sheet-content").scrollTop = 0;
@@ -8300,7 +8345,12 @@
         const montoTxt = p.monto != null ? money(p.monto) + " esperado" : "monto por confirmar";
         return '<button class="link-pick-row" data-pick-pending="' + p.expenseTxId + "|" + p.idx + '"><span class="link-pick-body"><span class="link-pick-name">' + (p.persona || "Sin nombre") + (p.tipo === "reembolso" ? ' <span class="pend-tipo-tag" style="margin-left:4px;">Reembolso</span>' : "") + '</span><span class="link-pick-sub">' + p.comercio + " \xB7 " + dayLabel(p.fecha) + '</span></span><span class="link-pick-amt tabular muted">' + montoTxt + "</span></button>";
       }).join("");
-      return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">\xBFA qu\xE9 pendiente corresponde?</div><div class="meta">Este dep\xF3sito de ' + money(ingresoTx.monto) + " (" + ingresoTx.comercio + ") se vincular\xE1 a lo que elijas.</div></div>" + (pendientes.length ? rows : '<div class="card placeholder-card">' + ICONS.checkCircle + "<h3>No tienes pendientes</h3><p>No hay ning\xFAn cobro o reembolso pendiente para vincular todav\xEDa.</p></div>");
+      const gastos = TRANSACTIONS.filter((t) => t.tipo === "gasto" && t.estado !== "no_es_gasto").slice().sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
+      const gastoRows = gastos.map(
+        (t) => '<button class="link-pick-row" data-pick-gasto-reembolso="' + t.id + '"><span class="link-pick-body"><span class="link-pick-name">' + t.comercio + '</span><span class="link-pick-sub">' + dayLabel(t.fecha) + '</span></span><span class="link-pick-amt tabular muted">' + money(t.monto) + "</span></button>"
+      ).join("");
+      const reembolsoInesperado = '<button class="split-toggle-link" data-toggle-mostrar-gastos-reembolso style="display:block;margin:14px 0 8px;">' + (lf.mostrarGastos ? "Ocultar gastos" : "\xBFEs un reembolso que no esperabas? Elige el gasto original") + "</button>" + (lf.mostrarGastos ? gastos.length ? gastoRows : '<p class="muted" style="font-size:12.5px;">No tienes gastos registrados todav\xEDa.</p>' : "");
+      return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">\xBFA qu\xE9 pendiente corresponde?</div><div class="meta">Este dep\xF3sito de ' + money(ingresoTx.monto) + " (" + ingresoTx.comercio + ") se vincular\xE1 a lo que elijas.</div></div>" + (pendientes.length ? rows : '<div class="card placeholder-card">' + ICONS.checkCircle + "<h3>No tienes pendientes</h3><p>No hay ning\xFAn cobro o reembolso pendiente para vincular todav\xEDa.</p></div>") + reembolsoInesperado;
     }
   }
   __name(renderLinkFlowContent, "renderLinkFlowContent");
@@ -9598,6 +9648,8 @@
     pgBytesToArrayBuffer: pgBytesToArrayBuffer, hasReceivableType: hasReceivableType,
     netExpenseTx: netExpenseTx, aggregatedTxAmount: aggregatedTxAmount,
     reimbursementTotalForMonths: reimbursementTotalForMonths,
+    netIncomeTx: netIncomeTx, catNetAmount: catNetAmount, resolvePending: resolvePending,
+    reimbursementExcess: reimbursementExcess, applyUnexpectedReimbursement: applyUnexpectedReimbursement,
     get TRANSFER_INFO(){ return TRANSFER_INFO; }, set TRANSFER_INFO(v){ TRANSFER_INFO = v; },
     buildChargeWhatsAppText: buildChargeWhatsAppText, transferInfoComplete: transferInfoComplete,
     ensureCheckingAccountMethod: ensureCheckingAccountMethod, ensureUnknownPaymentMethod: ensureUnknownPaymentMethod,

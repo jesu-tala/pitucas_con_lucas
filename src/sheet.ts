@@ -431,8 +431,13 @@ export function renderSheetContent(t){
           // "Transfer from Fran", is exactly the case where it could be the payment for a pending item)
           // — unless it's already linked, in which case it's always shown so it can be viewed/removed.
           // Marcada "no es ingreso" ya no tiene sentido ofrecerle vincularla a un cobro/reembolso
-          // (dejó de contar como plata que entró de verdad).
-          if(t.estado==='no_es_gasto' || (!vinculo && (t.categorias.length>0 || allPendingReceivables().length===0))) return '';
+          // (dejó de contar como plata que entró de verdad). "No hay nada pendiente" solía ser
+          // suficiente para ocultarla del todo -- pero un reembolso inesperado (ver
+          // applyUnexpectedReimbursement en helpers.ts) no necesita NINGÚN pendiente ya marcado,
+          // solo un gasto contra el cual aplicarlo, así que la tarjeta se sigue ofreciendo si hay
+          // al menos un gasto real, aunque no haya pendientes.
+          const hayAlgoQueVincular = allPendingReceivables().length>0 || TRANSACTIONS.some(g=>g.tipo==='gasto' && g.estado!=='no_es_gasto');
+          if(t.estado==='no_es_gasto' || (!vinculo && (t.categorias.length>0 || !hayAlgoQueVincular))) return '';
           return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos</div>'+
             (vinculo
               ? '<div class="cobro-banner-done">'+ICONS.checkCircle+'<span>Vinculado a '+(vinculo.persona||'un pendiente')+' · '+vinculo.comercio+'</span></div>'+
@@ -542,7 +547,7 @@ export function openLinkFromPending(expenseTxId, idx){
   document.getElementById('sheet-content').scrollTop = 0;
 }
 export function openLinkFromIncome(incomeTxId){
-  state.linkFlow = {mode:'fromIngreso', incomeTxId};
+  state.linkFlow = {mode:'fromIngreso', incomeTxId, mostrarGastos:false};
   document.getElementById('sheet-overlay').classList.add('open');
   renderSheet();
   document.getElementById('sheet-content').scrollTop = 0;
@@ -580,11 +585,31 @@ export function renderLinkFlowContent(){
         '<span class="link-pick-amt tabular muted">'+montoTxt+'</span>'+
       '</button>';
     }).join('');
+    // Caso B (reembolso inesperado, ver applyUnexpectedReimbursement en helpers.ts): este
+    // depósito puede no corresponder a NINGÚN pendiente ya marcado (isapre/seguro que reembolsa
+    // sin que lo hubieras anticipado) -- en vez de quedar sin poder aplicarlo nunca, se ofrece
+    // elegir directamente el gasto original y aplicarlo ahí como contra-gasto, con el mismo
+    // efecto final que si se hubiera anticipado desde el principio.
+    const gastos = TRANSACTIONS.filter(t=>t.tipo==='gasto' && t.estado!=='no_es_gasto').slice().sort((a,b)=> (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
+    const gastoRows = gastos.map(t=>
+      '<button class="link-pick-row" data-pick-gasto-reembolso="'+t.id+'">'+
+        '<span class="link-pick-body"><span class="link-pick-name">'+t.comercio+'</span>'+
+          '<span class="link-pick-sub">'+dayLabel(t.fecha)+'</span></span>'+
+        '<span class="link-pick-amt tabular muted">'+money(t.monto)+'</span>'+
+      '</button>'
+    ).join('');
+    const reembolsoInesperado = '<button class="split-toggle-link" data-toggle-mostrar-gastos-reembolso style="display:block;margin:14px 0 8px;">'+
+        (lf.mostrarGastos ? 'Ocultar gastos' : '¿Es un reembolso que no esperabas? Elige el gasto original')+
+      '</button>'+
+      (lf.mostrarGastos
+        ? (gastos.length ? gastoRows : '<p class="muted" style="font-size:12.5px;">No tienes gastos registrados todavía.</p>')
+        : '');
     return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
         '<div class="merchant" style="font-size:17px;">¿A qué pendiente corresponde?</div>'+
         '<div class="meta">Este depósito de '+money(ingresoTx.monto)+' ('+ingresoTx.comercio+') se vinculará a lo que elijas.</div>'+
       '</div>'+
-      (pendientes.length? rows : '<div class="card placeholder-card">'+ICONS.checkCircle+'<h3>No tienes pendientes</h3><p>No hay ningún cobro o reembolso pendiente para vincular todavía.</p></div>');
+      (pendientes.length? rows : '<div class="card placeholder-card">'+ICONS.checkCircle+'<h3>No tienes pendientes</h3><p>No hay ningún cobro o reembolso pendiente para vincular todavía.</p></div>')+
+      reembolsoInesperado;
   }
 }
 
