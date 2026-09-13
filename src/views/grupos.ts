@@ -192,12 +192,11 @@ export function renderGroupsList(){
       '<div class="empty-state" style="padding:40px 20px;text-align:center;">'+
         '<div style="font-size:38px;">👥</div>'+
         '<p class="muted" style="margin:12px 0 20px;">Todavía no tienes ningún grupo. Crea uno para dividir gastos con tu pareja, tu familia, tus roomies o un viaje.</p>'+
-        // Sin este max-width, .save-tx-btn (width:100%) se estira al ancho completo de la
-        // pantalla -- se ve bien dentro de una .sheet-block.card (que ya acota el ancho), pero
-        // acá, suelto dentro de .empty-state, quedaba gigante comparado con el resto de la app.
-        '<div style="max-width:280px;margin:0 auto;">'+
-          '<button class="save-tx-btn" data-group-create-open>'+ICONS.plus+' Crear grupo</button>'+
-          '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);margin-top:10px;" data-group-join-open>Unirme con un código</button>'+
+        // Fila compacta de 2 botones (no apilados) -- mismo layout que la lista cuando ya hay
+        // grupos, para que el tamaño/forma de estos dos botones sea siempre el mismo.
+        '<div style="display:flex;gap:10px;max-width:360px;margin:0 auto;">'+
+          '<button class="save-tx-btn" style="flex:1;" data-group-create-open>'+ICONS.plus+' Crear grupo</button>'+
+          '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-group-join-open>Unirme con un código</button>'+
         '</div>'+
       '</div>';
     return;
