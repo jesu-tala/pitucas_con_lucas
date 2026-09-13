@@ -44,14 +44,21 @@ function parseMoney(txt){
     // hand and only reuses aggregatedTxAmount(), the already separately-tested PER-TRANSACTION
     // primitive (handles splits/settlements/no_es_gasto uniformly for month and year mode alike),
     // to get the per-transaction amount right without duplicating that unrelated logic here.
-    let yearIngresos=0, yearGastos=0, yearInversiones=0;
+    let yearIngresos=0, yearEntradas=0, yearGastos=0, yearInversiones=0;
     D.TRANSACTIONS.forEach(t=>{
       if(t.fecha.slice(0,4)!==year) return;
       if(t.estado==='no_es_gasto') return;
-      const monto = D.aggregatedTxAmount(t);
-      if(t.tipo==='ingreso') yearIngresos += monto;
-      else if(t.tipo==='gasto') yearGastos += monto;
-      else if(t.tipo==='inversion') yearInversiones += monto;
+      if(t.tipo==='ingreso'){
+        // yearIngresos = ingreso REAL (aggregatedTxAmount ya excluye cobro y neta reembolso al
+        // sobre-reembolso, igual que incomeNatureOf/incomeNatureAmount para este fixture -- no
+        // tiene ningún ingreso "por clasificar"/movimiento de capital, solo sueldo/pololos_extra
+        // + depósitos de cobro/reembolso). yearEntradas = TODAS las naturalezas, con el monto
+        // bruto real (t.monto, no neteado) -- el flujo de caja que Balance usa de verdad.
+        yearIngresos += D.aggregatedTxAmount(t);
+        yearEntradas += t.monto;
+      }
+      else if(t.tipo==='gasto') yearGastos += D.aggregatedTxAmount(t);
+      else if(t.tipo==='inversion') yearInversiones += D.aggregatedTxAmount(t);
     });
 
     // ---- Independently-recomputed "correct" year-mode Investment goal target % ----
@@ -69,7 +76,7 @@ function parseMoney(txt){
 
     return {
       year, mesActual, monthsElapsedCount: mesesTranscurridos.length,
-      yearIngresos, yearGastos, yearInversiones,
+      yearIngresos, yearEntradas, yearGastos, yearInversiones,
       metaInvPctCorrecto, metaInvPctWrongProjected12, metaInvPctWrongSingleMonth,
       reembolsoAnioEsperado,
     };
@@ -129,8 +136,11 @@ function parseMoney(txt){
     parseMoney(tiles.gastos) === setup.yearGastos, { ui: tiles.gastos, esperado: setup.yearGastos });
   check('Stat tile Inversiones (año) == verdad recalculada desde TRANSACTIONS crudas',
     parseMoney(tiles.inversiones) === setup.yearInversiones, { ui: tiles.inversiones, esperado: setup.yearInversiones });
-  const balanceEsperado = setup.yearIngresos - setup.yearGastos - setup.yearInversiones;
-  check('Stat tile Balance (año) == Ingresos-Gastos-Inversiones recalculado',
+  // Balance usa Entradas (TODAS las naturalezas -- ingreso real + cobros + reembolsos +
+  // movimientos de capital), no solo el Ingreso real -- para cuadrar con el flujo de caja real
+  // (ver la nota de taxonomía de entradas en monthTotals/yearTotals, views/evolucion.ts).
+  const balanceEsperado = setup.yearEntradas - setup.yearGastos - setup.yearInversiones;
+  check('Stat tile Balance (año) == Entradas-Gastos-Inversiones recalculado (flujo de caja, no solo ingreso real)',
     parseMoney(tiles.balance) === balanceEsperado, { ui: tiles.balance, esperado: balanceEsperado });
 
   // ---------- Donut totals: year mode ----------

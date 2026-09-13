@@ -30,6 +30,18 @@ export type Recurrence = 'variable' | 'mensual';
 // are the single source of truth for that safety rule, never a raw `=== 'manual'` check.
 export type TxOrigen = 'manual' | 'auto-mail' | 'auto-cartola';
 
+// Taxonomy of a tipo:'ingreso' transaction's true NATURE -- separate from its category, because
+// a category alone can't always say it (see the note on Transaction.naturalezaEntrada below).
+// 'ingreso' is the only one that's real income (grows your net worth) and the only one ratios
+// like tasa de ahorro/% de inversión are computed against; 'reembolso'/'cobro' just settle
+// something already accounted for elsewhere (see incomeNatureOf/helpers.ts, which derives these
+// two automatically from the existing porCobrar link -- they're never set by hand);
+// 'movimiento_capital' is you moving/recovering your OWN money (an investment redemption
+// registered as income instead of a negative 'inversion' transaction, selling an asset/property,
+// a transfer between your own accounts); 'por_clasificar' is the safe default for anything
+// ambiguous -- never silently assumed to be real income.
+export type IncomeNature = 'ingreso' | 'reembolso' | 'cobro' | 'movimiento_capital' | 'por_clasificar';
+
 export interface AssignedCategory { cat: string; monto: number; }
 
 export interface ReceivableItem {
@@ -95,6 +107,16 @@ export interface Transaction {
   cuotaNumero?: number;
   cuotaTotal?: number;
   cuotaProyectada?: boolean;
+  // Only meaningful on a tipo:'ingreso' transaction -- an explicit override of its IncomeNature,
+  // for when the category alone is ambiguous (a custom category, or one like "Inversiones"/
+  // "Propiedades" that could be either real income -- a dividend, rent -- or a movimiento de
+  // capital -- redeeming/selling the underlying asset). Absent means "derive it" (see
+  // incomeNatureOf in helpers.ts): 'reembolso'/'cobro' come from an existing porCobrar link,
+  // 'sueldo'/'pololos_extra' default to 'ingreso' as the only two unambiguous categories that
+  // exist out of the box, and anything else starts 'por_clasificar' until reclassified by hand --
+  // never silently counted as real income. Old data (from before this field existed) has none
+  // set either, so it's classified the exact same way retroactively -- no migration needed.
+  naturalezaEntrada?: IncomeNature;
   // true on a transaction that arrived by itself via email (automatic import) -- different from
   // a bank statement PDF, which is uploaded by hand from Reconcile.
   importadoEmail?: boolean;

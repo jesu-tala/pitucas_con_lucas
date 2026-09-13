@@ -1,9 +1,21 @@
-import { catInfo, catNetAmount, netExpenseTx, monthlyReimbursementTotal, reimbursementTotalForMonths, aggregatedTxAmount, txsOfMonth } from '../helpers';
+import { catInfo, catNetAmount, netExpenseTx, monthlyReimbursementTotal, reimbursementTotalForMonths, txsOfMonth } from '../helpers';
 import { ICONS, catIconMarkup } from '../icons';
 import { segmentedHtml } from '../sheet';
 import { CATEGORIES, SPENDING_GOAL_PCT, MONTHS, BUDGETS, money, monthlyBudgetTotal, state, todayISO } from '../state';
 import { referenceMonthlyIncome, monthlyInvestmentGoalCLP, investmentGoalPct, monthSwitcherHtml, yearSwitcherHtml, renderDonutBlock, renderGoalSummaryCard } from '../ui/donut';
-import { yearTotals, fullYearMonths } from './evolucion';
+import { monthTotals, yearTotals, fullYearMonths } from './evolucion';
+// Cobros/Movimientos de capital/entradas por clasificar (ver incomeNatureOf en helpers.ts):
+// entran a la cuenta -- cuentan en "Entradas"/flujo de caja -- pero NO son ingreso real, así que
+// se muestran agrupadas y menos prominentes que Ingreso/Reembolsos (que sí tienen su propia
+// tarjeta destacada), nunca sumadas dentro de esas dos. Mismo look que renderReembolsoCard
+// (.reembolso-card) para que se vean como parte de la misma familia visual, no un componente aparte.
+function renderOtrasEntradasCards(t){
+  let html = '';
+  if(t.cobros>0) html += '<div class="card reembolso-card"><span class="reembolso-icon">'+ICONS.users+'</span><div><div class="reembolso-label">Cobros</div><div class="reembolso-value tabular">'+money(t.cobros)+'</div></div></div>';
+  if(t.movimientoCapital>0) html += '<div class="card reembolso-card"><span class="reembolso-icon">'+ICONS.repeat+'</span><div><div class="reembolso-label">Movimientos de capital</div><div class="reembolso-value tabular">'+money(t.movimientoCapital)+'</div></div></div>';
+  if(t.porClasificar>0) html += '<div class="card reembolso-card"><span class="reembolso-icon">'+ICONS.question+'</span><div><div class="reembolso-label">Por clasificar (no cuenta como ingreso)</div><div class="reembolso-value tabular">'+money(t.porClasificar)+'</div></div></div>';
+  return html;
+}
 /* ===================== BUDGET (Phase 2) ===================== */
 export function catMonthExpense(catId, monthKey){
   return txsOfMonth(monthKey)
@@ -232,27 +244,25 @@ export function renderBalanceView(){
 
   const month = MONTHS[state.monthIndex];
   const monthTx = txsOfMonth(month);
-  let ingresos=0, gastos=0, inversiones=0;
-  monthTx.forEach(t=>{
-    if(t.estado==='no_es_gasto') return;
-    const monto = aggregatedTxAmount(t);
-    if(t.tipo==='ingreso') ingresos += monto;
-    else if(t.tipo==='gasto') gastos += monto;
-    else if(t.tipo==='inversion') inversiones += monto;
-  });
-  const balance = ingresos - gastos - inversiones;
+  // Centralizado en monthTotals (views/evolucion.ts) -- antes este bloque sumaba por su cuenta,
+  // duplicando la misma lógica en 2 lugares (con el riesgo real de que se desincronizaran, como
+  // pasó con el drill-down anual). ingresos = ingreso REAL (naturaleza 'ingreso', ver
+  // incomeNatureOf en helpers.ts); balance usa entradas (TODAS las naturalezas) para cuadrar con
+  // el banco, no solo el ingreso real.
+  const mt = monthTotals(month);
 
   const html =
     balancePeriodoSelectorHtml()+
     monthSwitcherHtml()+
     '<div class="stat-grid">'+
-      '<div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">'+money(ingresos)+'</div></div>'+
-      '<div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">'+money(gastos)+'</div></div>'+
-      '<div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">'+money(inversiones)+'</div></div>'+
-      '<div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:'+(balance>=0?'var(--income-ink)':'var(--expense-ink)')+'">'+money(balance)+'</div></div>'+
+      '<div class="card stat-tile stat-ingresos"><div class="stat-label">Ingreso</div><div class="stat-value tabular">'+money(mt.ingresos)+'</div></div>'+
+      '<div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">'+money(mt.gastos)+'</div></div>'+
+      '<div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">'+money(mt.inversiones)+'</div></div>'+
+      '<div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:'+(mt.balance>=0?'var(--income-ink)':'var(--expense-ink)')+'">'+money(mt.balance)+'</div></div>'+
     '</div>'+
     renderReembolsoCard(monthlyReimbursementTotal(month), 'Reembolsado este mes')+
-    renderGoalSummaryCard(monthTx, ingresos, investmentGoalPct())+
+    renderOtrasEntradasCards(mt)+
+    renderGoalSummaryCard(monthTx, mt.ingresos, investmentGoalPct())+
     renderDonutBlock('Ingresos por categoría','De dónde llegó la plata este mes','ingreso',monthTx,month)+
     renderDonutBlock('Gastos por categoría','A dónde se te fue la plata este mes','gasto',monthTx,month)+
     renderDonutBlock('Inversiones por categoría','Tus aportes por plataforma este mes','inversion',monthTx,month);
@@ -267,9 +277,10 @@ export function renderBalanceView(){
 // "recomputed the same way by coincidence".
 function renderBalanceViewAnio(){
   const year = todayISO().slice(0,4);
+  // yr.balance ya usa yr.entradas (TODAS las naturalezas), no yr.ingresos (ingreso REAL) -- ver
+  // la nota en monthTotals/yearTotals (views/evolucion.ts) sobre por qué son 2 cosas distintas.
   const yr = yearTotals(year);
   const yearTx = fullYearMonths(year).flatMap(m=>txsOfMonth(m));
-  const balance = yr.ingresos - yr.gastos - yr.inversiones;
 
   // ---- Year-mode target % for the Investment goal ----
   // SPENDING_GOAL_PCT.fijo/.variable are already plain percentages of income (a ratio), so they
@@ -295,12 +306,13 @@ function renderBalanceViewAnio(){
     balancePeriodoSelectorHtml()+
     yearSwitcherHtml(year)+
     '<div class="stat-grid">'+
-      '<div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">'+money(yr.ingresos)+'</div></div>'+
+      '<div class="card stat-tile stat-ingresos"><div class="stat-label">Ingreso</div><div class="stat-value tabular">'+money(yr.ingresos)+'</div></div>'+
       '<div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">'+money(yr.gastos)+'</div></div>'+
       '<div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">'+money(yr.inversiones)+'</div></div>'+
-      '<div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:'+(balance>=0?'var(--income-ink)':'var(--expense-ink)')+'">'+money(balance)+'</div></div>'+
+      '<div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:'+(yr.balance>=0?'var(--income-ink)':'var(--expense-ink)')+'">'+money(yr.balance)+'</div></div>'+
     '</div>'+
     renderReembolsoCard(reimbursementTotalForMonths(fullYearMonths(year)), 'Reembolsado este año')+
+    renderOtrasEntradasCards(yr)+
     renderGoalSummaryCard(yearTx, yr.ingresos, metaInvPctAnio)+
     renderDonutBlock('Ingresos por categoría','De dónde llegó la plata este año','ingreso',yearTx,year)+
     renderDonutBlock('Gastos por categoría','A dónde se te fue la plata este año','gasto',yearTx,year)+

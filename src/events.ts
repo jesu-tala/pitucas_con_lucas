@@ -964,6 +964,17 @@ phone.addEventListener('click', function(e: any){
           t.estado='no_es_gasto'; toast('Marcado como '+etiqueta);
         }
       }
+      else if(act==='naturaleza-ingreso'){
+        // Un tap vale como corrección explícita, distinta del default -- se guarda aunque
+        // coincida con lo que incomeNatureOf() ya habría derivado solo (una categoría inequívoca
+        // como sueldo), para que quede registrado que fue una elección real y no un olvido.
+        t.naturalezaEntrada = 'ingreso';
+        toast('Marcado como ingreso real');
+      }
+      else if(act==='naturaleza-capital'){
+        t.naturalezaEntrada = 'movimiento_capital';
+        toast('Marcado como movimiento de capital (no cuenta como ingreso)');
+      }
       renderSheet(); renderIfListVisible();
     }
     return;
