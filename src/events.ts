@@ -144,7 +144,13 @@ phone.addEventListener('click', function(e: any){
   if(legendRow && (legendRow.classList.contains('legend-row') || legendRow.classList.contains('arc-seg'))){
     const cid = legendRow.getAttribute('data-cat');
     state.categoryFilter = cid;
-    state.categoryFilterMonth = MONTHS[state.monthIndex];
+    // Bug real: esto siempre usaba el mes actualmente seleccionado (MONTHS[state.monthIndex]),
+    // incluso con Balance en modo Año -- tocar una categoría ahí filtraba solo el mes en curso en
+    // vez de las 12 del año. El donut (ver renderDonutBlock/data-periodo en ui/donut.ts) sabe con
+    // qué período se lo alimentó -- un mes 'YYYY-MM' o un año 'YYYY' -- así que se lee de ahí en
+    // vez de asumir "el mes seleccionado" a ciegas.
+    const donutCard = legendRow.closest('[data-periodo]');
+    state.categoryFilterMonth = donutCard ? donutCard.getAttribute('data-periodo') : MONTHS[state.monthIndex];
     state.filter='todas';
     state.tab='transacciones';
     render();

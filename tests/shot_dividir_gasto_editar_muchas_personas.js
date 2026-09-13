@@ -3,10 +3,14 @@
 // Causa: draftFromExistingSplit (shared-expenses.ts) reconstruía un reparto "por partes" sin
 // sembrar el "número de partes" de "Tú" (el pagador) -- solo el de las otras personas, con su
 // monto en pesos crudo -- así que el input de partes mostraba un número de pesos sin sentido, y
-// la suma de pesos ya no daba el total real (a "Tú" le tocaba un peso mínimo por defecto). Ahora
-// "por partes" se reabre como "Monto fijo" (siempre exacto y legible), sembrando el monto
-// implícito de "Tú" también. Además, "¿Quién pagó?" pasa de fila de botones a <select> -- con
-// varias personas la fila de botones se desborda.
+// la suma de pesos ya no daba el total real (a "Tú" le tocaba un peso mínimo por defecto).
+// Arreglo real: ReceivableItem.divisionValor/Transaction.pagadorDivisionValor (types.ts) guardan
+// el INPUT crudo de cada participante (partes/%/pesos según el modo), no solo el monto ya
+// calculado -- así "por partes" se reabre como "por partes" de verdad, mostrando "1 parte" (o lo
+// que sea que tenía cada uno), nunca el monto. Datos legado (guardados ANTES de este campo, como
+// el fixture de este test) no tienen divisionValor -- para 'iguales' eso ya significa "1 parte"
+// (el default), así que igual reconstruyen un reparto igualitario correcto. Además, "¿Quién
+// pagó?" pasa de fila de botones a <select> -- con varias personas la fila de botones se desborda.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -41,8 +45,9 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(150);
 
   const draft = await page.evaluate(() => window.__debug.state.shareDraft);
-  check('Al reabrir un reparto "por partes", pasa a mostrarse como "Monto fijo" (no como "por partes")', draft.divisionTipo === 'montos', draft);
-  check('El monto implícito de "Tú" también quedó sembrado ($20.000, no vacío/0)', draft.customValues['tu'] === '20000', draft.customValues);
+  check('Al reabrir un reparto "por partes", sigue siendo "por partes" de verdad (no colapsa a "Monto fijo")', draft.divisionTipo === 'iguales', draft);
+  check('Sin divisionValor guardado (fixture legado), el input de "Tú" queda en blanco -- que para "por partes" ya significa "1 parte"',
+    draft.customValues['tu'] === '' || draft.customValues['tu'] == null, draft.customValues);
 
   const totales = await page.evaluate(() => {
     // .split-remaining también lo usa, más arriba en el mismo sheet, el bloque de categorías
@@ -97,12 +102,13 @@ const { openApp, check, finish } = require('./lib/test_kit');
     computados: ['tu', 'Ana', 'Beto', 'Cami', 'Diego', 'Elena'].map(id => document.querySelector('[data-share-computed="' + id + '"]')?.textContent),
     total: Array.from(document.querySelectorAll('.split-remaining')).find(e => e.textContent.includes('Total repartido'))?.textContent,
   }));
-  // splitByShares reparte 100.000/6 = $16.666,67 -> $16.667 para los primeros 5 (redondeo normal),
-  // y la última persona del orden (Elena, la recién agregada) se lleva el resto exacto ($16.665)
-  // para que la suma calce a la moneda -- por eso no son 6 cifras idénticas.
+  // splitByShares reparte 100.000/6 = $16.666,67 -> piso $16.666 para los 6, y el peso que sobra
+  // ($100.000 - 6*16.666 = $4) se reparte de a 1 peso entre los primeros 4 de la lista (tu, Ana,
+  // Beto, Cami), nunca todo junto en el último -- por eso son $16.667 x4 y $16.666 x2, no un
+  // salto grande concentrado en una sola persona.
   check('Agregar a Elena la deja incluida de entrada (no hay que marcarla a mano)', conElena.elenaIncluida === true, conElena);
-  check('Agregar a Elena reajusta el monto de TODOS (ya no $20.000 fijo): $16.667 x5 + $16.665 la última, no $0 para la nueva',
-    conElena.computados.slice(0,5).every(c => c === '$16.667') && conElena.computados[5] === '$16.665', conElena.computados);
+  check('Agregar a Elena reajusta el monto de TODOS (ya no $20.000 fijo): $16.667 x4 + $16.666 x2, el resto repartido de a 1 peso',
+    conElena.computados.slice(0,4).every(c => c === '$16.667') && conElena.computados.slice(4).every(c => c === '$16.666'), conElena.computados);
   check('   y el total repartido sigue calzando exacto con los $100.000 de la transacción',
     conElena.total && conElena.total.includes('de $100.000'), conElena.total);
 

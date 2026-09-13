@@ -253,9 +253,9 @@ export function renderBalanceView(){
     '</div>'+
     renderReembolsoCard(monthlyReimbursementTotal(month), 'Reembolsado este mes')+
     renderGoalSummaryCard(monthTx, ingresos, investmentGoalPct())+
-    renderDonutBlock('Ingresos por categoría','De dónde llegó la plata este mes','ingreso',monthTx)+
-    renderDonutBlock('Gastos por categoría','A dónde se te fue la plata este mes','gasto',monthTx)+
-    renderDonutBlock('Inversiones por categoría','Tus aportes por plataforma este mes','inversion',monthTx);
+    renderDonutBlock('Ingresos por categoría','De dónde llegó la plata este mes','ingreso',monthTx,month)+
+    renderDonutBlock('Gastos por categoría','A dónde se te fue la plata este mes','gasto',monthTx,month)+
+    renderDonutBlock('Inversiones por categoría','Tus aportes por plataforma este mes','inversion',monthTx,month);
 
   document.getElementById('resumen-content').innerHTML = html;
 }
@@ -302,9 +302,9 @@ function renderBalanceViewAnio(){
     '</div>'+
     renderReembolsoCard(reimbursementTotalForMonths(fullYearMonths(year)), 'Reembolsado este año')+
     renderGoalSummaryCard(yearTx, yr.ingresos, metaInvPctAnio)+
-    renderDonutBlock('Ingresos por categoría','De dónde llegó la plata este año','ingreso',yearTx)+
-    renderDonutBlock('Gastos por categoría','A dónde se te fue la plata este año','gasto',yearTx)+
-    renderDonutBlock('Inversiones por categoría','Tus aportes por plataforma este año','inversion',yearTx);
+    renderDonutBlock('Ingresos por categoría','De dónde llegó la plata este año','ingreso',yearTx,year)+
+    renderDonutBlock('Gastos por categoría','A dónde se te fue la plata este año','gasto',yearTx,year)+
+    renderDonutBlock('Inversiones por categoría','Tus aportes por plataforma este año','inversion',yearTx,year);
 
   document.getElementById('resumen-content').innerHTML = html;
 }

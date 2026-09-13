@@ -55,6 +55,18 @@ export interface ReceivableItem {
   // a full N-way ledger between ad-hoc people -- see commitPersonaSplit in shared-expenses.ts).
   // Never set on a 'reembolso' row (that flow is untouched and has no notion of direction).
   direccion?: 'me_deben' | 'debo';
+  // The raw division INPUT this participant had at commit time, in whatever unit the
+  // transaction's divisionTipo was using -- an integer share count for 'iguales' (1 = an equal
+  // split), a percentage for 'pct', or pesos for 'montos' (same number as `monto` in that case).
+  // `monto` (above) is ALWAYS the derived peso amount, computed from this at commit time --
+  // never the other way around. Without this field there was nowhere to remember "this person
+  // had 1 parte" once saved: reopening a 'iguales' split (see draftFromExistingSplit in
+  // shared-expenses.ts) had only `monto` to go on, so "1 parte" (~$5.000) got shown back as
+  // "5000 partes" -- the literal peso figure read as a nonsensical share count. Left undefined
+  // for a blank input (the participant relied on the mode's own default -- 1 part for 'iguales',
+  // or an even split of whatever's left for 'montos'/'pct' -- see computeShareAmounts), and for
+  // data saved before this field existed (undefined there too, with the same fallback meaning).
+  divisionValor?: number;
 }
 
 // montoTotal is the full purchase price as originally entered (before splitting it across
@@ -112,6 +124,14 @@ export interface Transaction {
   // legacy data (from before this field existed) or a transaction with no split at all -- either
   // way, whatever is already in porCobrar keeps rendering/behaving exactly as it does today.
   divisionTipo?: SplitType;
+  // The PAYER's own raw division input (see ReceivableItem.divisionValor for everyone else) --
+  // whoever actually paid (pagador above, or "Tú" when pagador is absent) never gets their own
+  // porCobrar row (their share is always implicit: whatever's left of the total), so there's
+  // nowhere on a row to remember it. Without this, reopening a custom (non-equal) split would
+  // silently reset the payer's own weight/%/monto back to the mode's default on reload, quietly
+  // corrupting a real custom split. Same undefined-means-"use the mode's default" convention as
+  // ReceivableItem.divisionValor.
+  pagadorDivisionValor?: number;
   // ---- Shared expenses ----
   // groupId: present if THIS transaction (yours, real, editable) was shared with a group --
   // everyone else's split lives in porCobrar (above), same as an old-style friends split.

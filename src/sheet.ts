@@ -7,6 +7,7 @@ import { boletaWorkerConfigured } from './supabase';
 import { ReceivableItem, Transaction } from './types';
 import { toast } from './ui/toasts';
 import { renderShareGroupSection, renderSplitDraftForm } from './views/grupos';
+import { SHARED_EXPENSE_PAYMENT_METHOD_ID } from './views/menu';
 import { bumpPlatformValueForContribution, goalCapablePlatformIds, investmentCatOptions, isPlatformArchived, platformIdForInvestmentCat, platformIds } from './views/inversiones';
 import { advFilterCount, PERSONAL_GROUP_ID } from './views/transacciones';
 /* ===================== DETAIL SHEET ===================== */
@@ -278,6 +279,22 @@ export function renderInvestGoalEmptyState(contextPlatformId?){
 // block reads (t.estado, hasReceivableType, renderChargeSplitBlock) only looks at t.porCobrar/
 // t.estado, so the same markup and event handling (routed through currentEditableTx() in
 // events.ts, not this function's own t) works unchanged for both.
+// Bug real: el cuadro de abajo decía siempre "Cobros y reembolsos pendientes", aunque solo
+// aplicara uno de los dos -- "Por cobrar a alguien" (persona) y "Reembolso pendiente" (reembolso)
+// son dos flags independientes marcables desde Acciones rápidas (ver los dos botones más abajo),
+// así que el rótulo tiene que reflejar exactamente cuáles de las dos hay marcadas, nunca asumir
+// que siempre son ambas. `tieneCobro` lo recibe ya resuelto del llamador (no solo
+// hasReceivableType): mientras el picker de reparto sigue abierto sin confirmar
+// (draftPersonaAbierto), TODAVÍA no hay ninguna fila real en porCobrar -- si este helper mirara
+// solo t.porCobrar, la tarjeta entera (con el picker adentro) desaparecía apenas se abría, antes
+// de poder terminar de armar el reparto.
+function pendingCardTitle(t, tieneCobro){
+  const tieneReembolso = hasReceivableType(t,'reembolso');
+  if(tieneCobro && tieneReembolso) return 'Cobros y reembolsos pendientes';
+  if(tieneCobro) return 'Cobros pendientes';
+  if(tieneReembolso) return 'Reembolso pendiente';
+  return null;
+}
 function renderQuickActionsBlock(t){
   // "Por cobrar a alguien" abre el picker de reparto compartido (renderSplitDraftForm) SIN
   // comprometer nada en t.porCobrar todavía -- eso solo pasa al confirmar "Guardar reparto".
@@ -286,13 +303,15 @@ function renderQuickActionsBlock(t){
   // no había forma de saber si el click "tomó" o no). Se pinta seleccionado también en ese
   // estado intermedio, no solo después de confirmar.
   const draftPersonaAbierto = !!(state.shareDraft && state.shareDraft.txId===t.id && !state.shareDraft.groupId);
+  const tieneCobro = hasReceivableType(t,'persona') || draftPersonaAbierto;
+  const cardTitle = pendingCardTitle(t, tieneCobro);
   return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones rápidas</div><div class="quick-actions">'+
       '<button class="action-btn '+(t.estado==='confirmado'?'selected':'')+'" data-action="confirmar" data-tx="'+t.id+'">'+ICONS.checkCircle+' Confirmar gasto</button>'+
-      '<button class="action-btn '+((hasReceivableType(t,'persona')||draftPersonaAbierto)?'selected':'')+'" data-action="porcobrar_persona" data-tx="'+t.id+'">'+ICONS.users+' Por cobrar a alguien</button>'+
+      '<button class="action-btn '+(tieneCobro?'selected':'')+'" data-action="porcobrar_persona" data-tx="'+t.id+'">'+ICONS.users+' Por cobrar a alguien</button>'+
       '<button class="action-btn '+(hasReceivableType(t,'reembolso')?'selected':'')+'" data-action="porcobrar_reembolso" data-tx="'+t.id+'">'+ICONS.inbox+' Reembolso pendiente</button>'+
       '<button class="action-btn '+(t.estado==='no_es_gasto'?'selected':'')+'" data-action="noesgasto" data-tx="'+t.id+'">'+ICONS.ban+' No es gasto</button>'+
     '</div></div>'+
-    (t.estado==='por_cobrar' ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos pendientes</div>'+renderChargeSplitBlock(t)+'</div>' : '');
+    (t.estado==='por_cobrar' && cardTitle ? '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">'+cardTitle+'</div>'+renderChargeSplitBlock(t)+'</div>' : '');
 }
 // Un ingreso también puede ser algo que en realidad no es plata que entró de verdad (ej. un
 // traspaso entre sus propias cuentas que quedó categorizado como ingreso, o una devolución que
@@ -824,8 +843,14 @@ export function renderFilterSheetContent(){
     Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo!=='inversion').map(k=>chipToggle('toggle-filter-cat', k, CATEGORIES[k].nombre, CATEGORIES[k].icon, af.cats.includes(k))).join('')+
     investmentCatOptions().map(o=>chipToggle('toggle-filter-cat', o.value, o.label, o.icon, af.cats.includes(o.value))).join('')+
   '</div>';
+  // Bug real: "Gasto de grupo" (SHARED_EXPENSE_PAYMENT_METHOD_ID, ver ensureSharedExpensePaymentMethod
+  // en views/menu.ts) no es un medio de pago de verdad -- es un valor sintético que se le pone al
+  // campo `medio` de "mi parte" de un gasto de grupo que registró OTRA persona (esa plata nunca
+  // salió de ninguna tarjeta/cuenta tuya), solo para que ese campo tenga algo. Se cuela en
+  // PAYMENT_METHODS (así lo puede mostrar el detalle de esa transacción) pero no pertenece en
+  // este filtro -- el filtro de grupo (separado, más abajo) ya cubre esa dimensión.
   const medioChips = '<div class="cat-picker-grid">'+
-    Object.keys(PAYMENT_METHODS).map(k=>chipToggle('toggle-filter-medio', k, PAYMENT_METHODS[k].nombre, PAYMENT_METHODS[k].icon, af.medios.includes(k))).join('')+
+    Object.keys(PAYMENT_METHODS).filter(k=>k!==SHARED_EXPENSE_PAYMENT_METHOD_ID).map(k=>chipToggle('toggle-filter-medio', k, PAYMENT_METHODS[k].nombre, PAYMENT_METHODS[k].icon, af.medios.includes(k))).join('')+
   '</div>';
   // Solo transacciones compartidas con un grupo tienen groupId -- si todavía no tiene ningún
   // grupo, no tiene sentido ofrecer este filtro (quedaría vacío, sin nada que elegir). "Personal"

@@ -1,4 +1,4 @@
-import { allCollected, capitalizeFirst, catInfo, categoryFilterMatches, dayLabel, netIncomeTx, lastSalaryTx, paymentMethodInfo, paymentMethodTagIcon, currentMonthHasSalary, pendingEffectiveAmount, hasReceivableType } from '../helpers';
+import { allCollected, capitalizeFirst, catInfo, categoryFilterMatches, dayLabel, netExpenseTx, netIncomeTx, lastSalaryTx, paymentMethodInfo, paymentMethodTagIcon, currentMonthHasSalary, pendingEffectiveAmount, hasReceivableType } from '../helpers';
 import { ICONS, catIconMarkup } from '../icons';
 import { getTx, openNewTxSheet, renderSheet } from '../sheet';
 import { MONTH_LABEL, TRANSACTIONS, money, normalize, state, todayISO } from '../state';
@@ -22,7 +22,11 @@ function applyCommonFilters(list){
     list = list.filter(t=>t.categorias.some(c=>categoryFilterMatches(c.cat, state.categoryFilter)));
   }
   if(state.categoryFilterMonth){
-    list = list.filter(t=>t.fecha.slice(0,7)===state.categoryFilterMonth);
+    // A Balance drill-down (see the data-cat click handler in events.ts) can hand this either a
+    // 'YYYY-MM' month or a bare 'YYYY' year (Balance's año mode) -- length tells them apart.
+    list = state.categoryFilterMonth.length===4
+      ? list.filter(t=>t.fecha.slice(0,4)===state.categoryFilterMonth)
+      : list.filter(t=>t.fecha.slice(0,7)===state.categoryFilterMonth);
   }
   if(state.searchQuery.trim()){
     const q = normalize(state.searchQuery);
@@ -130,6 +134,16 @@ export function renderTxItem(t){
 
   const medio = paymentMethodInfo(t.medio);
 
+  // Un gasto con reembolso ligado (ver netExpenseTx en helpers.ts) muestra el monto BRUTO como
+  // principal (lo que de verdad salió de la tarjeta/cuenta ese día -- nunca se cambia, es el
+  // registro real) y, en chico debajo, el costo neto real (bruto - reembolso) para que se vea de
+  // un vistazo cuánto quedó puesto tras la recuperación. Distingue si el reembolso ya llegó
+  // ("Pagado real": el neto es definitivo) de si todavía está pendiente ("Neto estimado": el
+  // neto usa el monto esperado, no uno ya confirmado, así que puede ajustarse cuando llegue).
+  const reembolsoRows = !isIncome && !isNoGasto ? (t.porCobrar||[]).filter(p=>p.tipo==='reembolso') : [];
+  const netoLine = reembolsoRows.length===0 ? '' :
+    '<div class="tx-right-sub tx-neto-reembolso">'+(reembolsoRows.every(p=>p.pagado)?'Pagado real: ':'Neto estimado: ')+money(netExpenseTx(t))+'</div>';
+
   return '<button class="tx-item" data-tx="'+t.id+'">'+
     '<span class="tx-avatar" style="--fill:var(--cat-'+primaryCat.color+'-fill);--ink:var(--cat-'+primaryCat.color+'-ink)">'+catIconMarkup(primaryCat.icon)+'</span>'+
     '<span class="tx-info">'+
@@ -141,6 +155,7 @@ export function renderTxItem(t){
     '<span class="tx-right">'+
       '<span class="tx-amount tabular '+amountClass+'">'+amtDisplay+'</span>'+
       '<div class="tx-right-sub"><span class="tx-hora">'+t.hora+'</span><span>·</span>'+(paymentMethodTagIcon(medio)?'<span class="medio-tag-icon">'+paymentMethodTagIcon(medio)+'</span>':'')+medio.corto+'</div>'+
+      netoLine+
     '</span>'+
   '</button>';
 }
@@ -189,7 +204,10 @@ export function renderTransactionsView(){
   let chipsHtml = chips.map(c=>'<button class="chip '+(state.filter===c.id?'active':'')+'" data-filter="'+c.id+'">'+c.label+'</button>').join('');
   let filterPill = '';
   if(state.categoryFilter){
-    const pillLabel = catInfo(state.categoryFilter).nombre + (state.categoryFilterMonth ? ' · '+MONTH_LABEL[state.categoryFilterMonth] : '');
+    // A bare 'YYYY' (Balance año mode) has no MONTH_LABEL entry -- it reads fine as-is (the year
+    // number alone), unlike a 'YYYY-MM' which needs the month name from MONTH_LABEL.
+    const periodoLabel = !state.categoryFilterMonth ? '' : state.categoryFilterMonth.length===4 ? state.categoryFilterMonth : MONTH_LABEL[state.categoryFilterMonth];
+    const pillLabel = catInfo(state.categoryFilter).nombre + (periodoLabel ? ' · '+periodoLabel : '');
     filterPill = '<button class="chip filter-active" data-clear-catfilter="1">'+pillLabel+' '+ICONS.close+'</button>';
   }
   const advCount = advFilterCount();
