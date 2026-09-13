@@ -1,4 +1,4 @@
-import { allCollected, applyCuotaMonto, applyLockRule, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
+import { allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
@@ -1081,6 +1081,24 @@ phone.addEventListener('click', function(e: any){
     if(resolvePending(expenseTxId, idx, incomeTxId)){
       state.linkFlow = null;
       toast('Pendiente vinculado');
+      openSheet(incomeTxId);
+      renderIfListVisible();
+    }
+    return;
+  }
+  const toggleMostrarGastosReembolso = e.target.closest('[data-toggle-mostrar-gastos-reembolso]');
+  if(toggleMostrarGastosReembolso && state.linkFlow && state.linkFlow.mode==='fromIngreso'){
+    state.linkFlow.mostrarGastos = !state.linkFlow.mostrarGastos;
+    renderSheet();
+    return;
+  }
+  const pickGastoReembolsoBtn = e.target.closest('[data-pick-gasto-reembolso]');
+  if(pickGastoReembolsoBtn && state.linkFlow && state.linkFlow.mode==='fromIngreso'){
+    const gastoTxId = pickGastoReembolsoBtn.getAttribute('data-pick-gasto-reembolso');
+    const incomeTxId = state.linkFlow.incomeTxId;
+    if(applyUnexpectedReimbursement(gastoTxId, incomeTxId)){
+      state.linkFlow = null;
+      toast('Reembolso aplicado — el gasto se descontó en su categoría');
       openSheet(incomeTxId);
       renderIfListVisible();
     }

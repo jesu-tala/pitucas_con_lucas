@@ -99,15 +99,23 @@ export function receivableTotal(t){ return t.porCobrar.reduce((s,p)=>s+pendingEf
 //    (not when you get paid), in the same month as the original transaction. When you get paid,
 //    it only settles the receivable: it doesn't come back in as income nor get subtracted from
 //    the expense again.
-//  · type 'reembolso' (health insurer, insurance, your employer): that expense WAS 100% yours —
-//    the reimbursement is money that comes back later, and is shown as a credit in the month it
-//    arrives ("Reimbursed this month" card), without touching the original month.
-// Since the netting happens when you split (not when the deposit is received), a month that's
-// already closed doesn't change because of a reimbursement or payment that arrives later — it
-// only changes if you edit that old transaction.
-// This now covers 3 cases, not 2 -- the third (direccion:'debo') was added alongside the
-// "divide with someone, with or without a group" feature (see ReceivableItem.direccion and
-// Transaction.pagador/divisionTipo in types.ts):
+//  · type 'reembolso' (health insurer, insurance, your employer): that expense WAS 100% yours,
+//    but the reimbursement is a "contra-gasto" -- a recovery of that same expense, not new
+//    money -- so it reduces the expense's NET cost in its own category, exactly the same way a
+//    'persona' split does (see netExpenseTx below). This applies as soon as the amount is known
+//    (an EXPECTED reembolso marked porCobrar at registration time already nets down before a
+//    peso arrives -- pendingEffectiveAmount falls back to the estimate while unpaid), and
+//    updates to the real montoRecibido once it's actually collected. Whether it was anticipated
+//    upfront or applied later against an already-closed expense (an unexpected deposit linked
+//    back to it, see applyUnexpectedReimbursement below) makes no difference here: both paths
+//    end up as the exact same porCobrar row shape, netted identically.
+// Since the netting happens as soon as the reembolso/split exists (not necessarily when the
+// deposit is received), a month that's already closed doesn't change on its own when a deposit
+// arrives later — it only changes if you edit that old transaction (add/resolve a porCobrar row
+// on it), which is exactly what receiving/linking a reembolso does.
+// This now covers 3 cases for 'persona', not 2 -- the third (direccion:'debo') was added
+// alongside the "divide with someone, with or without a group" feature (see
+// ReceivableItem.direccion and Transaction.pagador/divisionTipo in types.ts):
 //  · no 'persona' rows: the whole thing is your expense, same as ever.
 //  · 'persona' rows with direccion 'me_deben' (or absent -- old data, same meaning): YOU paid the
 //    full catTotalAmount(t) and fronted everyone else's share, so their shares net OFF your
@@ -119,13 +127,15 @@ export function receivableTotal(t){ return t.porCobrar.reduce((s,p)=>s+pendingEf
 //    row's own amount (your computed share), full stop. It would be wrong to do
 //    "catTotalAmount(t) - thatRow" (that nets your OWN share off your OWN expense, leaving ~0);
 //    it's equally wrong to count catTotalAmount(t) in full (that's the whole bill, not what you
-//    owe). The debo row's amount IS the answer directly.
+//    owe). The debo row's amount IS the answer directly -- a 'debo' transaction never has
+//    'reembolso' rows of its own either (you don't get reimbursed for someone else's bill).
 export function netExpenseTx(t){
   if(t.tipo!=='gasto') return catTotalAmount(t);
   const deboRow = (t.porCobrar||[]).find(p=>p.tipo==='persona' && p.direccion==='debo');
   if(deboRow) return Math.max(deboRow.monto||0, 0);
   const personSplits = (t.porCobrar||[]).filter(p=>p.tipo==='persona').reduce((s,p)=>s+(p.monto||0),0);
-  return Math.max(catTotalAmount(t) - personSplits, 0);
+  const reembolsos = (t.porCobrar||[]).filter(p=>p.tipo==='reembolso').reduce((s,p)=>s+pendingEffectiveAmount(p),0);
+  return Math.max(catTotalAmount(t) - personSplits - reembolsos, 0);
 }
 // Factor to proportionally split the netting if the expense is divided across categories.
 export function netExpenseFactor(t){
@@ -136,20 +146,49 @@ export function catNetAmount(t, c){
   if(t.tipo!=='gasto') return c.monto;
   return c.monto * netExpenseFactor(t);
 }
-// An income that's actually just a friend paying you back their share (linked to a 'persona'
-// type pending item) isn't new money — it was already deducted from the expense when it was
-// split, so it must not be added again as "Income" or it would count twice in your favor.
-export function incomeIsPersonSettlement(t){
-  if(t.tipo!=='ingreso') return false;
-  const link = pendingLinkedTo(t.id);
-  if(!link) return false;
-  const expenseTx = getTx(link.expenseTxId);
-  const p = expenseTx && expenseTx.porCobrar[link.idx];
-  return !!(p && p.tipo==='persona');
+// Sobre-reembolso: a reembolso caps the expense's net cost at $0 (see netExpenseTx) -- it can
+// never make an expense negative. But if MORE comes back than the expense actually cost (after
+// any persona-splits are already netted off first), that extra isn't a "recovery" anymore: it's
+// real money landing in your pocket, the one case where part of a reimbursement legitimately
+// counts as Income (see netIncomeTx below). This is that leftover amount, in pesos -- 0 in the
+// ordinary (partial or exact) reimbursement case, which needs no special handling at all.
+export function reimbursementExcess(t){
+  if(t.tipo!=='gasto') return 0;
+  const personSplits = (t.porCobrar||[]).filter(p=>p.tipo==='persona').reduce((s,p)=>s+(p.monto||0),0);
+  const disponibleParaReembolso = Math.max(catTotalAmount(t) - personSplits, 0);
+  const reembolsos = (t.porCobrar||[]).filter(p=>p.tipo==='reembolso').reduce((s,p)=>s+pendingEffectiveAmount(p),0);
+  return Math.max(reembolsos - disponibleParaReembolso, 0);
 }
+// An income transaction linked to a pending item (see resolvePending/applyUnexpectedReimbursement)
+// isn't new money in the ordinary case -- it just settles something already accounted for
+// elsewhere -- so it must not ALSO count as "Income" or it would count twice in your favor:
+//  · linked to a 'persona' row (a friend paying back their share): that money was already
+//    deducted from Expenses the moment you split the bill (see netExpenseTx) -- the deposit
+//    itself counts for $0 of Income.
+//  · linked to a 'reembolso' row (isapre/seguro/empleador): same idea -- the expense's category
+//    already absorbed it as a contra-gasto (see netExpenseTx) -- EXCEPT for whatever part is a
+//    sobre-reembolso (reimbursementExcess), which the expense side could never absorb (it's
+//    floored at $0) and which is therefore real, legitimate Income.
+// Not linked to anything (the normal case: salary, a sale, whatever) keeps counting in full.
 export function netIncomeTx(t){
   if(t.tipo!=='ingreso') return catTotalAmount(t);
-  return incomeIsPersonSettlement(t) ? 0 : catTotalAmount(t);
+  const link = pendingLinkedTo(t.id);
+  if(!link) return catTotalAmount(t);
+  const expenseTx = getTx(link.expenseTxId);
+  const p = expenseTx && expenseTx.porCobrar[link.idx];
+  if(!p) return catTotalAmount(t);
+  if(p.tipo==='persona') return 0;
+  if(p.tipo==='reembolso') return reimbursementExcess(expenseTx);
+  return catTotalAmount(t);
+}
+// Same proportional-split idea as netExpenseFactor, for an income transaction that happens to
+// carry categories of its own (uncommon for a reembolso-linked deposit specifically -- resolvePending/
+// applyUnexpectedReimbursement never assign one -- but not impossible if the user categorizes it
+// by hand afterward) -- keeps a per-category donut/breakdown consistent with the transaction-level
+// netIncomeTx used everywhere else (month totals, tasa de ahorro, etc.).
+export function netIncomeFactor(t){
+  const gross = catTotalAmount(t);
+  return gross>0 ? netIncomeTx(t)/gross : 1;
 }
 // The "really yours" amount of a transaction for Balance/Budget/Evolution aggregates — replaces
 // catTotalAmount(t) in those calculations (never in the transaction's own view, which keeps
@@ -188,6 +227,24 @@ export function resolvePending(expenseTxId, idx, incomeTxId){
   p.pagado = true;
   p.montoRecibido = incomeTx.monto;
   p.linkedTxId = incomeTx.id;
+  return true;
+}
+// Caso B de reembolso ("inesperado"): un depósito llega sin haber sido anticipado como porCobrar
+// -- en vez de crear un sistema paralelo, se aplica exactamente como si el reembolso SÍ se
+// hubiera anticipado (Caso A): se crea la misma fila 'reembolso' en porCobrar del gasto elegido,
+// ya pagada, apuntando a este depósito. netExpenseTx/netIncomeTx/reimbursementExcess (arriba) no
+// distinguen entre ambos casos desde acá en adelante -- es la misma máquina.
+export function applyUnexpectedReimbursement(gastoTxId, incomeTxId){
+  const gastoTx = getTx(gastoTxId), incomeTx = getTx(incomeTxId);
+  if(!gastoTx || !incomeTx || gastoTx.tipo!=='gasto') return false;
+  gastoTx.porCobrar.push({
+    persona: incomeTx.comercio || 'Reembolso', monto: incomeTx.monto, pagado: true,
+    tipo:'reembolso', montoRecibido: incomeTx.monto, linkedTxId: incomeTx.id
+  });
+  // Mismo criterio que en todo el resto de la app (ver events.ts): cualquier transacción con
+  // contenido en porCobrar queda en estado 'por_cobrar', sin importar si ya está paga -- así se
+  // le pinta el tag "Reembolso" (sheet.ts) y aparece donde corresponde en Transacciones.
+  gastoTx.estado = 'por_cobrar';
   return true;
 }
 // Turns a receivable (type 'persona') that was never paid into a real expense in the CURRENT

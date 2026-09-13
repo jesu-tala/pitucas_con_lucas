@@ -5,10 +5,13 @@
 // to be the payment for a charge or refund, so the card must never appear on it -- no
 // matter how many loose pending items exist on other transactions. The card only makes sense
 // for a deposit WITHOUT a category (ambiguous, like "Transferencia de Fran"), which could actually be that.
-// Cases: (a) no pending items in the app -> hidden. (b) uncategorized income + a real pending item
-// elsewhere -> visible with the link CTA. (c) already-linked income -> visible with the banner,
-// whether it has a category or not. (d) income WITH a category (Sueldo Agosto) + a real pending item
-// elsewhere -> stays hidden (the case the user reported).
+// Cases: (a) no pending items in the app, but real gasto transactions DO exist -> visible anyway
+// (an unexpected reembolso, see applyUnexpectedReimbursement in helpers.ts, can be applied
+// directly against any gasto -- it never needed a pre-existing pending item to begin with).
+// (b) uncategorized income + a real pending item elsewhere -> visible with the link CTA.
+// (c) already-linked income -> visible with the banner, whether it has a category or not.
+// (d) income WITH a category (Sueldo Agosto) + a real pending item elsewhere -> stays hidden
+// (the case the user reported).
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
@@ -28,11 +31,13 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.evaluate(() => { window.__debug.state.tab = 'transacciones'; window.__debug.render(); });
   await page.waitForTimeout(150);
 
-  // (a) With no pending item anywhere in the app and no link of its own: the card must not appear.
+  // (a) With no pending item anywhere in the app and no link of its own, the card still appears
+  // -- there are real gasto transactions in the fixture, so an unexpected reembolso could still
+  // be applied directly against one of them (Caso B), even with zero pendientes already marked.
   await page.click('[data-tx="t59"]');
   await page.waitForTimeout(200);
   const sinPendientes = await page.evaluate(() => document.getElementById('sheet-content').textContent.includes('Cobros y reembolsos'));
-  check('(a) Ingreso sin categoría, sin vínculo y SIN pendientes en la app: no aparece "Cobros y reembolsos"', sinPendientes === false);
+  check('(a) Ingreso sin categoría, sin vínculo y SIN pendientes en la app: igual aparece "Cobros y reembolsos" (hay gastos para un reembolso inesperado)', sinPendientes === true);
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
 
@@ -88,6 +93,20 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('   con el banner de "Vinculado a..."', vinculado.tieneBanner === true, vinculado);
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
+
+  // (e) With truly nothing to link to anywhere (no pendientes AND no gastos at all), the card
+  // must still stay hidden -- there's nothing it could ever do, not even an unexpected reembolso.
+  await page.evaluate(() => {
+    const D = window.__debug;
+    D.TRANSACTIONS.length = 0;
+    D.TRANSACTIONS.push({ id: 'soloIngreso', fecha: D.todayISO(), hora: '10:00', comercio: 'Venta bicicleta', monto: 50000, medio: 'cuenta_vista', tipo: 'ingreso', recurrencia: 'variable', estado: 'confirmado', categorias: [], porCobrar: [], reglaAuto: false, nota: '' });
+    D.state.openTxId = 'soloIngreso';
+    document.getElementById('sheet-overlay').classList.add('open');
+    D.render();
+  });
+  await page.waitForTimeout(150);
+  const nadaQueVincular = await page.evaluate(() => document.getElementById('sheet-content').textContent.includes('Cobros y reembolsos'));
+  check('(e) Sin pendientes NI gastos en toda la app: ahí sí se oculta (no hay nada que vincular)', nadaQueVincular === false, nadaQueVincular);
 
   await finish({ context, browser, errors });
 })();

@@ -1,4 +1,4 @@
-import { catInfo, catNetAmount, catTotalAmount, netExpenseTx, incomeIsPersonSettlement, lastSalaryTx } from '../helpers';
+import { catInfo, catNetAmount, catTotalAmount, netExpenseTx, netIncomeFactor, lastSalaryTx } from '../helpers';
 import { ICONS, catIconMarkup, icon } from '../icons';
 import { SPENDING_GOAL_PCT, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, money, moneyPlainMasked, state, todayISO } from '../state';
 import { monthTotals } from '../views/evolucion';
@@ -45,9 +45,11 @@ export function polar(cx,cy,r,angleDeg){
 export function renderDonutBlock(titulo, subtitulo, tipo, monthTx){
   const byCat = {};
   monthTx.filter(t=>t.tipo===tipo && t.estado!=='no_es_gasto').forEach(t=>{
-    if(tipo==='ingreso' && incomeIsPersonSettlement(t)) return; // not new money, it just settles a pending item
     t.categorias.forEach(c=>{
-      const v = tipo==='gasto' ? catNetAmount(t,c) : c.monto;
+      // netIncomeFactor(t) is 1 for an ordinary income (nothing to net), 0 for one that just
+      // settles a pending item (persona split, or a reembolso with no sobre-reembolso), and
+      // somewhere in between for a reembolso whose sobre-reembolso only partially counts.
+      const v = tipo==='gasto' ? catNetAmount(t,c) : tipo==='ingreso' ? c.monto*netIncomeFactor(t) : c.monto;
       byCat[c.cat] = (byCat[c.cat]||0) + v;
     });
   });

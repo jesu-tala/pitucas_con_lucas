@@ -90,6 +90,8 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  pgBytesToArrayBuffer: pgBytesToArrayBuffer, hasReceivableType: hasReceivableType,
 """ + indent + """  netExpenseTx: netExpenseTx, aggregatedTxAmount: aggregatedTxAmount,
 """ + indent + """  reimbursementTotalForMonths: reimbursementTotalForMonths,
+""" + indent + """  netIncomeTx: netIncomeTx, catNetAmount: catNetAmount, resolvePending: resolvePending,
+""" + indent + """  reimbursementExcess: reimbursementExcess, applyUnexpectedReimbursement: applyUnexpectedReimbursement,
 """ + indent + """  get TRANSFER_INFO(){ return TRANSFER_INFO; }, set TRANSFER_INFO(v){ TRANSFER_INFO = v; },
 """ + indent + """  buildChargeWhatsAppText: buildChargeWhatsAppText, transferInfoComplete: transferInfoComplete,
 """ + indent + """  ensureCheckingAccountMethod: ensureCheckingAccountMethod, ensureUnknownPaymentMethod: ensureUnknownPaymentMethod,
