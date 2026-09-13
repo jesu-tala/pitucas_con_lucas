@@ -368,7 +368,13 @@ export function renderSheetContent(t){
   // with the payment method (all "when and with what"), Type with Recurrence (all "what kind of
   // movement it is"), and leaves Installments/Category/auto-rule/actions each in its own card —
   // the features (installments, reimbursements, receivables) stay intact, only the wrapper changes.
-  const tipoRecurrenciaCard = isInvest
+  // Marcada "no es gasto"/"no es ingreso" (Acciones rápidas), esta transacción explícitamente
+  // dejó de contar como un movimiento real -- mostrarle igual un Tipo (Gasto/Ingreso/Inversión)
+  // "elegido" y una Recurrencia (Variable/Mensual/Anual) no tiene sentido: ninguna de las dos
+  // cosas se usa para nada mientras siga así (no aporta a ninguna categoría ni meta), y sugiere
+  // visualmente que todavía es un gasto/ingreso de verdad cuando la persona acaba de decir lo
+  // contrario. Se oculta la tarjeta entera en vez de mostrarla deshabilitada o vacía.
+  const tipoRecurrenciaCard = t.estado==='no_es_gasto' ? '' : isInvest
     ? '<div class="sheet-block card" style="padding:16px;">'+
         '<div class="draft-label" style="margin-bottom:7px;">Tipo</div>'+tipoSelector+
       '</div>'
