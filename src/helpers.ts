@@ -1,7 +1,7 @@
 import { ensureMonthExists } from './shared-expenses';
 import { getTx } from './sheet';
 import { CATEGORIES, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, todayISO } from './state';
-import { GoalTerm, Transaction } from './types';
+import { GoalTerm, IncomeNature, Transaction } from './types';
 /* ===================== HELPERS ===================== */
 export function txsOfMonth(m){ return TRANSACTIONS.filter(t=>t.fecha.slice(0,7)===m); }
 // An investment-type transaction never categorizes to a Platform id directly anymore (see the
@@ -190,6 +190,51 @@ export function netIncomeFactor(t){
   const gross = catTotalAmount(t);
   return gross>0 ? netIncomeTx(t)/gross : 1;
 }
+
+// ---- Income taxonomy: separating real "Ingreso" from everything else that happens to land in
+// the account as a tipo:'ingreso' transaction (see IncomeNature in types.ts). SINGLE source of
+// truth: every card and every ratio that needs to know "is this real income?" goes through
+// incomeNatureOf/incomeNatureAmount, never re-derives it independently -- that's how a stray
+// "traspaso entre mis cuentas" or an asset sale registered as plain income used to quietly
+// inflate tasa de ahorro/% de inversión before this existed.
+export function incomeNatureOf(t: Transaction): IncomeNature {
+  const link = pendingLinkedTo(t.id);
+  if(link){
+    const expenseTx = getTx(link.expenseTxId);
+    const p = expenseTx && expenseTx.porCobrar[link.idx];
+    // A linked deposit's nature is ALWAYS whatever the pending item it settles actually is --
+    // never an explicit override (naturalezaEntrada doesn't even apply here): the settlement
+    // relationship is the ground truth, already established the moment it was linked.
+    if(p && p.tipo==='persona') return 'cobro';
+    if(p && p.tipo==='reembolso') return 'reembolso';
+  }
+  if(t.naturalezaEntrada) return t.naturalezaEntrada;
+  // The only 2 categories that ship as unambiguously real income out of the box -- anything else
+  // (a custom category, or none yet) needs a human tap before it's trusted as real income.
+  if(t.categorias.some(c=>c.cat==='sueldo' || c.cat==='pololos_extra')) return 'ingreso';
+  return 'por_clasificar';
+}
+// The peso amount of `t` (a tipo:'ingreso' transaction) that belongs to its own IncomeNature
+// bucket -- the full gross amount for every nature EXCEPT 'reembolso', which is special: most of
+// a reembolso already has its own home (a contra-gasto on the expense side, see netExpenseTx) and
+// its own display card (reimbursementTotalForMonths, unrelated to this) -- only a genuine
+// sobre-reembolso excess is new money that actually belongs on the income side, so that's the
+// only part counted here (0 in the ordinary, fully-absorbed case).
+// Uses t.monto, NOT catTotalAmount(t): a cobro/reembolso-settlement deposit is deliberately left
+// uncategorized (see resolvePending/applyUnexpectedReimbursement in helpers.ts, neither ever
+// assigns one) -- catTotalAmount would silently read $0 for it (it sums categorias[].monto, which
+// is empty), undercounting real cash that landed in the account. t.monto is always the real
+// amount regardless of whether it's been categorized.
+export function incomeNatureAmount(t: Transaction): number {
+  const nature = incomeNatureOf(t);
+  if(nature==='reembolso'){
+    const link = pendingLinkedTo(t.id);
+    const expenseTx = link ? getTx(link.expenseTxId) : null;
+    return expenseTx ? reimbursementExcess(expenseTx) : 0;
+  }
+  return t.monto;
+}
+
 // The "really yours" amount of a transaction for Balance/Budget/Evolution aggregates — replaces
 // catTotalAmount(t) in those calculations (never in the transaction's own view, which keeps
 // showing the full real amount you paid or received).

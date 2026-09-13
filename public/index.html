@@ -1436,6 +1436,29 @@
     return gross > 0 ? netIncomeTx(t) / gross : 1;
   }
   __name(netIncomeFactor, "netIncomeFactor");
+  function incomeNatureOf(t) {
+    const link = pendingLinkedTo(t.id);
+    if (link) {
+      const expenseTx = getTx(link.expenseTxId);
+      const p = expenseTx && expenseTx.porCobrar[link.idx];
+      if (p && p.tipo === "persona") return "cobro";
+      if (p && p.tipo === "reembolso") return "reembolso";
+    }
+    if (t.naturalezaEntrada) return t.naturalezaEntrada;
+    if (t.categorias.some((c) => c.cat === "sueldo" || c.cat === "pololos_extra")) return "ingreso";
+    return "por_clasificar";
+  }
+  __name(incomeNatureOf, "incomeNatureOf");
+  function incomeNatureAmount(t) {
+    const nature = incomeNatureOf(t);
+    if (nature === "reembolso") {
+      const link = pendingLinkedTo(t.id);
+      const expenseTx = link ? getTx(link.expenseTxId) : null;
+      return expenseTx ? reimbursementExcess(expenseTx) : 0;
+    }
+    return t.monto;
+  }
+  __name(incomeNatureAmount, "incomeNatureAmount");
   function aggregatedTxAmount(t) {
     if (t.tipo === "gasto") return netExpenseTx(t);
     if (t.tipo === "ingreso") return netIncomeTx(t);
@@ -1930,6 +1953,14 @@
   __name(buildReconcileDiff, "buildReconcileDiff");
 
   // src/views/presupuesto.ts
+  function renderOtrasEntradasCards(t) {
+    let html = "";
+    if (t.cobros > 0) html += '<div class="card reembolso-card"><span class="reembolso-icon">' + ICONS.users + '</span><div><div class="reembolso-label">Cobros</div><div class="reembolso-value tabular">' + money(t.cobros) + "</div></div></div>";
+    if (t.movimientoCapital > 0) html += '<div class="card reembolso-card"><span class="reembolso-icon">' + ICONS.repeat + '</span><div><div class="reembolso-label">Movimientos de capital</div><div class="reembolso-value tabular">' + money(t.movimientoCapital) + "</div></div></div>";
+    if (t.porClasificar > 0) html += '<div class="card reembolso-card"><span class="reembolso-icon">' + ICONS.question + '</span><div><div class="reembolso-label">Por clasificar (no cuenta como ingreso)</div><div class="reembolso-value tabular">' + money(t.porClasificar) + "</div></div></div>";
+    return html;
+  }
+  __name(renderOtrasEntradasCards, "renderOtrasEntradasCards");
   function catMonthExpense(catId, monthKey) {
     return txsOfMonth(monthKey).filter((t) => t.tipo === "gasto" && t.estado !== "no_es_gasto").reduce((sum, t) => sum + t.categorias.filter((c) => c.cat === catId).reduce((s, c) => s + catNetAmount(t, c), 0), 0);
   }
@@ -2063,16 +2094,8 @@
     }
     const month = MONTHS[state.monthIndex];
     const monthTx = txsOfMonth(month);
-    let ingresos = 0, gastos = 0, inversiones = 0;
-    monthTx.forEach((t) => {
-      if (t.estado === "no_es_gasto") return;
-      const monto = aggregatedTxAmount(t);
-      if (t.tipo === "ingreso") ingresos += monto;
-      else if (t.tipo === "gasto") gastos += monto;
-      else if (t.tipo === "inversion") inversiones += monto;
-    });
-    const balance = ingresos - gastos - inversiones;
-    const html = balancePeriodoSelectorHtml() + monthSwitcherHtml() + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">' + money(ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(balance) + "</div></div></div>" + renderReembolsoCard(monthlyReimbursementTotal(month), "Reembolsado este mes") + renderGoalSummaryCard(monthTx, ingresos, investmentGoalPct()) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este mes", "ingreso", monthTx, month) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este mes", "gasto", monthTx, month) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este mes", "inversion", monthTx, month);
+    const mt = monthTotals(month);
+    const html = balancePeriodoSelectorHtml() + monthSwitcherHtml() + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingreso</div><div class="stat-value tabular">' + money(mt.ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(mt.gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(mt.inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (mt.balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(mt.balance) + "</div></div></div>" + renderReembolsoCard(monthlyReimbursementTotal(month), "Reembolsado este mes") + renderOtrasEntradasCards(mt) + renderGoalSummaryCard(monthTx, mt.ingresos, investmentGoalPct()) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este mes", "ingreso", monthTx, month) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este mes", "gasto", monthTx, month) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este mes", "inversion", monthTx, month);
     document.getElementById("resumen-content").innerHTML = html;
   }
   __name(renderBalanceView, "renderBalanceView");
@@ -2080,11 +2103,10 @@
     const year = todayISO().slice(0, 4);
     const yr = yearTotals(year);
     const yearTx = fullYearMonths(year).flatMap((m) => txsOfMonth(m));
-    const balance = yr.ingresos - yr.gastos - yr.inversiones;
     const mesesTranscurridos = fullYearMonths(year).filter((m) => m <= todayISO().slice(0, 7));
     const objetivoInversionAcumulado = monthlyInvestmentGoalCLP() * mesesTranscurridos.length;
     const metaInvPctAnio = yr.ingresos > 0 ? objetivoInversionAcumulado / yr.ingresos * 100 : 0;
-    const html = balancePeriodoSelectorHtml() + yearSwitcherHtml(year) + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">' + money(yr.ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(yr.gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(yr.inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(balance) + "</div></div></div>" + renderReembolsoCard(reimbursementTotalForMonths(fullYearMonths(year)), "Reembolsado este a\xF1o") + renderGoalSummaryCard(yearTx, yr.ingresos, metaInvPctAnio) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este a\xF1o", "ingreso", yearTx, year) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este a\xF1o", "gasto", yearTx, year) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este a\xF1o", "inversion", yearTx, year);
+    const html = balancePeriodoSelectorHtml() + yearSwitcherHtml(year) + '<div class="stat-grid"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingreso</div><div class="stat-value tabular">' + money(yr.ingresos) + '</div></div><div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">' + money(yr.gastos) + '</div></div><div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">' + money(yr.inversiones) + '</div></div><div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:' + (yr.balance >= 0 ? "var(--income-ink)" : "var(--expense-ink)") + '">' + money(yr.balance) + "</div></div></div>" + renderReembolsoCard(reimbursementTotalForMonths(fullYearMonths(year)), "Reembolsado este a\xF1o") + renderOtrasEntradasCards(yr) + renderGoalSummaryCard(yearTx, yr.ingresos, metaInvPctAnio) + renderDonutBlock("Ingresos por categor\xEDa", "De d\xF3nde lleg\xF3 la plata este a\xF1o", "ingreso", yearTx, year) + renderDonutBlock("Gastos por categor\xEDa", "A d\xF3nde se te fue la plata este a\xF1o", "gasto", yearTx, year) + renderDonutBlock("Inversiones por categor\xEDa", "Tus aportes por plataforma este a\xF1o", "inversion", yearTx, year);
     document.getElementById("resumen-content").innerHTML = html;
   }
   __name(renderBalanceViewAnio, "renderBalanceViewAnio");
@@ -4150,22 +4172,39 @@
   // src/views/evolucion.ts
   function monthTotals(monthKey) {
     const monthTx = txsOfMonth(monthKey);
-    let ingresos = 0, gastos = 0, inversiones = 0;
+    let ingresos = 0, entradas = 0, gastos = 0, inversiones = 0, cobros = 0, movimientoCapital = 0, porClasificar = 0;
     monthTx.forEach((t) => {
       if (t.estado === "no_es_gasto") return;
-      const monto = aggregatedTxAmount(t);
-      if (t.tipo === "ingreso") ingresos += monto;
-      else if (t.tipo === "gasto") gastos += monto;
-      else if (t.tipo === "inversion") inversiones += monto;
+      if (t.tipo === "ingreso") {
+        const bruto = t.monto;
+        entradas += bruto;
+        const nature = incomeNatureOf(t);
+        if (nature === "ingreso") ingresos += bruto;
+        else if (nature === "reembolso") ingresos += incomeNatureAmount(t);
+        else if (nature === "cobro") cobros += bruto;
+        else if (nature === "movimiento_capital") movimientoCapital += bruto;
+        else porClasificar += bruto;
+      } else if (t.tipo === "gasto") {
+        gastos += aggregatedTxAmount(t);
+      } else if (t.tipo === "inversion") {
+        inversiones += aggregatedTxAmount(t);
+      }
     });
     return {
       ingresos,
+      entradas,
       gastos,
       inversiones,
-      balance: ingresos - gastos - inversiones,
+      cobros,
+      movimientoCapital,
+      porClasificar,
+      // Flujo de caja del mes: TODAS las entradas (no solo el ingreso real), para cuadrar con el
+      // banco -- ver la nota de arriba.
+      balance: entradas - gastos - inversiones,
       // Tasa de ahorro = cuánto de lo que ganaste realmente destinaste a invertir (no "lo que
       // sobró" -- eso puede incluir plata sin invertir todavía, sentada en la cuenta corriente,
-      // que no es ahorro real en el sentido de construir patrimonio).
+      // que no es ahorro real en el sentido de construir patrimonio). Siempre sobre ingreso REAL,
+      // nunca sobre el total de entradas.
       tasaAhorro: ingresos > 0 ? inversiones / ingresos * 100 : 0,
       tasaGastos: ingresos > 0 ? gastos / ingresos * 100 : 0
     };
@@ -4173,22 +4212,32 @@
   __name(monthTotals, "monthTotals");
   function yearTotals(year) {
     const months = fullYearMonths(year);
-    let ingresos = 0, gastos = 0, inversiones = 0;
+    let ingresos = 0, entradas = 0, gastos = 0, inversiones = 0, cobros = 0, movimientoCapital = 0, porClasificar = 0;
     months.forEach((m) => {
       const t = monthTotals(m);
       ingresos += t.ingresos;
+      entradas += t.entradas;
       gastos += t.gastos;
       inversiones += t.inversiones;
+      cobros += t.cobros;
+      movimientoCapital += t.movimientoCapital;
+      porClasificar += t.porClasificar;
     });
     return {
       year,
       months,
       ingresos,
+      entradas,
       gastos,
       inversiones,
+      cobros,
+      movimientoCapital,
+      porClasificar,
+      // Mismo motivo que en monthTotals: flujo de caja del año completo, no solo el ingreso real.
+      balance: entradas - gastos - inversiones,
       // Tasa de ahorro = cuánto de lo que ganaste realmente destinaste a invertir (no "lo que
       // sobró" -- eso puede incluir plata sin invertir todavía, sentada en la cuenta corriente,
-      // que no es ahorro real en el sentido de construir patrimonio).
+      // que no es ahorro real en el sentido de construir patrimonio). Siempre sobre ingreso REAL.
       tasaAhorro: ingresos > 0 ? inversiones / ingresos * 100 : 0,
       tasaGastos: ingresos > 0 ? gastos / ingresos * 100 : 0
     };
@@ -5589,6 +5638,12 @@
             t.estado = "no_es_gasto";
             toast("Marcado como " + etiqueta);
           }
+        } else if (act === "naturaleza-ingreso") {
+          t.naturalezaEntrada = "ingreso";
+          toast("Marcado como ingreso real");
+        } else if (act === "naturaleza-capital") {
+          t.naturalezaEntrada = "movimiento_capital";
+          toast("Marcado como movimiento de capital (no cuenta como ingreso)");
         }
         renderSheet();
         renderIfListVisible();
@@ -8225,6 +8280,15 @@
     return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Acciones r\xE1pidas</div><div class="quick-actions"><button class="action-btn ' + (t.estado === "no_es_gasto" ? "selected" : "") + '" data-action="noesgasto" data-tx="' + t.id + '">' + ICONS.ban + " No es ingreso</button></div></div>";
   }
   __name(renderIncomeQuickActionsBlock, "renderIncomeQuickActionsBlock");
+  function renderIncomeNatureBlock(t) {
+    if (t.estado === "no_es_gasto" || t.categorias.length === 0) return "";
+    const nature = incomeNatureOf(t);
+    if (nature === "cobro" || nature === "reembolso") return "";
+    if (nature === "ingreso" && !t.naturalezaEntrada) return "";
+    const porClasificar = nature === "por_clasificar";
+    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">' + (porClasificar ? "\xBFQu\xE9 tipo de entrada es esta?" : "Tipo de entrada") + "</div>" + (porClasificar ? '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Esta categor\xEDa puede ser ingreso real o solo un movimiento de tu propia plata (ej. rescatar una inversi\xF3n, vender un activo). Elige para que no infle tu tasa de ahorro por error.</p>' : "") + '<div class="quick-actions"><button class="action-btn ' + (nature === "ingreso" ? "selected" : "") + '" data-action="naturaleza-ingreso" data-tx="' + t.id + '">' + ICONS.trending + ' Es ingreso real</button><button class="action-btn ' + (nature === "movimiento_capital" ? "selected" : "") + '" data-action="naturaleza-capital" data-tx="' + t.id + '">' + ICONS.repeat + " Es movimiento de capital</button></div></div>";
+  }
+  __name(renderIncomeNatureBlock, "renderIncomeNatureBlock");
   function renderSheetContent(t) {
     const isIncome = t.tipo === "ingreso";
     const isInvest = t.tipo === "inversion";
@@ -8243,7 +8307,7 @@
     }).join("");
     const importedBlock = !t.importadoEmail ? "" : '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Importada desde tu correo</div><p class="muted" style="font-size:12.5px;margin:0;">Esta transacci\xF3n se agreg\xF3 sola a partir de un correo de tu banco.</p></div>';
     const tipoRecurrenciaCard = t.estado === "no_es_gasto" ? "" : isInvest ? '<div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + tipoSelector + "</div>" : '<div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + tipoSelector + '<div class="draft-label" style="margin:16px 0 7px;">Recurrencia</div>' + recurrenciaSelector + '<p class="cat-picker-hint" style="margin-top:8px;">"Mensual" y "Anual" cuentan como <b>gasto fijo</b> en tus metas de Resumen \xB7 Balance \u2014 "Variable" es todo lo dem\xE1s. No existe una opci\xF3n separada llamada "Fijo".</p></div>';
-    return '<div class="sheet-top"><div class="merchant" id="sheet-title-el">' + t.comercio + '</div><div class="meta">' + dayLabel(t.fecha) + " \xB7 " + t.hora + " \xB7 " + paymentMethodInfo(t.medio).nombre + '</div><div class="sheet-amount ' + (isIncome ? "pos" : "") + ' tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</div><div class="meta" data-note-echo style="margin-top:6px;' + (t.nota ? "" : "display:none;") + '">' + (t.nota || "") + '</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nombre, monto y fecha</div><div class="draft-field"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-tx-field="comercio" data-tx="' + t.id + '" value="' + t.comercio.replace(/"/g, "&quot;") + '"></div><div class="draft-field"><label class="draft-label">Monto</label><div class="edit-amount-row"><input type="text" inputmode="decimal" class="draft-input tabular" data-tx-field="monto" data-tx="' + t.id + '" value="' + t.monto + '"><span class="edit-amount-echo tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</span></div></div><div class="edit-field-pair"><div class="edit-field-col draft-field"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-tx-field="fecha" data-tx="' + t.id + '" value="' + t.fecha + '"></div><div class="edit-field-col draft-field"><label class="draft-label">Hora</label><input type="time" class="draft-input" data-tx-field="hora" data-tx="' + t.id + '" value="' + t.hora + '"></div></div><div class="muted edit-day-hint">' + dayLabel(t.fecha) + '</div><div class="draft-field" style="margin:14px 0 0;"><label class="draft-label">Con qu\xE9 pagaste</label><select class="draft-select" data-tx-payment-method-select="' + t.id + '">' + medioOptsExisting + "</select></div></div>" + tipoRecurrenciaCard + cuotaBlock + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa' + (cats.length > 1 ? "s" : "") + "</div>" + categoriaSection + "</div>" + (isInvest ? "" : '<div class="sheet-block card lock-card' + (t.reglaAuto ? " active-rule" : "") + '" style="padding:14px 16px;"><div class="lock-row"><span class="lock-icon">' + ICONS.lock + '</span><span class="lock-text">' + (t.reglaAuto ? "Ya clasificamos siempre as\xED lo de <b>" + t.comercio + "</b>" : "Clasificar siempre as\xED los gastos de <b>" + t.comercio + "</b>") + '</span><button class="switch ' + (t.reglaAuto ? "on" : "") + '" data-toggle-lock="' + t.id + '" aria-label="Activar regla autom\xE1tica" aria-pressed="' + (t.reglaAuto ? "true" : "false") + '"></button></div></div>') + (isInvest ? "" : isIncome ? renderIncomeQuickActionsBlock(t) + (function() {
+    return '<div class="sheet-top"><div class="merchant" id="sheet-title-el">' + t.comercio + '</div><div class="meta">' + dayLabel(t.fecha) + " \xB7 " + t.hora + " \xB7 " + paymentMethodInfo(t.medio).nombre + '</div><div class="sheet-amount ' + (isIncome ? "pos" : "") + ' tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</div><div class="meta" data-note-echo style="margin-top:6px;' + (t.nota ? "" : "display:none;") + '">' + (t.nota || "") + '</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nombre, monto y fecha</div><div class="draft-field"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-tx-field="comercio" data-tx="' + t.id + '" value="' + t.comercio.replace(/"/g, "&quot;") + '"></div><div class="draft-field"><label class="draft-label">Monto</label><div class="edit-amount-row"><input type="text" inputmode="decimal" class="draft-input tabular" data-tx-field="monto" data-tx="' + t.id + '" value="' + t.monto + '"><span class="edit-amount-echo tabular">' + (isIncome ? "+" : "") + money(t.monto) + '</span></div></div><div class="edit-field-pair"><div class="edit-field-col draft-field"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-tx-field="fecha" data-tx="' + t.id + '" value="' + t.fecha + '"></div><div class="edit-field-col draft-field"><label class="draft-label">Hora</label><input type="time" class="draft-input" data-tx-field="hora" data-tx="' + t.id + '" value="' + t.hora + '"></div></div><div class="muted edit-day-hint">' + dayLabel(t.fecha) + '</div><div class="draft-field" style="margin:14px 0 0;"><label class="draft-label">Con qu\xE9 pagaste</label><select class="draft-select" data-tx-payment-method-select="' + t.id + '">' + medioOptsExisting + "</select></div></div>" + tipoRecurrenciaCard + cuotaBlock + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa' + (cats.length > 1 ? "s" : "") + "</div>" + categoriaSection + "</div>" + (isInvest ? "" : '<div class="sheet-block card lock-card' + (t.reglaAuto ? " active-rule" : "") + '" style="padding:14px 16px;"><div class="lock-row"><span class="lock-icon">' + ICONS.lock + '</span><span class="lock-text">' + (t.reglaAuto ? "Ya clasificamos siempre as\xED lo de <b>" + t.comercio + "</b>" : "Clasificar siempre as\xED los gastos de <b>" + t.comercio + "</b>") + '</span><button class="switch ' + (t.reglaAuto ? "on" : "") + '" data-toggle-lock="' + t.id + '" aria-label="Activar regla autom\xE1tica" aria-pressed="' + (t.reglaAuto ? "true" : "false") + '"></button></div></div>') + (isInvest ? "" : isIncome ? renderIncomeQuickActionsBlock(t) + renderIncomeNatureBlock(t) + (function() {
       const vinculo = pendingLinkedTo(t.id);
       const hayAlgoQueVincular = allPendingReceivables().length > 0 || TRANSACTIONS.some((g) => g.tipo === "gasto" && g.estado !== "no_es_gasto");
       if (t.estado === "no_es_gasto" || !vinculo && (t.categorias.length > 0 || !hayAlgoQueVincular)) return "";

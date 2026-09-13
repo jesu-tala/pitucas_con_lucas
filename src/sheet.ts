@@ -1,4 +1,4 @@
-import { allCollected, catInfo, dayLabel, paymentMethodInfo, pendingEffectiveAmount, pendingLinkedTo, allPendingReceivables, receivableTotal, hasReceivableType } from './helpers';
+import { allCollected, catInfo, dayLabel, incomeNatureOf, paymentMethodInfo, pendingEffectiveAmount, pendingLinkedTo, allPendingReceivables, receivableTotal, hasReceivableType } from './helpers';
 import { ICONS, catIconMarkup } from './icons';
 import { render } from './render';
 import { ensureMonthExists, safeEvalExpr } from './shared-expenses';
@@ -324,6 +324,27 @@ function renderIncomeQuickActionsBlock(t){
       '<button class="action-btn '+(t.estado==='no_es_gasto'?'selected':'')+'" data-action="noesgasto" data-tx="'+t.id+'">'+ICONS.ban+' No es ingreso</button>'+
     '</div></div>';
 }
+// La naturaleza de una entrada no siempre cabe en la categoría: "Inversiones"/"Propiedades" (o
+// cualquier categoría personalizada) pueden ser tanto ingreso real (un dividendo, un arriendo)
+// como un movimiento de capital (rescatar la inversión, vender el activo) -- solo "Sueldo"/
+// "Pololos extra" son inequívocas out of the box (ver incomeNatureOf en helpers.ts). Mientras
+// quede "por clasificar", NUNCA cuenta como ingreso real (no infla tasa de ahorro/% de inversión
+// por accidente) -- esta tarjeta es el "tap" para resolverlo. No se ofrece para 'cobro'/
+// 'reembolso' (ya resueltos por el vínculo con el pendiente, nada que elegir ahí) ni para una
+// categoría ya inequívoca (sueldo/pololos_extra) sin haber sido reclasificada a mano antes.
+function renderIncomeNatureBlock(t){
+  if(t.estado==='no_es_gasto' || t.categorias.length===0) return '';
+  const nature = incomeNatureOf(t);
+  if(nature==='cobro' || nature==='reembolso') return '';
+  if(nature==='ingreso' && !t.naturalezaEntrada) return '';
+  const porClasificar = nature==='por_clasificar';
+  return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">'+(porClasificar?'¿Qué tipo de entrada es esta?':'Tipo de entrada')+'</div>'+
+    (porClasificar ? '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Esta categoría puede ser ingreso real o solo un movimiento de tu propia plata (ej. rescatar una inversión, vender un activo). Elige para que no infle tu tasa de ahorro por error.</p>' : '')+
+    '<div class="quick-actions">'+
+      '<button class="action-btn '+(nature==='ingreso'?'selected':'')+'" data-action="naturaleza-ingreso" data-tx="'+t.id+'">'+ICONS.trending+' Es ingreso real</button>'+
+      '<button class="action-btn '+(nature==='movimiento_capital'?'selected':'')+'" data-action="naturaleza-capital" data-tx="'+t.id+'">'+ICONS.repeat+' Es movimiento de capital</button>'+
+    '</div></div>';
+}
 
 export function renderSheetContent(t){
   const isIncome = t.tipo==='ingreso';
@@ -446,7 +467,7 @@ export function renderSheetContent(t){
 
     (isInvest ? '' :
     isIncome
-      ? renderIncomeQuickActionsBlock(t) + (function(){
+      ? renderIncomeQuickActionsBlock(t) + renderIncomeNatureBlock(t) + (function(){
           const vinculo = pendingLinkedTo(t.id);
           // Before, this card appeared in the detail of ANY income as soon as there was some
           // pending item anywhere else in the app — so a salary with its normal category

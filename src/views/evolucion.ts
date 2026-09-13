@@ -1,25 +1,52 @@
-import { catInfo, aggregatedTxAmount, termChip, txsOfMonth } from '../helpers';
+import { catInfo, aggregatedTxAmount, incomeNatureAmount, incomeNatureOf, termChip, txsOfMonth } from '../helpers';
 import { ICONS } from '../icons';
 import { monthLabelFor } from '../shared-expenses';
 import { segmentedHtml } from '../sheet';
 import { MONTHS_LONG, INVESTMENT_GOALS, TRANSACTIONS, TOTAL_GOAL_CHECKS, MONTHS, MONTH_LABEL, money, state, todayISO } from '../state';
 import { activePlatformIds, platformAportadoNeto, platformCurrentValue } from './inversiones';
 /* ===================== EVOLUTION (Phase 3) ===================== */
+// `ingresos` here means REAL income only (IncomeNature 'ingreso', see helpers.ts) -- the number
+// every ratio (tasaAhorro, tasaGastos, % de inversión) is computed against, and never anything
+// bigger. `entradas` is every peso that came in regardless of nature (cobros, reembolsos'
+// sobre-reembolso excess, movimientos de capital, ingreso por clasificar too) -- the cash-flow
+// figure that has to match the bank, used for `balance` instead of `ingresos` for exactly that
+// reason (a real asset sale or a friend paying you back is money that really landed in the
+// account, even though it's not "income" for the ratios above). `cobros`/`movimientoCapital`/
+// `porClasificar` are broken out too so Balance can show them as their own (less prominent) cards
+// without re-deriving anything -- one pass over the month's transactions, one source of truth.
 export function monthTotals(monthKey){
   const monthTx = txsOfMonth(monthKey);
-  let ingresos=0, gastos=0, inversiones=0;
+  let ingresos=0, entradas=0, gastos=0, inversiones=0, cobros=0, movimientoCapital=0, porClasificar=0;
   monthTx.forEach(t=>{
     if(t.estado==='no_es_gasto') return;
-    const monto = aggregatedTxAmount(t);
-    if(t.tipo==='ingreso') ingresos += monto;
-    else if(t.tipo==='gasto') gastos += monto;
-    else if(t.tipo==='inversion') inversiones += monto;
+    if(t.tipo==='ingreso'){
+      // t.monto, no catTotalAmount(t): un depósito que solo salda un cobro/reembolso queda
+      // deliberadamente sin categoría (ver resolvePending/applyUnexpectedReimbursement en
+      // helpers.ts) -- catTotalAmount leería $0 ahí (suma categorias[].monto, vacío), subcontando
+      // plata real que sí entró a la cuenta.
+      const bruto = t.monto;
+      entradas += bruto;
+      const nature = incomeNatureOf(t);
+      if(nature==='ingreso') ingresos += bruto;
+      else if(nature==='reembolso') ingresos += incomeNatureAmount(t); // solo el sobre-reembolso, si hay
+      else if(nature==='cobro') cobros += bruto;
+      else if(nature==='movimiento_capital') movimientoCapital += bruto;
+      else porClasificar += bruto;
+    } else if(t.tipo==='gasto'){
+      gastos += aggregatedTxAmount(t);
+    } else if(t.tipo==='inversion'){
+      inversiones += aggregatedTxAmount(t);
+    }
   });
   return {
-    ingresos, gastos, inversiones, balance: ingresos-gastos-inversiones,
+    ingresos, entradas, gastos, inversiones, cobros, movimientoCapital, porClasificar,
+    // Flujo de caja del mes: TODAS las entradas (no solo el ingreso real), para cuadrar con el
+    // banco -- ver la nota de arriba.
+    balance: entradas-gastos-inversiones,
     // Tasa de ahorro = cuánto de lo que ganaste realmente destinaste a invertir (no "lo que
     // sobró" -- eso puede incluir plata sin invertir todavía, sentada en la cuenta corriente,
-    // que no es ahorro real en el sentido de construir patrimonio).
+    // que no es ahorro real en el sentido de construir patrimonio). Siempre sobre ingreso REAL,
+    // nunca sobre el total de entradas.
     tasaAhorro: ingresos>0 ? (inversiones/ingresos)*100 : 0,
     tasaGastos: ingresos>0 ? (gastos/ingresos)*100 : 0
   };
@@ -31,16 +58,19 @@ export function monthTotals(monthKey){
 // $0, so they don't inflate or distort the sum).
 export function yearTotals(year){
   const months = fullYearMonths(year);
-  let ingresos=0, gastos=0, inversiones=0;
+  let ingresos=0, entradas=0, gastos=0, inversiones=0, cobros=0, movimientoCapital=0, porClasificar=0;
   months.forEach(m=>{
     const t = monthTotals(m);
-    ingresos += t.ingresos; gastos += t.gastos; inversiones += t.inversiones;
+    ingresos += t.ingresos; entradas += t.entradas; gastos += t.gastos; inversiones += t.inversiones;
+    cobros += t.cobros; movimientoCapital += t.movimientoCapital; porClasificar += t.porClasificar;
   });
   return {
-    year, months, ingresos, gastos, inversiones,
+    year, months, ingresos, entradas, gastos, inversiones, cobros, movimientoCapital, porClasificar,
+    // Mismo motivo que en monthTotals: flujo de caja del año completo, no solo el ingreso real.
+    balance: entradas-gastos-inversiones,
     // Tasa de ahorro = cuánto de lo que ganaste realmente destinaste a invertir (no "lo que
     // sobró" -- eso puede incluir plata sin invertir todavía, sentada en la cuenta corriente,
-    // que no es ahorro real en el sentido de construir patrimonio).
+    // que no es ahorro real en el sentido de construir patrimonio). Siempre sobre ingreso REAL.
     tasaAhorro: ingresos>0 ? (inversiones/ingresos)*100 : 0,
     tasaGastos: ingresos>0 ? (gastos/ingresos)*100 : 0
   };
