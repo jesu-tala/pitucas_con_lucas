@@ -559,6 +559,12 @@
     font-size:14.5px;font-weight:700;cursor:pointer;margin-top:6px;
   }
   .save-tx-btn:disabled{opacity:.45;cursor:default;}
+  /* An icon dropped straight into a .save-tx-btn's text (e.g. "Crear grupo") has no CSS
+     constraining its <svg> -- every other icon spot in the app scopes its own `X svg{width;
+     height}` rule, but this one had none, so the bare <svg viewBox="0 0 24 24"> (no width/height
+     attributes) rendered at the browser's intrinsic default (~300x150px) instead of icon-sized,
+     ballooning the whole button. Not a padding/font-size/aspect-ratio issue -- a missing size cap. */
+  .save-tx-btn svg{width:16px;height:16px;flex-shrink:0;vertical-align:-3px;}
   .field-error{font-size:11.5px;color:var(--expense-ink);margin-top:6px;}
   /* Barra de acciones al fondo del detalle de una transacción ya existente: borrar (rojo, chico,
      a la izquierda) y Listo (grande, a la derecha — "Listo" no guarda nada nuevo, los campos ya
@@ -8102,7 +8108,7 @@
       return;
     }
     if (!GROUPS.length) {
-      cont.innerHTML = '<div class="empty-state" style="padding:40px 20px;text-align:center;"><div style="font-size:38px;">\u{1F465}</div><p class="muted" style="margin:12px 0 20px;">Todav\xEDa no tienes ning\xFAn grupo. Crea uno para dividir gastos con tu pareja, tu familia, tus roomies o un viaje.</p><div style="max-width:280px;margin:0 auto;"><button class="save-tx-btn" data-group-create-open>' + ICONS.plus + ' Crear grupo</button><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);margin-top:10px;" data-group-join-open>Unirme con un c\xF3digo</button></div></div>';
+      cont.innerHTML = '<div class="empty-state" style="padding:40px 20px;text-align:center;"><div style="font-size:38px;">\u{1F465}</div><p class="muted" style="margin:12px 0 20px;">Todav\xEDa no tienes ning\xFAn grupo. Crea uno para dividir gastos con tu pareja, tu familia, tus roomies o un viaje.</p><div style="display:flex;gap:10px;max-width:360px;margin:0 auto;"><button class="save-tx-btn" style="flex:1;" data-group-create-open>' + ICONS.plus + ' Crear grupo</button><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-group-join-open>Unirme con un c\xF3digo</button></div></div>';
       return;
     }
     const cards = GROUPS.map((g) => {

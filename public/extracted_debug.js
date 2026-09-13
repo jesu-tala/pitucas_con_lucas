@@ -6837,7 +6837,7 @@
       return;
     }
     if (!GROUPS.length) {
-      cont.innerHTML = '<div class="empty-state" style="padding:40px 20px;text-align:center;"><div style="font-size:38px;">\u{1F465}</div><p class="muted" style="margin:12px 0 20px;">Todav\xEDa no tienes ning\xFAn grupo. Crea uno para dividir gastos con tu pareja, tu familia, tus roomies o un viaje.</p><div style="max-width:280px;margin:0 auto;"><button class="save-tx-btn" data-group-create-open>' + ICONS.plus + ' Crear grupo</button><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);margin-top:10px;" data-group-join-open>Unirme con un c\xF3digo</button></div></div>';
+      cont.innerHTML = '<div class="empty-state" style="padding:40px 20px;text-align:center;"><div style="font-size:38px;">\u{1F465}</div><p class="muted" style="margin:12px 0 20px;">Todav\xEDa no tienes ning\xFAn grupo. Crea uno para dividir gastos con tu pareja, tu familia, tus roomies o un viaje.</p><div style="display:flex;gap:10px;max-width:360px;margin:0 auto;"><button class="save-tx-btn" style="flex:1;" data-group-create-open>' + ICONS.plus + ' Crear grupo</button><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-group-join-open>Unirme con un c\xF3digo</button></div></div>';
       return;
     }
     const cards = GROUPS.map((g) => {
