@@ -68,15 +68,15 @@
     if (CATEGORIES[id]) return CATEGORIES[id];
     const goal = INVESTMENT_GOALS.find((m) => m.id === id);
     if (goal) {
-      const plat = CATEGORIES[goal.plataformaId] || { color: "neutral", icon: "trending" };
-      return { nombre: goal.nombre, tipo: "inversion", color: plat.color, icon: plat.icon, plataformaId: goal.plataformaId, goalId: goal.id };
+      const plat = CATEGORIES[goal.plataformaId] || { colorHue: 265, icon: "trending" };
+      return { nombre: goal.nombre, tipo: "inversion", colorHue: plat.colorHue, icon: plat.icon, plataformaId: goal.plataformaId, goalId: goal.id };
     }
     if (typeof id === "string" && id.endsWith("__general")) {
       const platId = id.slice(0, -"__general".length);
       const plat = CATEGORIES[platId];
-      if (plat) return { nombre: plat.nombre + " \xB7 General", tipo: "inversion", color: plat.color, icon: plat.icon, plataformaId: platId, general: true };
+      if (plat) return { nombre: plat.nombre + " \xB7 General", tipo: "inversion", colorHue: plat.colorHue, icon: plat.icon, plataformaId: platId, general: true };
     }
-    return { nombre: "Sin categor\xEDa", color: "neutral", icon: "more", tipo: "gasto" };
+    return { nombre: "Sin categor\xEDa", colorHue: 265, icon: "more", tipo: "gasto" };
   }
   __name(catInfo, "catInfo");
   function categoryFilterMatches(catId, filterId) {
@@ -364,6 +364,79 @@
   }
   __name(hasReceivableType, "hasReceivableType");
 
+  // src/category-colors.ts
+  var FILL_LIGHT = { l: 0.86, c: 0.075 };
+  var FILL_DARK = { l: 0.32, c: 0.1 };
+  var INK_LIGHT = { l: 0.38, c: 0.13 };
+  var INK_DARK = { l: 0.88, c: 0.09 };
+  function oklch(l, c, h) {
+    return "oklch(" + Math.round(l * 1e3) / 10 + "% " + c.toFixed(3) + " " + Math.round(h * 10) / 10 + ")";
+  }
+  __name(oklch, "oklch");
+  function categoryFillCss(hue) {
+    return "light-dark(" + oklch(FILL_LIGHT.l, FILL_LIGHT.c, hue) + "," + oklch(FILL_DARK.l, FILL_DARK.c, hue) + ")";
+  }
+  __name(categoryFillCss, "categoryFillCss");
+  function categoryInkCss(hue) {
+    return "light-dark(" + oklch(INK_LIGHT.l, INK_LIGHT.c, hue) + "," + oklch(INK_DARK.l, INK_DARK.c, hue) + ")";
+  }
+  __name(categoryInkCss, "categoryInkCss");
+  function categoryColorVars(cat) {
+    if (!cat) return "--fill:var(--surface-sunken);--ink:var(--text-tertiary)";
+    return "--fill:" + categoryFillCss(cat.colorHue) + ";--ink:" + categoryInkCss(cat.colorHue);
+  }
+  __name(categoryColorVars, "categoryColorVars");
+  var CATEGORY_COLOR_MIN_GAP = 25;
+  function huesInUse(categories, tipo, excludeId) {
+    return Object.keys(categories).filter((id) => id !== excludeId && categories[id].tipo === tipo && typeof categories[id].colorHue === "number").map((id) => categories[id].colorHue).sort((a, b) => a - b);
+  }
+  __name(huesInUse, "huesInUse");
+  function circularGapMidpoint(hues) {
+    if (hues.length === 0) return 265;
+    if (hues.length === 1) return (hues[0] + 180) % 360;
+    let bestGap = -1, bestMid = 0;
+    for (let i = 0; i < hues.length; i++) {
+      const a = hues[i];
+      const b = i + 1 < hues.length ? hues[i + 1] : hues[0] + 360;
+      const gap = b - a;
+      if (gap > bestGap) {
+        bestGap = gap;
+        bestMid = (a + gap / 2) % 360;
+      }
+    }
+    return bestMid;
+  }
+  __name(circularGapMidpoint, "circularGapMidpoint");
+  function nextCategoryHue(categories, tipo) {
+    return circularGapMidpoint(huesInUse(categories, tipo));
+  }
+  __name(nextCategoryHue, "nextCategoryHue");
+  function angularDistance(a, b) {
+    const d = Math.abs(a - b) % 360;
+    return Math.min(d, 360 - d);
+  }
+  __name(angularDistance, "angularDistance");
+  function categoriesCollidingWithHue(categories, tipo, hue, excludeId) {
+    return Object.keys(categories).filter((id) => id !== excludeId && categories[id].tipo === tipo && angularDistance(categories[id].colorHue, hue) < CATEGORY_COLOR_MIN_GAP).map((id) => categories[id].nombre);
+  }
+  __name(categoriesCollidingWithHue, "categoriesCollidingWithHue");
+  var LEGACY_COLOR_HUE = {
+    lavender: 280,
+    mint: 160,
+    peach: 30,
+    sky: 205,
+    pink: 340,
+    butter: 50,
+    sage: 95,
+    neutral: 30
+  };
+  function migrateLegacyCategoryColor(cat) {
+    if (typeof cat.colorHue === "number") return cat.colorHue;
+    if (typeof cat.color === "string" && LEGACY_COLOR_HUE[cat.color] != null) return LEGACY_COLOR_HUE[cat.color];
+    return 265;
+  }
+  __name(migrateLegacyCategoryColor, "migrateLegacyCategoryColor");
+
   // src/ui/tabbar.ts
   function renderTabbar() {
     const tabs = [
@@ -406,19 +479,17 @@
     } else if (segments.length === 1) {
       paths = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + segments[0].color + '" stroke-width="' + strokeW + '"/>';
     } else {
+      const MIN_VISIBLE_SWEEP_DEG = 3;
       segments.forEach((seg) => {
         const frac = seg.value / total;
-        const sweep = frac * 360 - gapDeg;
-        if (sweep <= 0) {
-          startAngle += frac * 360;
-          return;
-        }
+        if (frac <= 0) return;
+        const sweep = Math.max(frac * 360 - gapDeg, MIN_VISIBLE_SWEEP_DEG);
         const a0 = startAngle;
         const a1 = startAngle + sweep;
         const large = sweep > 180 ? 1 : 0;
         const p0 = polar(cx, cy, r, a0);
         const p1 = polar(cx, cy, r, a1);
-        paths += '<path class="arc-seg" data-cat="' + seg.id + '" d="M ' + p0.x + " " + p0.y + " A " + r + " " + r + " 0 " + large + " 1 " + p1.x + " " + p1.y + '" fill="none" stroke="' + seg.color + '" stroke-width="' + strokeW + '" stroke-linecap="round"/>';
+        paths += '<path class="arc-seg" data-cat="' + seg.id + '"' + (seg.extraAttrs || "") + ' d="M ' + p0.x + " " + p0.y + " A " + r + " " + r + " 0 " + large + " 1 " + p1.x + " " + p1.y + '" fill="none" stroke="' + seg.color + '" stroke-width="' + strokeW + '" stroke-linecap="round"/>';
         startAngle += frac * 360;
       });
     }
@@ -430,6 +501,7 @@
     return { x: (cx + r * Math.cos(a)).toFixed(2), y: (cy + r * Math.sin(a)).toFixed(2) };
   }
   __name(polar, "polar");
+  var DONUT_OTROS_THRESHOLD_PCT = 3;
   function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro) {
     const byCat = {};
     monthTx.filter((t) => t.tipo === tipo && t.estado !== "no_es_gasto").forEach((t) => {
@@ -440,11 +512,26 @@
     });
     const entries = Object.keys(byCat).map((id) => ({ id, value: byCat[id], info: catInfo(id) })).sort((a, b) => b.value - a.value);
     const total = entries.reduce((s, e) => s + e.value, 0);
-    const segs = entries.map((e) => ({ value: e.value, color: "var(--cat-" + e.info.color + "-fill)", id: e.id, nombre: e.info.nombre }));
+    const smallIds = total > 0 ? entries.filter((e) => e.value / total * 100 < DONUT_OTROS_THRESHOLD_PCT).map((e) => e.id) : [];
+    const grouped = smallIds.length > 1;
+    const otrosIds = grouped ? smallIds : [];
+    const ringEntries = !grouped ? entries : (function() {
+      const big = entries.filter((e) => !otrosIds.includes(e.id));
+      const otrosValue = entries.filter((e) => otrosIds.includes(e.id)).reduce((s, e) => s + e.value, 0);
+      return big.concat([{ id: "otros", value: otrosValue, info: { nombre: "Otros", icon: "more", colorHue: 0, tipo }, isOtros: true }]);
+    })();
+    const segs = ringEntries.map((e) => ({
+      value: e.value,
+      color: e.isOtros ? "var(--text-tertiary)" : categoryFillCss(e.info.colorHue),
+      id: e.id,
+      nombre: e.info.nombre,
+      extraAttrs: e.isOtros ? ' data-otros-ids="' + otrosIds.join(",") + '"' : ""
+    }));
     const donutSvg = buildDonut(segs, 172, 24);
     const legend = entries.length === 0 ? '<div class="empty-state" style="padding:14px 4px;">' + icon("inbox") + "<div>Sin movimientos este mes.</div></div>" : entries.map((e) => {
       const pct = total > 0 ? Math.round(e.value / total * 100) : 0;
-      return '<button class="legend-row" data-cat="' + e.id + '"><span class="legend-dot" style="--fill:var(--cat-' + e.info.color + '-fill)"></span><span class="legend-icon">' + catIconMarkup(e.info.icon) + '</span><span class="legend-name">' + e.info.nombre + '</span><span class="legend-pct">' + pct + '%</span><span class="legend-value tabular">' + money(e.value) + "</span></button>";
+      const enOtros = otrosIds.includes(e.id);
+      return '<button class="legend-row' + (enOtros ? " legend-row-otros" : "") + '" data-cat="' + e.id + '"><span class="legend-dot" style="--fill:' + categoryFillCss(e.info.colorHue) + '"></span><span class="legend-icon">' + catIconMarkup(e.info.icon) + '</span><span class="legend-name">' + e.info.nombre + (enOtros ? ' <span class="legend-otros-badge">Otros</span>' : "") + '</span><span class="legend-pct">' + pct + '%</span><span class="legend-value tabular">' + money(e.value) + "</span></button>";
     }).join("");
     return '<div class="card donut-card" ' + (periodoFiltro ? 'data-periodo="' + periodoFiltro + '"' : "") + '><div class="donut-card-title">' + titulo + '</div><div class="donut-card-sub">' + subtitulo + '</div><div class="donut-row"><div class="donut-svg-wrap">' + donutSvg + '<div class="donut-center"><span class="dc-total tabular">' + (total > 0 ? moneyPlainMasked(total) : "$0") + '</span><span class="dc-label">total</span></div></div><div class="donut-legend">' + legend + "</div></div></div>";
   }
@@ -749,7 +836,7 @@
     const cat = catInfo(catId);
     const d = state.budgetDraft;
     const alertChip = /* @__PURE__ */ __name((t) => '<button class="alert-chip' + (d.alertas[t] ? " active" : "") + '" data-toggle-alert="' + t + '">' + t + "%</button>", "alertChip");
-    return '<div class="card budget-cat-card editing"><div class="budget-cat-head"><span class="budget-cat-icon" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + cat.nombre + '</span></div><label class="draft-label">Meta mensual</label><input type="text" inputmode="decimal" class="draft-input tabular" data-budget-goal-input value="' + d.meta + '" placeholder="0"><label class="draft-label" style="margin-top:12px;">Avisarme al</label><div class="alert-chip-row">' + alertChip(80) + alertChip(90) + alertChip(100) + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-budget-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-budget="' + catId + '">Guardar</button></div>' + (cfg ? state.confirmDeleteBudgetCatId === catId ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar el presupuesto de "' + cat.nombre + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-budget>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-budget="' + catId + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-budget="' + catId + '">Eliminar presupuesto</button>' : "") + "</div>";
+    return '<div class="card budget-cat-card editing"><div class="budget-cat-head"><span class="budget-cat-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + cat.nombre + '</span></div><label class="draft-label">Meta mensual</label><input type="text" inputmode="decimal" class="draft-input tabular" data-budget-goal-input value="' + d.meta + '" placeholder="0"><label class="draft-label" style="margin-top:12px;">Avisarme al</label><div class="alert-chip-row">' + alertChip(80) + alertChip(90) + alertChip(100) + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-budget-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-budget="' + catId + '">Guardar</button></div>' + (cfg ? state.confirmDeleteBudgetCatId === catId ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar el presupuesto de "' + cat.nombre + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-budget>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-budget="' + catId + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-budget="' + catId + '">Eliminar presupuesto</button>' : "") + "</div>";
   }
   __name(renderBudgetEditForm, "renderBudgetEditForm");
   function renderBudgetCatCard(catId) {
@@ -760,7 +847,7 @@
       return renderBudgetEditForm(catId, cfg);
     }
     if (!cfg) {
-      return '<div class="card budget-cat-card empty"><span class="budget-cat-icon" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + cat.nombre + '</span><button class="budget-add-link" data-edit-budget="' + catId + '">+ Agregar presupuesto</button></div>';
+      return '<div class="card budget-cat-card empty"><span class="budget-cat-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + cat.nombre + '</span><button class="budget-add-link" data-edit-budget="' + catId + '">+ Agregar presupuesto</button></div>';
     }
     const gastado = catMonthExpense(catId, month);
     const meta = cfg.meta;
@@ -768,7 +855,7 @@
     const promedio3 = catPromedio3Meses(catId, month);
     const mesAnterior = catGastoMesAnterior(catId, month);
     const contexto = "Prom. 3 meses: " + (promedio3 === null ? "sin datos" : money(Math.round(promedio3))) + " \xB7 Mes anterior: " + (mesAnterior === null ? "sin datos" : money(mesAnterior));
-    return '<div class="card budget-cat-card"><div class="budget-cat-head"><span class="budget-cat-icon" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + cat.nombre + '</span><button class="budget-edit-btn" data-edit-budget="' + catId + '" aria-label="Editar presupuesto de ' + cat.nombre + '">' + ICONS.edit + '</button></div><div class="budget-cat-figs"><span class="tabular gastado">' + money(gastado) + '</span><span class="of-text"> de ' + money(meta) + '</span><span class="budget-pct tabular">' + Math.round(pct) + "%</span></div>" + renderBudgetBar(pct) + budgetAlertBadge(pct, cfg.alertas) + '<div class="budget-context muted">' + contexto + '</div><button class="budget-ver-mas" data-budget-see-more="' + catId + '">Ver transacciones \u2192</button></div>';
+    return '<div class="card budget-cat-card"><div class="budget-cat-head"><span class="budget-cat-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + cat.nombre + '</span><button class="budget-edit-btn" data-edit-budget="' + catId + '" aria-label="Editar presupuesto de ' + cat.nombre + '">' + ICONS.edit + '</button></div><div class="budget-cat-figs"><span class="tabular gastado">' + money(gastado) + '</span><span class="of-text"> de ' + money(meta) + '</span><span class="budget-pct tabular">' + Math.round(pct) + "%</span></div>" + renderBudgetBar(pct) + budgetAlertBadge(pct, cfg.alertas) + '<div class="budget-context muted">' + contexto + '</div><button class="budget-ver-mas" data-budget-see-more="' + catId + '">Ver transacciones \u2192</button></div>';
   }
   __name(renderBudgetCatCard, "renderBudgetCatCard");
   function sumaPresupuestosCategorias() {
@@ -862,7 +949,6 @@
 
   // src/views/menu.ts
   var CATEGORY_ICON_CHOICES = ["tags", "cart", "car", "utensils", "home", "film", "heart", "repeat", "briefcase", "laptop", "plusCircle", "trending", "bank", "coin", "card", "cash", "users", "layers", "sparkle", "more"];
-  var CATEGORY_COLOR_CHOICES = ["lavender", "mint", "peach", "sky", "pink", "butter", "sage", "neutral"];
   var MEDIO_ICON_CHOICES = ["card", "bank", "cash", "coin"];
   var CAT_EMOJI_CHOICES = [
     "\u{1F6D2}",
@@ -922,10 +1008,6 @@
     return TRANSACTIONS.some((t) => t.medio === medioId);
   }
   __name(isPaymentMethodInUse, "isPaymentMethodInUse");
-  function categoriesWithColor(tipo, color, excludeId) {
-    return Object.keys(CATEGORIES).filter((id) => id !== excludeId && CATEGORIES[id].tipo === tipo && CATEGORIES[id].color === color).map((id) => CATEGORIES[id].nombre);
-  }
-  __name(categoriesWithColor, "categoriesWithColor");
   function groupedRules() {
     const map = {};
     TRANSACTIONS.forEach((t) => {
@@ -1106,10 +1188,10 @@
   function renderMenuCatEditForm() {
     const d = state.catDraft;
     const isNew = state.editingCategoryId === "nueva";
-    return '<div class="card" style="padding:16px;"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-cat-draft-field="nombre" value="' + d.nombre + '" placeholder="Ej: Mascotas"><label class="draft-label" style="margin-top:12px;">Tipo</label>' + segmentedHtml("cat-draft-tipo", [{ id: "gasto", label: "Gasto" }, { id: "ingreso", label: "Ingreso" }], d.tipo, !isNew) + (!isNew ? '<div class="platform-hint muted">El tipo no se puede cambiar una vez creada la categor\xEDa.</div>' : "") + '<label class="draft-label" style="margin-top:12px;">\xCDcono</label><div class="icon-picker emoji-icon-picker">' + CAT_EMOJI_CHOICES.map((em) => '<button type="button" data-cat-draft-icon="' + em + '" class="' + (d.icon === em ? "active" : "") + '">' + em + "</button>").join("") + '</div><input type="text" class="draft-input" data-cat-draft-field="icon" value="' + d.icon + '" maxlength="8" placeholder="O escribe/pega cualquier otro emoji \u{1F60A}" style="margin-top:8px;text-align:center;"><label class="draft-label" style="margin-top:12px;">Color</label><div class="color-picker">' + CATEGORY_COLOR_CHOICES.map((c) => '<button type="button" data-cat-draft-color="' + c + '" class="' + (d.color === c ? "active" : "") + '" style="--sw:var(--cat-' + c + '-fill)"></button>').join("") + "</div>" + (function() {
+    return '<div class="card" style="padding:16px;"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-cat-draft-field="nombre" value="' + d.nombre + '" placeholder="Ej: Mascotas"><label class="draft-label" style="margin-top:12px;">Tipo</label>' + segmentedHtml("cat-draft-tipo", [{ id: "gasto", label: "Gasto" }, { id: "ingreso", label: "Ingreso" }], d.tipo, !isNew) + (!isNew ? '<div class="platform-hint muted">El tipo no se puede cambiar una vez creada la categor\xEDa.</div>' : "") + '<label class="draft-label" style="margin-top:12px;">\xCDcono</label><div class="icon-picker emoji-icon-picker">' + CAT_EMOJI_CHOICES.map((em) => '<button type="button" data-cat-draft-icon="' + em + '" class="' + (d.icon === em ? "active" : "") + '">' + em + "</button>").join("") + '</div><input type="text" class="draft-input" data-cat-draft-field="icon" value="' + d.icon + '" maxlength="8" placeholder="O escribe/pega cualquier otro emoji \u{1F60A}" style="margin-top:8px;text-align:center;"><label class="draft-label" style="margin-top:12px;">Color</label><div class="hue-picker-row"><span class="hue-swatch" style="background:' + categoryFillCss(d.colorHue) + ";color:" + categoryFillCss(d.colorHue) + ";border-color:" + categoryFillCss(d.colorHue) + '"></span><input type="range" min="0" max="359" value="' + d.colorHue + '" data-cat-draft-hue class="hue-slider"></div>' + (function() {
       const excludeId = isNew ? null : state.editingCategoryId;
-      const colision = categoriesWithColor(d.tipo, d.color, excludeId);
-      return colision.length ? '<div class="file-format-hint" style="color:var(--expense-ink);">Ese color ya lo usa "' + colision.join('", "') + '" -- en los gr\xE1ficos de torta se van a ver como un solo bloque. Prueba otro color.</div>' : "";
+      const colision = categoriesCollidingWithHue(CATEGORIES, d.tipo, d.colorHue, excludeId);
+      return colision.length ? '<div class="file-format-hint" style="color:var(--expense-ink);">Ese color queda muy parecido al de "' + colision.join('", "') + '" -- en los gr\xE1ficos de torta se pueden ver como un solo bloque. Prueba otro tono.</div>' : "";
     })() + '<div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-cat-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-cat="' + (isNew ? "nueva" : state.editingCategoryId) + '">Guardar</button></div>' + (!isNew && !isCategoryInUse(state.editingCategoryId) ? state.confirmDeleteCatId === state.editingCategoryId ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar la categor\xEDa "' + d.nombre + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-cat>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-cat="' + state.editingCategoryId + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-cat="' + state.editingCategoryId + '">Eliminar categor\xEDa</button>' : "") + (!isNew && isCategoryInUse(state.editingCategoryId) ? '<div class="file-format-hint">No se puede eliminar: tiene transacciones asociadas.</div>' : "") + "</div>";
   }
   __name(renderMenuCatEditForm, "renderMenuCatEditForm");
@@ -1120,12 +1202,12 @@
     }
     function rowFor(id) {
       const c = CATEGORIES[id];
-      return '<div class="card menu-item-card"><span class="menu-item-card-icon" style="--fill:var(--cat-' + c.color + "-fill);--ink:var(--cat-" + c.color + '-ink)">' + catIconMarkup(c.icon) + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">' + c.nombre + '</div></div><div class="menu-item-card-actions"><button class="budget-edit-btn" data-edit-cat="' + id + '" aria-label="Editar ' + c.nombre + '">' + ICONS.edit + "</button></div></div>";
+      return '<div class="card menu-item-card"><span class="menu-item-card-icon" style="' + categoryColorVars(c) + '">' + catIconMarkup(c.icon) + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">' + c.nombre + '</div></div><div class="menu-item-card-actions"><button class="budget-edit-btn" data-edit-cat="' + id + '" aria-label="Editar ' + c.nombre + '">' + ICONS.edit + "</button></div></div>";
     }
     __name(rowFor, "rowFor");
     function readonlyRowFor(id) {
       const c = CATEGORIES[id];
-      return '<div class="card menu-item-card"><span class="menu-item-card-icon" style="--fill:var(--cat-' + c.color + "-fill);--ink:var(--cat-" + c.color + '-ink)">' + catIconMarkup(c.icon) + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">' + c.nombre + '</div><div class="menu-item-card-sub">Se administra desde Inversiones</div></div></div>';
+      return '<div class="card menu-item-card"><span class="menu-item-card-icon" style="' + categoryColorVars(c) + '">' + catIconMarkup(c.icon) + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">' + c.nombre + '</div><div class="menu-item-card-sub">Se administra desde Inversiones</div></div></div>';
     }
     __name(readonlyRowFor, "readonlyRowFor");
     const gastoIds = Object.keys(CATEGORIES).filter((k) => CATEGORIES[k].tipo === "gasto");
@@ -1157,7 +1239,7 @@
     document.getElementById("view-root").innerHTML = menuScreenHead("Reglas de clasificaci\xF3n") + '<p class="muted" style="font-size:12.5px;margin:0 0 14px;line-height:1.5;">Cuando activas el candado dentro del detalle de una transacci\xF3n, esa categor\xEDa, tipo y recurrencia se aplican a futuras compras del mismo comercio. Ac\xE1 puedes revisarlas y eliminarlas.</p>' + (reglas.length === 0 ? '<div class="card placeholder-card">' + ICONS.lockSmall + "<h3>Todav\xEDa no tienes reglas</h3><p>Act\xEDvalas desde el detalle de cualquier transacci\xF3n, con el \xEDcono de candado.</p></div>" : reglas.map((r) => {
       const cat = r.cat ? catInfo(r.cat) : null;
       const confirmando = state.confirmDeleteRuleComercio === r.comercio;
-      return '<div class="card rule-card"><div class="rule-card-head"><span class="rule-card-comercio">' + r.comercio + '</span><span class="rule-card-count">' + r.count + " transac.</span>" + (confirmando ? "" : '<button class="budget-edit-btn" data-ask-delete-rule="' + encodeURIComponent(r.comercio) + '" aria-label="Eliminar regla de ' + r.comercio + '">' + ICONS.trash + "</button>") + '</div><div class="rule-card-detail">' + (cat ? '<span class="rule-card-catchip" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + " " + cat.nombre + "</span>" : "") + "<span>" + (r.tipo === "gasto" ? "Gasto" : r.tipo === "ingreso" ? "Ingreso" : "Inversi\xF3n") + "</span><span>\xB7</span><span>" + (r.recurrencia === "mensual" ? "Fijo mensual" : "Variable") + "</span></div>" + (confirmando ? '<div class="file-format-hint" style="margin:10px 0 8px;">\xBFSeguro que quieres eliminar la regla de "' + r.comercio + '"? Las transacciones ya clasificadas no cambian, pero las nuevas de este comercio dejar\xE1n de clasificarse solas.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-rule>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-rule="' + encodeURIComponent(r.comercio) + '">S\xED, eliminar</button></div>' : "") + "</div>";
+      return '<div class="card rule-card"><div class="rule-card-head"><span class="rule-card-comercio">' + r.comercio + '</span><span class="rule-card-count">' + r.count + " transac.</span>" + (confirmando ? "" : '<button class="budget-edit-btn" data-ask-delete-rule="' + encodeURIComponent(r.comercio) + '" aria-label="Eliminar regla de ' + r.comercio + '">' + ICONS.trash + "</button>") + '</div><div class="rule-card-detail">' + (cat ? '<span class="rule-card-catchip" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + " " + cat.nombre + "</span>" : "") + "<span>" + (r.tipo === "gasto" ? "Gasto" : r.tipo === "ingreso" ? "Ingreso" : "Inversi\xF3n") + "</span><span>\xB7</span><span>" + (r.recurrencia === "mensual" ? "Fijo mensual" : "Variable") + "</span></div>" + (confirmando ? '<div class="file-format-hint" style="margin:10px 0 8px;">\xBFSeguro que quieres eliminar la regla de "' + r.comercio + '"? Las transacciones ya clasificadas no cambian, pero las nuevas de este comercio dejar\xE1n de clasificarse solas.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-rule>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-rule="' + encodeURIComponent(r.comercio) + '">S\xED, eliminar</button></div>' : "") + "</div>";
     }).join(""));
   }
   __name(renderMenuReglas, "renderMenuReglas");
@@ -2692,7 +2774,7 @@
   function renderPlatformEditForm(id) {
     const cat = catInfo(id);
     const d = state.platformDraft;
-    return '<div class="card platform-card editing"><div class="platform-head"><span class="platform-icon" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + '</span><span class="platform-name">' + cat.nombre + '</span></div><label class="draft-label">Valor actual aproximado</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="valor" value="' + d.valor + '" placeholder="0"><label class="draft-label" style="margin-top:12px;">Crecimiento anual estimado (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="tasaAnual" value="' + d.tasaAnual + '" placeholder="Sin estimar, ej: 6"><div class="platform-hint muted">Escr\xEDbelo solo si quieres que el valor "crezca" solo entre actualizaciones \u2014 la app no te sugiere ning\xFAn n\xFAmero. D\xE9jalo vac\xEDo para que se mueva solo con tus aportes y retiros.</div>' + // comision now lives on each goal (it depends on the specific fund/investment) — here
+    return '<div class="card platform-card editing"><div class="platform-head"><span class="platform-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="platform-name">' + cat.nombre + '</span></div><label class="draft-label">Valor actual aproximado</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="valor" value="' + d.valor + '" placeholder="0"><label class="draft-label" style="margin-top:12px;">Crecimiento anual estimado (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="tasaAnual" value="' + d.tasaAnual + '" placeholder="Sin estimar, ej: 6"><div class="platform-hint muted">Escr\xEDbelo solo si quieres que el valor "crezca" solo entre actualizaciones \u2014 la app no te sugiere ning\xFAn n\xFAmero. D\xE9jalo vac\xEDo para que se mueva solo con tus aportes y retiros.</div>' + // comision now lives on each goal (it depends on the specific fund/investment) — here
     // it's only offered when the platform doesn't yet have any goal of its own.
     (goalsForPlatform(id).length === 0 ? '<label class="draft-label" style="margin-top:12px;">Comisi\xF3n anual / TAC (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="comision" value="' + d.comision + '" placeholder="Ej: 1.1"><div class="platform-hint muted">El % que te cobra esta plataforma al a\xF1o (TAC, comisi\xF3n de administraci\xF3n, etc.) \u2014 ponlo t\xFA, la app no te sugiere ning\xFAn n\xFAmero. Se calcula sobre tu ganancia, no sobre el total de la cuenta. Si m\xE1s adelante le agregas metas, la comisi\xF3n se define por cada una, ya que puede variar por fondo.</div>' : "") + '<label class="draft-label" style="margin-top:12px;">Plazo de esta plataforma (opcional)</label>' + segmentedHtml("platform-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<div class="platform-hint muted">Solo si esta plataforma no tiene metas propias con su plazo ya definido.</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-platform-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-platform="' + id + '">Guardar</button></div>' + platformDeleteBlock(id) + "</div>";
   }
@@ -2717,7 +2799,10 @@
   __name(platformDeleteBlock, "platformDeleteBlock");
   function renderNewPlatformForm() {
     const d = state.newPlatformDraft;
-    return '<div class="card platform-card editing"><div class="platform-head"><span class="platform-name">Nueva plataforma</span></div><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-newplatform-field="nombre" value="' + d.nombre + '" placeholder="Ej: Banco Santander"><label class="draft-label" style="margin-top:12px;">\xCDcono</label><div class="icon-picker">' + CATEGORY_ICON_CHOICES.map((ic) => '<button type="button" data-newplatform-icon="' + ic + '" class="' + (d.icon === ic ? "active" : "") + '">' + ICONS[ic] + "</button>").join("") + '</div><label class="draft-label" style="margin-top:12px;">Color</label><div class="color-picker">' + CATEGORY_COLOR_CHOICES.map((c) => '<button type="button" data-newplatform-color="' + c + '" class="' + (d.color === c ? "active" : "") + '" style="--sw:var(--cat-' + c + '-fill)"></button>').join("") + '</div><label class="draft-label" style="margin-top:12px;">Valor actual aproximado</label><input type="text" inputmode="decimal" class="draft-input tabular" data-newplatform-field="valor" value="' + d.valor + '" placeholder="0"><div class="platform-hint muted">Si ya tienes plata en esta plataforma, pon cu\xE1nto vale hoy \u2014 si acabas de abrirla, d\xE9jalo en 0.</div><label class="draft-label" style="margin-top:12px;">Plazo (opcional)</label>' + segmentedHtml("newplatform-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-newplatform>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-newplatform>Guardar</button></div></div>';
+    return '<div class="card platform-card editing"><div class="platform-head"><span class="platform-name">Nueva plataforma</span></div><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-newplatform-field="nombre" value="' + d.nombre + '" placeholder="Ej: Banco Santander"><label class="draft-label" style="margin-top:12px;">\xCDcono</label><div class="icon-picker">' + CATEGORY_ICON_CHOICES.map((ic) => '<button type="button" data-newplatform-icon="' + ic + '" class="' + (d.icon === ic ? "active" : "") + '">' + ICONS[ic] + "</button>").join("") + '</div><label class="draft-label" style="margin-top:12px;">Color</label><div class="hue-picker-row"><span class="hue-swatch" style="background:' + categoryFillCss(d.colorHue) + ";color:" + categoryFillCss(d.colorHue) + ";border-color:" + categoryFillCss(d.colorHue) + '"></span><input type="range" min="0" max="359" value="' + d.colorHue + '" data-newplatform-hue class="hue-slider"></div>' + (function() {
+      const colision = categoriesCollidingWithHue(CATEGORIES, "inversion", d.colorHue, null);
+      return colision.length ? '<div class="file-format-hint" style="color:var(--expense-ink);">Ese color queda muy parecido al de "' + colision.join('", "') + '" -- en los gr\xE1ficos de torta se pueden ver como un solo bloque. Prueba otro tono.</div>' : "";
+    })() + '<label class="draft-label" style="margin-top:12px;">Valor actual aproximado</label><input type="text" inputmode="decimal" class="draft-input tabular" data-newplatform-field="valor" value="' + d.valor + '" placeholder="0"><div class="platform-hint muted">Si ya tienes plata en esta plataforma, pon cu\xE1nto vale hoy \u2014 si acabas de abrirla, d\xE9jalo en 0.</div><label class="draft-label" style="margin-top:12px;">Plazo (opcional)</label>' + segmentedHtml("newplatform-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-newplatform>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-newplatform>Guardar</button></div></div>';
   }
   __name(renderNewPlatformForm, "renderNewPlatformForm");
   function renderPlatformGroup(id) {
@@ -2734,7 +2819,7 @@
     const ganancia = Math.max(0, diff);
     const comisionRow = comision != null && !tieneMetas && !sinValuacion ? '<div class="platform-comision-row"><span>Comisi\xF3n anual: <b class="tabular">' + comision + '%</b></span><span class="muted tabular">\u2248 ' + money(ganancia * comision / 100) + "/a\xF1o sobre tu ganancia</span></div>" : "";
     const open = state.openPlatformId === id;
-    const header = '<button class="platform-head-toggle" data-toggle-platform="' + id + '" aria-expanded="' + (open ? "true" : "false") + '"><span class="platform-icon" style="--fill:var(--cat-' + cat.color + "-fill);--ink:var(--cat-" + cat.color + '-ink)">' + catIconMarkup(cat.icon) + '</span><span class="platform-head-body"><span class="platform-name">' + cat.nombre + "</span>" + (sinValuacion ? "" : '<span class="platform-update-tag' + (stale ? " stale" : "") + '">Actualizado hace ' + dias + " " + (dias === 1 ? "d\xEDa" : "d\xEDas") + "</span>") + '</span><span class="platform-head-value tabular">' + money(valorActual) + '</span><span class="platform-chev' + (open ? " open" : "") + '">' + ICONS.chevR + "</span></button>";
+    const header = '<button class="platform-head-toggle" data-toggle-platform="' + id + '" aria-expanded="' + (open ? "true" : "false") + '"><span class="platform-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="platform-head-body"><span class="platform-name">' + cat.nombre + "</span>" + (sinValuacion ? "" : '<span class="platform-update-tag' + (stale ? " stale" : "") + '">Actualizado hace ' + dias + " " + (dias === 1 ? "d\xEDa" : "d\xEDas") + "</span>") + '</span><span class="platform-head-value tabular">' + money(valorActual) + '</span><span class="platform-chev' + (open ? " open" : "") + '">' + ICONS.chevR + "</span></button>";
     if (!open) return '<div class="card platform-group">' + header + "</div>";
     const { metas, totalObjetivo, totalAcumulado, rachaCombinada } = platformGoalsSummary(id);
     const addingHere = state.editingGoalId === "nueva" && state.addGoalPlatformId === id;
@@ -3296,7 +3381,7 @@
   function renderTxItem(t) {
     const cats = t.categorias;
     const isUnclassified = cats.length === 0 && t.estado !== "no_es_gasto";
-    const primaryCat = cats[0] ? catInfo(cats[0].cat) : { nombre: "Sin categor\xEDa", color: "neutral", icon: isUnclassified ? "question" : "more" };
+    const primaryCat = cats[0] ? catInfo(cats[0].cat) : { nombre: "Sin categor\xEDa", colorHue: 265, icon: isUnclassified ? "question" : "more" };
     const isMulti = cats.length > 1;
     const isIncome = t.tipo === "ingreso";
     const isNoGasto = t.estado === "no_es_gasto";
@@ -3318,7 +3403,7 @@
     const medio = paymentMethodInfo(t.medio);
     const reembolsoRows = !isIncome && !isNoGasto ? (t.porCobrar || []).filter((p) => p.tipo === "reembolso") : [];
     const netoLine = reembolsoRows.length === 0 ? "" : '<div class="tx-right-sub tx-neto-reembolso">' + (reembolsoRows.every((p) => p.pagado) ? "Pagado real: " : "Neto estimado: ") + money(netExpenseTx(t)) + "</div>";
-    return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="--fill:var(--cat-' + primaryCat.color + "-fill);--ink:var(--cat-" + primaryCat.color + '-ink)">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name' + (isCobrado ? " tachado" : "") + '">' + t.comercio + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + leftLabel + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + '">' + amtDisplay + '</span><div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + medio.corto + "</div>" + netoLine + "</span></button>";
+    return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="' + categoryColorVars(primaryCat) + '">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name' + (isCobrado ? " tachado" : "") + '">' + t.comercio + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + leftLabel + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + '">' + amtDisplay + '</span><div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + medio.corto + "</div>" + netoLine + "</span></button>";
   }
   __name(renderTxItem, "renderTxItem");
   function advFilterCount() {
@@ -3578,6 +3663,20 @@
       renderSummarySubContent();
       return;
     }
+    const otrosArc = e.target.closest('[data-cat="otros"]');
+    if (otrosArc) {
+      const ids = (otrosArc.getAttribute("data-otros-ids") || "").split(",").filter(Boolean);
+      const card = otrosArc.closest(".donut-card");
+      (card || document).querySelectorAll(".legend-row-otros").forEach(function(row) {
+        if (ids.includes(row.getAttribute("data-cat"))) row.classList.add("legend-otros-flash");
+      });
+      setTimeout(function() {
+        (card || document).querySelectorAll(".legend-otros-flash").forEach(function(row) {
+          row.classList.remove("legend-otros-flash");
+        });
+      }, 1200);
+      return;
+    }
     const legendRow = e.target.closest("[data-cat]");
     if (legendRow && (legendRow.classList.contains("legend-row") || legendRow.classList.contains("arc-seg"))) {
       const cid = legendRow.getAttribute("data-cat");
@@ -3635,6 +3734,7 @@
       }
       if (group === "cat-draft-tipo") {
         state.catDraft.tipo = val;
+        if (!state.catDraft.colorHueTouched) state.catDraft.colorHue = nextCategoryHue(CATEGORIES, val);
         renderMenuView();
         return;
       }
@@ -4238,7 +4338,7 @@
     const addPlatformBtn = e.target.closest("[data-add-platform]");
     if (addPlatformBtn) {
       state.creatingPlatform = true;
-      state.newPlatformDraft = { nombre: "", icon: "bank", color: "butter", valor: "", plazo: "" };
+      state.newPlatformDraft = { nombre: "", icon: "bank", colorHue: nextCategoryHue(CATEGORIES, "inversion"), colorHueTouched: false, valor: "", plazo: "" };
       renderInvestmentsView();
       return;
     }
@@ -4251,12 +4351,6 @@
     const newPlatformIconBtn = e.target.closest("[data-newplatform-icon]");
     if (newPlatformIconBtn) {
       state.newPlatformDraft.icon = newPlatformIconBtn.getAttribute("data-newplatform-icon");
-      renderInvestmentsView();
-      return;
-    }
-    const newPlatformColorBtn = e.target.closest("[data-newplatform-color]");
-    if (newPlatformColorBtn) {
-      state.newPlatformDraft.color = newPlatformColorBtn.getAttribute("data-newplatform-color");
       renderInvestmentsView();
       return;
     }
@@ -4273,7 +4367,7 @@
         return;
       }
       const id = "plataforma_" + Date.now();
-      CATEGORIES[id] = { nombre: d.nombre.trim(), tipo: "inversion", color: d.color, icon: d.icon };
+      CATEGORIES[id] = { nombre: d.nombre.trim(), tipo: "inversion", colorHue: d.colorHue, icon: d.icon };
       const valorHistorial = {};
       MONTHS.forEach((m) => {
         valorHistorial[m] = Math.round(valor);
@@ -5032,7 +5126,7 @@
     const addCatBtn = e.target.closest("[data-add-cat]");
     if (addCatBtn) {
       state.editingCategoryId = "nueva";
-      state.catDraft = { nombre: "", tipo: "gasto", color: "sage", icon: "\u{1F3F7}\uFE0F" };
+      state.catDraft = { nombre: "", tipo: "gasto", colorHue: nextCategoryHue(CATEGORIES, "gasto"), colorHueTouched: false, icon: "\u{1F3F7}\uFE0F" };
       renderMenuView();
       return;
     }
@@ -5042,7 +5136,7 @@
       const c = CATEGORIES[id];
       state.editingCategoryId = id;
       state.confirmDeleteCatId = null;
-      state.catDraft = { nombre: c.nombre, tipo: c.tipo, color: c.color, icon: c.icon };
+      state.catDraft = { nombre: c.nombre, tipo: c.tipo, colorHue: c.colorHue, colorHueTouched: true, icon: c.icon };
       renderMenuView();
       return;
     }
@@ -5059,12 +5153,6 @@
       renderMenuView();
       return;
     }
-    const catDraftColorBtn = e.target.closest("[data-cat-draft-color]");
-    if (catDraftColorBtn) {
-      state.catDraft.color = catDraftColorBtn.getAttribute("data-cat-draft-color");
-      renderMenuView();
-      return;
-    }
     const saveCatBtn = e.target.closest("[data-save-cat]");
     if (saveCatBtn) {
       const idAttr = saveCatBtn.getAttribute("data-save-cat");
@@ -5074,11 +5162,11 @@
         return;
       }
       if (idAttr === "nueva") {
-        CATEGORIES["cat_" + Date.now()] = { nombre: d.nombre.trim(), tipo: d.tipo, color: d.color, icon: d.icon };
+        CATEGORIES["cat_" + Date.now()] = { nombre: d.nombre.trim(), tipo: d.tipo, colorHue: d.colorHue, icon: d.icon };
         toast("Categor\xEDa creada");
       } else {
         CATEGORIES[idAttr].nombre = d.nombre.trim();
-        CATEGORIES[idAttr].color = d.color;
+        CATEGORIES[idAttr].colorHue = d.colorHue;
         CATEGORIES[idAttr].icon = d.icon;
         toast("Categor\xEDa actualizada");
       }
@@ -5386,6 +5474,16 @@
     }
   });
   phone.addEventListener("change", function(e) {
+    const catDraftHueChange = e.target.closest("[data-cat-draft-hue]");
+    if (catDraftHueChange) {
+      renderMenuView();
+      return;
+    }
+    const newPlatformHueChange = e.target.closest("[data-newplatform-hue]");
+    if (newPlatformHueChange) {
+      renderInvestmentsView();
+      return;
+    }
     const sel = e.target.closest("[data-cat-select]");
     if (sel) {
       const t = getTx(state.openTxId);
@@ -5825,6 +5923,32 @@
       state.catDraft[catDraftField.getAttribute("data-cat-draft-field")] = catDraftField.value;
       return;
     }
+    const catDraftHue = e.target.closest("[data-cat-draft-hue]");
+    if (catDraftHue) {
+      state.catDraft.colorHue = parseInt(catDraftHue.value, 10);
+      state.catDraft.colorHueTouched = true;
+      const swatch = catDraftHue.parentElement ? catDraftHue.parentElement.querySelector(".hue-swatch") : null;
+      if (swatch) {
+        const css = categoryFillCss(state.catDraft.colorHue);
+        swatch.style.background = css;
+        swatch.style.color = css;
+        swatch.style.borderColor = css;
+      }
+      return;
+    }
+    const newPlatformHue = e.target.closest("[data-newplatform-hue]");
+    if (newPlatformHue) {
+      state.newPlatformDraft.colorHue = parseInt(newPlatformHue.value, 10);
+      state.newPlatformDraft.colorHueTouched = true;
+      const swatch = newPlatformHue.parentElement ? newPlatformHue.parentElement.querySelector(".hue-swatch") : null;
+      if (swatch) {
+        const css = categoryFillCss(state.newPlatformDraft.colorHue);
+        swatch.style.background = css;
+        swatch.style.color = css;
+        swatch.style.borderColor = css;
+      }
+      return;
+    }
     const paymentMethodDraftField = e.target.closest("[data-payment-method-draft-field]");
     if (paymentMethodDraftField) {
       state.medioDraft[paymentMethodDraftField.getAttribute("data-payment-method-draft-field")] = paymentMethodDraftField.value;
@@ -6126,6 +6250,10 @@
       delete CATEGORIES[k];
     });
     Object.assign(CATEGORIES, blob.categorias || {});
+    Object.keys(CATEGORIES).forEach(function(k) {
+      CATEGORIES[k].colorHue = migrateLegacyCategoryColor(CATEGORIES[k]);
+      delete CATEGORIES[k].color;
+    });
     Object.keys(PAYMENT_METHODS).forEach(function(k) {
       delete PAYMENT_METHODS[k];
     });
@@ -6758,7 +6886,7 @@
   }
   __name(categoryForSharedExpense, "categoryForSharedExpense");
   function catAvatarHtml(ci) {
-    return '<span class="tx-avatar" style="--fill:' + (ci ? "var(--cat-" + ci.color + "-fill)" : "var(--surface-sunken)") + ";--ink:" + (ci ? "var(--cat-" + ci.color + "-ink)" : "var(--text-tertiary)") + '">' + (ci ? catIconMarkup(ci.icon) : ICONS.more) + "</span>";
+    return '<span class="tx-avatar" style="' + categoryColorVars(ci) + '">' + (ci ? catIconMarkup(ci.icon) : ICONS.more) + "</span>";
   }
   __name(catAvatarHtml, "catAvatarHtml");
   function renderGroupExpenseDetailCard(gasto, groupId) {
@@ -6913,7 +7041,7 @@
         (o) => '<option value="' + o.value + '" ' + (c.cat === o.value ? "selected" : "") + ">" + o.label + "</option>"
       ).join("");
       const shown = unit === "%" ? t.monto ? Math.round(c.monto / t.monto * 1e3) / 10 : 0 : c.monto;
-      return '<div class="split-row" data-cat-row="' + idx + '"><span class="cat-row-icon" style="--fill:' + (ci ? "var(--cat-" + ci.color + "-fill)" : "var(--surface-sunken)") + ";--ink:" + (ci ? "var(--cat-" + ci.color + "-ink)" : "var(--text-tertiary)") + '">' + (ci ? catIconMarkup(ci.icon) : ICONS.more) + '</span><select data-cat-select="' + idx + '">' + opts + '</select><span class="num-wrap"><input type="text" inputmode="decimal" data-cat-amount="' + idx + '" value="' + shown + '"><span>' + unit + "</span></span>" + (list.length > 1 && allowSplit ? '<button class="rm-btn" data-cat-remove="' + idx + '">' + ICONS.trash + "</button>" : "") + "</div>";
+      return '<div class="split-row" data-cat-row="' + idx + '"><span class="cat-row-icon" style="' + categoryColorVars(ci) + '">' + (ci ? catIconMarkup(ci.icon) : ICONS.more) + '</span><select data-cat-select="' + idx + '">' + opts + '</select><span class="num-wrap"><input type="text" inputmode="decimal" data-cat-amount="' + idx + '" value="' + shown + '"><span>' + unit + "</span></span>" + (list.length > 1 && allowSplit ? '<button class="rm-btn" data-cat-remove="' + idx + '">' + ICONS.trash + "</button>" : "") + "</div>";
     }).join("");
     if (!allowSplit) return '<div class="cat-rows">' + rows + "</div>";
     const sum = t.categorias.reduce((s, c) => s + c.monto, 0);
@@ -6978,7 +7106,7 @@
     const opts = '<option value="">Sin categor\xEDa</option>' + investOrPlainOptions(d.tipo, chosen).map(
       (o) => '<option value="' + o.value + '" ' + (chosen === o.value ? "selected" : "") + ">" + o.label + "</option>"
     ).join("");
-    return '<div class="cat-rows"><div class="split-row" data-draft-cat-row><span class="cat-row-icon" style="--fill:' + (ci ? "var(--cat-" + ci.color + "-fill)" : "var(--surface-sunken)") + ";--ink:" + (ci ? "var(--cat-" + ci.color + "-ink)" : "var(--text-tertiary)") + '">' + (ci ? catIconMarkup(ci.icon) : ICONS.more) + "</span><select data-draft-cat-select>" + opts + "</select></div></div>";
+    return '<div class="cat-rows"><div class="split-row" data-draft-cat-row><span class="cat-row-icon" style="' + categoryColorVars(ci) + '">' + (ci ? catIconMarkup(ci.icon) : ICONS.more) + "</span><select data-draft-cat-select>" + opts + "</select></div></div>";
   }
   __name(renderDraftCategoryRow, "renderDraftCategoryRow");
   function catPickerGrid(tipoFilter, attrName, selectedId) {
@@ -7849,25 +7977,25 @@
 
   // src/state.ts
   var CATEGORIES = {
-    supermercado: { nombre: "Supermercado", tipo: "gasto", color: "mint", icon: "\u{1F6D2}" },
-    restoranes: { nombre: "Restoranes y bares", tipo: "gasto", color: "peach", icon: "\u{1F37D}\uFE0F" },
-    transporte: { nombre: "Transporte", tipo: "gasto", color: "sky", icon: "\u{1F695}" },
-    hogar: { nombre: "Hogar", tipo: "gasto", color: "lavender", icon: "\u{1F3E0}" },
-    salud: { nombre: "Salud", tipo: "gasto", color: "pink", icon: "\u{1F48A}" },
-    entretenimiento: { nombre: "Entretenimiento", tipo: "gasto", color: "neutral", icon: "\u{1F3AC}" },
-    deporte: { nombre: "Deporte", tipo: "gasto", color: "mint", icon: "\u{1F3C3}" },
-    carrete: { nombre: "Carrete", tipo: "gasto", color: "butter", icon: "\u{1F37B}" },
-    suscripciones: { nombre: "Suscripciones", tipo: "gasto", color: "sage", icon: "\u{1F4FA}" },
-    compras: { nombre: "Compras", tipo: "gasto", color: "peach", icon: "\u{1F6CD}\uFE0F" },
-    viajes: { nombre: "Viajes", tipo: "gasto", color: "sky", icon: "\u2708\uFE0F" },
-    regalos: { nombre: "Regalos y donaciones", tipo: "gasto", color: "lavender", icon: "\u{1F381}" },
-    gastos_hormiga: { nombre: "Gastos hormiga", tipo: "gasto", color: "neutral", icon: "\u{1F41C}" },
-    sueldo: { nombre: "Sueldo", tipo: "ingreso", color: "mint", icon: "\u{1F4BC}" },
-    pololos_extra: { nombre: "Pololos extra", tipo: "ingreso", color: "sky", icon: "\u2728" },
-    fintual: { nombre: "Fintual", tipo: "inversion", color: "mint", icon: "trending" },
-    racional: { nombre: "Racional", tipo: "inversion", color: "peach", icon: "trending" },
-    banco_chile: { nombre: "Banco de Chile", tipo: "inversion", color: "butter", icon: "bank" },
-    buda: { nombre: "Buda (cripto)", tipo: "inversion", color: "pink", icon: "coin" },
+    supermercado: { nombre: "Supermercado", tipo: "gasto", colorHue: 0, icon: "\u{1F6D2}" },
+    restoranes: { nombre: "Restoranes y bares", tipo: "gasto", colorHue: 28, icon: "\u{1F37D}\uFE0F" },
+    transporte: { nombre: "Transporte", tipo: "gasto", colorHue: 55, icon: "\u{1F695}" },
+    hogar: { nombre: "Hogar", tipo: "gasto", colorHue: 83, icon: "\u{1F3E0}" },
+    salud: { nombre: "Salud", tipo: "gasto", colorHue: 111, icon: "\u{1F48A}" },
+    entretenimiento: { nombre: "Entretenimiento", tipo: "gasto", colorHue: 138, icon: "\u{1F3AC}" },
+    deporte: { nombre: "Deporte", tipo: "gasto", colorHue: 166, icon: "\u{1F3C3}" },
+    carrete: { nombre: "Carrete", tipo: "gasto", colorHue: 194, icon: "\u{1F37B}" },
+    suscripciones: { nombre: "Suscripciones", tipo: "gasto", colorHue: 222, icon: "\u{1F4FA}" },
+    compras: { nombre: "Compras", tipo: "gasto", colorHue: 249, icon: "\u{1F6CD}\uFE0F" },
+    viajes: { nombre: "Viajes", tipo: "gasto", colorHue: 277, icon: "\u2708\uFE0F" },
+    regalos: { nombre: "Regalos y donaciones", tipo: "gasto", colorHue: 305, icon: "\u{1F381}" },
+    gastos_hormiga: { nombre: "Gastos hormiga", tipo: "gasto", colorHue: 332, icon: "\u{1F41C}" },
+    sueldo: { nombre: "Sueldo", tipo: "ingreso", colorHue: 0, icon: "\u{1F4BC}" },
+    pololos_extra: { nombre: "Pololos extra", tipo: "ingreso", colorHue: 180, icon: "\u2728" },
+    fintual: { nombre: "Fintual", tipo: "inversion", colorHue: 0, icon: "trending" },
+    racional: { nombre: "Racional", tipo: "inversion", colorHue: 72, icon: "trending" },
+    banco_chile: { nombre: "Banco de Chile", tipo: "inversion", colorHue: 144, icon: "bank" },
+    buda: { nombre: "Buda (cripto)", tipo: "inversion", colorHue: 216, icon: "coin" },
     // "Otros": a catch-all system-seeded platform (same family as the 4 above -- not something
     // the user creates by hand via "+ Agregar nueva plataforma") for one-off investments that
     // don't belong anywhere else and don't warrant their own platform/goal (see PLATFORM_DATA.otros
@@ -7875,7 +8003,7 @@
     // last on purpose: several fallbacks (activePlatformIds()[0], etc.) pick "the first active
     // platform" as a default when creating a goal, and 'otros' can never host a goal -- see
     // goalCapablePlatformIds() in views/inversiones.ts for the explicit guard against that anyway.
-    otros: { nombre: "Otros", tipo: "inversion", color: "sage", icon: "layers" }
+    otros: { nombre: "Otros", tipo: "inversion", colorHue: 288, icon: "layers" }
   };
   var CATEGORY_SEED_DEFAULTS = (function() {
     const out = {};
@@ -8232,7 +8360,7 @@
     // id of the platform showing "are you sure?" before actually deleting it
     confirmArchivePlatformId: null,
     // same "are you sure?" but for "closing" a platform (reversible, but still asked)
-    newPlatformDraft: { nombre: "", icon: "bank", color: "butter", valor: "", plazo: "" },
+    newPlatformDraft: { nombre: "", icon: "bank", colorHue: 0, colorHueTouched: false, valor: "", plazo: "" },
     // Monthly amount the user typed by hand in the Investments simulator, replacing the real
     // average of their last 3 months -- null while untouched (uses the average).
     simulatedContribution: null,
@@ -8270,7 +8398,7 @@
     // catId being edited, 'nueva', or null
     confirmDeleteCatId: null,
     // catId showing "are you sure?" before actually deleting it
-    catDraft: { nombre: "", tipo: "gasto", color: "sage", icon: "more" },
+    catDraft: { nombre: "", tipo: "gasto", colorHue: 95, colorHueTouched: false, icon: "more" },
     editingPaymentMethodId: null,
     // medioId being edited, 'nueva', or null (different from the mini-form inside the new-transaction sheet)
     confirmDeletePaymentMethodId: null,
@@ -8527,7 +8655,10 @@
     get BUDGET_ALERTS_SENT(){ return BUDGET_ALERTS_SENT; },
     set BUDGET_ALERTS_SENT(v){ BUDGET_ALERTS_SENT = v; },
     catMonthExpense: catMonthExpense, txFromEmailImport: txFromEmailImport, groupedRules: groupedRules,
-    categoriesWithColor: categoriesWithColor, buildDonut: buildDonut, sendTestPush: sendTestPush,
+    buildDonut: buildDonut, sendTestPush: sendTestPush,
+    categoriesCollidingWithHue: categoriesCollidingWithHue, nextCategoryHue: nextCategoryHue,
+    categoryFillCss: categoryFillCss, categoryInkCss: categoryInkCss, categoryColorVars: categoryColorVars,
+    DONUT_OTROS_THRESHOLD_PCT: DONUT_OTROS_THRESHOLD_PCT,
     budgetAlertText: budgetAlertText, tryOpenStatementFile: tryOpenStatementFile,
     get GROUPS(){ return GROUPS; }, set GROUPS(v){ GROUPS = v; },
     get GROUP_PARTICIPANTS(){ return GROUP_PARTICIPANTS; }, set GROUP_PARTICIPANTS(v){ GROUP_PARTICIPANTS = v; },

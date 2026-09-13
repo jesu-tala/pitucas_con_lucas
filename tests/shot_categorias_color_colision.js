@@ -1,56 +1,64 @@
 // jesu reported that if two categories of the same type (e.g. "Sueldo A" and "Sueldo B", both
 // ingreso) end up with the same color, they look like a single continuous block in the pie
-// charts -- there's no way to tell them apart at a glance. This test locks in two fixes:
-// 1) the category editor now warns, at the moment of picking the color, if another category
-//    of the same type is already using it (categoriesWithColor) -- preventing the problem in the first place.
-// 2) the gap between neighboring donut segments widened from 3° to 6° (buildDonut), so that
-//    two segments that do end up with the same color at least look like two separate
-//    blocks, not one.
+// charts -- there's no way to tell them apart at a glance. Since "colores únicos" (each category
+// gets its own algorithmically-assigned hue, categoryHue.ts) this can basically only happen via
+// a manual override now, so this test locks in:
+// 1) the category editor still warns, at the moment of dragging the hue slider, if the chosen
+//    hue lands too close to another category of the same type (categoriesCollidingWithHue).
+// 2) the gap between neighboring donut segments stays 6° (not 3°), so that two segments that do
+//    end up with a close color at least look like two separate blocks, not one.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 (async () => {
   const { context, browser, page, errors } = await openApp();
 
-  // ---------- 1) categoriesWithColor detects real collisions in the sample data ----------
+  // ---------- 1) categoriesCollidingWithHue detects real collisions ----------
   const colision = await page.evaluate(() => {
     const D = window.__debug;
+    const cats = D.CATEGORIES;
     return {
-      // restoranes and compras both come as gasto/peach in the sample data.
-      peachGasto: D.categoriesWithColor('gasto', 'peach', null),
-      // no INGRESO category uses 'pink' in the sample data -- there shouldn't be a collision.
-      pinkIngreso: D.categoriesWithColor('ingreso', 'pink', null),
+      // supermercado (gasto) sits at hue 0 in the sample data -- a hue 15° away is within the
+      // minimum gap and should collide with it.
+      cercaDeSupermercado: D.categoriesCollidingWithHue(cats, 'gasto', 15, null),
+      // 100° is far from both sueldo (0) and pololos_extra (180) -- no collision.
+      lejosDeIngresos: D.categoriesCollidingWithHue(cats, 'ingreso', 100, null),
       // when editing the category itself, it shouldn't "collide with itself".
-      excluyeAsiMisma: D.categoriesWithColor('gasto', 'peach', 'restoranes'),
+      excluyeAsiMisma: D.categoriesCollidingWithHue(cats, 'gasto', 0, 'supermercado'),
     };
   });
-  check('categoriesWithColor() detecta que "restoranes" y "compras" (ambas gasto) comparten el color peach', colision.peachGasto.includes('Restoranes y bares') && colision.peachGasto.includes('Compras'), colision.peachGasto);
-  check('Un color sin ninguna categoría de ese tipo no marca colisión', colision.pinkIngreso.length === 0, colision.pinkIngreso);
-  check('Al excluir la propia categoría (editándola), no aparece ella misma en la lista', !colision.excluyeAsiMisma.includes('Restoranes y bares'), colision.excluyeAsiMisma);
+  check('categoriesCollidingWithHue() detecta un tono muy cercano al de "Supermercado" (gasto)', colision.cercaDeSupermercado.includes('Supermercado'), colision.cercaDeSupermercado);
+  check('Un tono lejos de toda categoría de ese tipo no marca colisión', colision.lejosDeIngresos.length === 0, colision.lejosDeIngresos);
+  check('Al excluir la propia categoría (editándola), no aparece ella misma en la lista', !colision.excluyeAsiMisma.includes('Supermercado'), colision.excluyeAsiMisma);
 
   // ---------- 1b) the category editor shows the warning on screen ----------
   await page.click('[data-tab="menu"]');
   await page.waitForTimeout(150);
   await page.click('[data-menu-open="categorias"]');
   await page.waitForTimeout(150);
-  // Create a new category, switch it to type "ingreso" (sueldo=mint, pololos_extra=sky in
-  // the sample data -- every other color is free for ingreso) and pick "mint"
-  // -- the warning should appear.
   const tieneBotonNueva = await page.evaluate(() => !!document.querySelector('[data-add-cat]'));
   if (tieneBotonNueva) {
     await page.click('[data-add-cat]');
     await page.waitForTimeout(150);
     await page.click('[data-seg="cat-draft-tipo"] [data-seg-val="ingreso"]');
     await page.waitForTimeout(150);
-    await page.click('[data-cat-draft-color="mint"]');
+    // Drag the hue slider to 5° -- right next to "Sueldo" (hue 0 in the sample data).
+    await page.evaluate(() => {
+      window.__debug.state.catDraft.colorHue = 5;
+      window.__debug.state.catDraft.colorHueTouched = true;
+      window.__debug.render();
+    });
     await page.waitForTimeout(150);
     const avisoTexto = await page.evaluate(() => document.getElementById('view-root').textContent);
-    check('El editor de categorías avisa si el color elegido ya lo usa otra categoría del mismo tipo', /ya lo usa/i.test(avisoTexto) && /Sueldo/.test(avisoTexto), avisoTexto.slice(0, 400));
-    await page.click('[data-cat-draft-color="peach"]');
+    check('El editor de categorías avisa si el tono elegido queda muy cerca del de otra categoría del mismo tipo', /muy parecido/i.test(avisoTexto) && /Sueldo/.test(avisoTexto), avisoTexto.slice(0, 400));
+    await page.evaluate(() => {
+      window.__debug.state.catDraft.colorHue = 100;
+      window.__debug.render();
+    });
     await page.waitForTimeout(150);
     const sinAvisoTexto = await page.evaluate(() => document.getElementById('view-root').textContent);
-    check('...y el aviso desaparece al elegir un color sin colisión', !/ya lo usa/i.test(sinAvisoTexto), sinAvisoTexto.slice(0, 400));
+    check('...y el aviso desaparece al elegir un tono sin colisión', !/muy parecido/i.test(sinAvisoTexto), sinAvisoTexto.slice(0, 400));
   } else {
-    check('El editor de categorías avisa si el color elegido ya lo usa otra categoría del mismo tipo', false, 'no se encontró el botón para crear una categoría nueva ([data-cat-new])');
+    check('El editor de categorías avisa si el tono elegido ya lo usa otra categoría del mismo tipo', false, 'no se encontró el botón para crear una categoría nueva ([data-cat-new])');
   }
 
   // ---------- 2) the gap between donut segments is 6°, not 3° ----------

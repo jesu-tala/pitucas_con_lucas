@@ -1,4 +1,5 @@
 import { allCollected, catInfo, dayLabel, incomeNatureOf, paymentMethodInfo, pendingEffectiveAmount, pendingLinkedTo, allPendingReceivables, receivableTotal, hasReceivableType } from './helpers';
+import { categoryColorVars } from './category-colors';
 import { ICONS, catIconMarkup } from './icons';
 import { render } from './render';
 import { ensureMonthExists, safeEvalExpr } from './shared-expenses';
@@ -65,7 +66,7 @@ export function renderCategoryRows(t, allowSplit){
     ).join('');
     const shown = unit==='%' ? (t.monto ? Math.round((c.monto/t.monto)*1000)/10 : 0) : c.monto;
     return '<div class="split-row" data-cat-row="'+idx+'">'+
-      '<span class="cat-row-icon" style="--fill:'+(ci?'var(--cat-'+ci.color+'-fill)':'var(--surface-sunken)')+';--ink:'+(ci?'var(--cat-'+ci.color+'-ink)':'var(--text-tertiary)')+'">'+(ci?catIconMarkup(ci.icon):ICONS.more)+'</span>'+
+      '<span class="cat-row-icon" style="'+categoryColorVars(ci)+'">'+(ci?catIconMarkup(ci.icon):ICONS.more)+'</span>'+
       '<select data-cat-select="'+idx+'">'+opts+'</select>'+
       '<span class="num-wrap"><input type="text" inputmode="decimal" data-cat-amount="'+idx+'" value="'+shown+'">'+
       '<span>'+unit+'</span></span>'+
@@ -230,7 +231,7 @@ export function renderDraftCategoryRow(d){
     '<option value="'+o.value+'" '+(chosen===o.value?'selected':'')+'>'+o.label+'</option>'
   ).join('');
   return '<div class="cat-rows"><div class="split-row" data-draft-cat-row>'+
-    '<span class="cat-row-icon" style="--fill:'+(ci?'var(--cat-'+ci.color+'-fill)':'var(--surface-sunken)')+';--ink:'+(ci?'var(--cat-'+ci.color+'-ink)':'var(--text-tertiary)')+'">'+(ci?catIconMarkup(ci.icon):ICONS.more)+'</span>'+
+    '<span class="cat-row-icon" style="'+categoryColorVars(ci)+'">'+(ci?catIconMarkup(ci.icon):ICONS.more)+'</span>'+
     '<select data-draft-cat-select>'+opts+'</select>'+
   '</div></div>';
 }

@@ -2,6 +2,7 @@ import { phone } from './events';
 import { applyCuotaMonto } from './helpers';
 import { render } from './render';
 import { monthLabelFor, regenerateInstallmentsFor } from './shared-expenses';
+import { migrateLegacyCategoryColor } from './category-colors';
 import { CATEGORIES, CATEGORY_SEED_DEFAULTS, CONTACTS, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, MONTH_LABEL, PLANNER, PLATFORM_DATA, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, currentMonthIndex, getPlannerDefaults, importIdCounter, goalIdCounter, monthlyBudgetTotal, setTransferInfo, setSharedExpenses, setGroups, setGroupParticipants, setImportIdCounter, setCategoryMappings, setContacts, setSpendingGoalPct, setInvestmentGoals, setTotalGoalChecks, setGoalIdCounter, setPlanner, setPlatformData, setBudgets, setBudgetAlertsSent, setMonthlyBudgetTotal, setPaidBalances, setTransactions, state, todayISO } from './state';
 import { absorbImportedRows, loadSharedExpenses, checkBudgetPushAlerts, groupsRealtimeChannel, setGroupsRealtimeChannel, subscribeToGroupsLive } from './views/menu';
 /* ===================== SUPABASE: ACCOUNTS + CLOUD SAVING =====================
@@ -95,6 +96,12 @@ export function buildFullStateBlob(){
 export function applyStateBlob(blob){
   Object.keys(CATEGORIES).forEach(function(k){ delete CATEGORIES[k]; });
   Object.assign(CATEGORIES, blob.categorias || {});
+  // Accounts saved before colores-únicos stored `color: '<palette-name>'` instead of a hue --
+  // migrate them in place so every category always has a usable colorHue from here on.
+  Object.keys(CATEGORIES).forEach(function(k){
+    (CATEGORIES[k] as any).colorHue = migrateLegacyCategoryColor(CATEGORIES[k]);
+    delete (CATEGORIES[k] as any).color;
+  });
   Object.keys(PAYMENT_METHODS).forEach(function(k){ delete PAYMENT_METHODS[k]; });
   Object.assign(PAYMENT_METHODS, blob.mediosPago || {});
 

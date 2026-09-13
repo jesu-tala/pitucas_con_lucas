@@ -1,4 +1,5 @@
 import { catInfo, dayLabel } from '../helpers';
+import { categoryColorVars } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
 import { expensesOfGroup, participantsOfGroup, participantIdForUser, computeShareAmounts, shareAmountsSum, groupBalances, suggestedTransfers } from '../shared-expenses';
 import { segmentedHtml } from '../sheet';
@@ -296,7 +297,7 @@ export function categoryForSharedExpense(g: SharedExpense, groupId: string){
 // gets its background/size from CSS scoped under `.cat-rows .split-row`, the editable category
 // rows inside a transaction's detail, so it would render as an unstyled bare icon anywhere else).
 function catAvatarHtml(ci){
-  return '<span class="tx-avatar" style="--fill:'+(ci?'var(--cat-'+ci.color+'-fill)':'var(--surface-sunken)')+';--ink:'+(ci?'var(--cat-'+ci.color+'-ink)':'var(--text-tertiary)')+'">'+(ci?catIconMarkup(ci.icon):ICONS.more)+'</span>';
+  return '<span class="tx-avatar" style="'+categoryColorVars(ci)+'">'+(ci?catIconMarkup(ci.icon):ICONS.more)+'</span>';
 }
 
 // ---------- Tab 1: Gastos -- feed of EVERY expense in the group (all members, not just mine) ----------

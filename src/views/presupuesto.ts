@@ -1,4 +1,5 @@
 import { catInfo, catNetAmount, netExpenseTx, monthlyReimbursementTotal, reimbursementTotalForMonths, txsOfMonth } from '../helpers';
+import { categoryColorVars } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
 import { segmentedHtml } from '../sheet';
 import { CATEGORIES, SPENDING_GOAL_PCT, MONTHS, BUDGETS, money, monthlyBudgetTotal, state, todayISO } from '../state';
@@ -60,7 +61,7 @@ export function renderBudgetEditForm(catId, cfg){
   const alertChip = (t)=> '<button class="alert-chip'+(d.alertas[t]?' active':'')+'" data-toggle-alert="'+t+'">'+t+'%</button>';
   return '<div class="card budget-cat-card editing">'+
     '<div class="budget-cat-head">'+
-      '<span class="budget-cat-icon" style="--fill:var(--cat-'+cat.color+'-fill);--ink:var(--cat-'+cat.color+'-ink)">'+catIconMarkup(cat.icon)+'</span>'+
+      '<span class="budget-cat-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
       '<span class="budget-cat-name">'+cat.nombre+'</span>'+
     '</div>'+
     '<label class="draft-label">Meta mensual</label>'+
@@ -92,7 +93,7 @@ export function renderBudgetCatCard(catId){
 
   if(!cfg){
     return '<div class="card budget-cat-card empty">'+
-      '<span class="budget-cat-icon" style="--fill:var(--cat-'+cat.color+'-fill);--ink:var(--cat-'+cat.color+'-ink)">'+catIconMarkup(cat.icon)+'</span>'+
+      '<span class="budget-cat-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
       '<span class="budget-cat-name">'+cat.nombre+'</span>'+
       '<button class="budget-add-link" data-edit-budget="'+catId+'">+ Agregar presupuesto</button>'+
     '</div>';
@@ -108,7 +109,7 @@ export function renderBudgetCatCard(catId){
 
   return '<div class="card budget-cat-card">'+
     '<div class="budget-cat-head">'+
-      '<span class="budget-cat-icon" style="--fill:var(--cat-'+cat.color+'-fill);--ink:var(--cat-'+cat.color+'-ink)">'+catIconMarkup(cat.icon)+'</span>'+
+      '<span class="budget-cat-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
       '<span class="budget-cat-name">'+cat.nombre+'</span>'+
       '<button class="budget-edit-btn" data-edit-budget="'+catId+'" aria-label="Editar presupuesto de '+cat.nombre+'">'+ICONS.edit+'</button>'+
     '</div>'+
