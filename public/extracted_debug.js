@@ -4030,16 +4030,12 @@
     else if (isUnclassified) leftLabel = "Sin clasificar";
     else leftLabel = primaryCat.nombre;
     let stateTag = "";
-    if (isCobrado) stateTag = '<span class="tx-state state-cobrado-inline">' + (hasReceivableType(t, "reembolso") ? "Reembolsado" : "Cobrado") + "</span>";
+    if (isCobrado) stateTag = '<span class="tx-state state-cobrado-inline">' + (hasReceivableType(t, "reembolso") ? "Reembolsado" : "Saldado") + "</span>";
     else if (t.estado === "por_cobrar") stateTag = hasReceivableType(t, "reembolso") ? '<span class="tx-state state-reembolso">Reembolso</span>' : '<span class="tx-state state-porcobrar">Por cobrar</span>';
     else if (t.estado === "no_es_gasto") stateTag = '<span class="tx-state state-noesgasto">' + (isIncome ? "No es ingreso" : "No es gasto") + "</span>";
     const medio = paymentMethodInfo(t.medio);
-    const reembolsoRows = !isIncome && !isNoGasto ? (t.porCobrar || []).filter((p) => p.tipo === "reembolso") : [];
-    const personaRows = !isIncome && !isNoGasto ? (t.porCobrar || []).filter((p) => p.tipo !== "reembolso") : [];
-    const reembolsoRecibido = reembolsoRows.length > 0 && reembolsoRows.every((p) => p.pagado);
-    const nameTachado = isCobrado && personaRows.length > 0;
-    const montoRealInline = reembolsoRecibido ? '<span class="tx-amount-real tabular">' + money(netExpenseTx(t)) + "</span>" : "";
-    return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="' + categoryColorVars(primaryCat) + '">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name' + (nameTachado ? " tachado" : "") + '">' + t.comercio + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + leftLabel + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + (reembolsoRecibido ? " tachado" : "") + '">' + amtDisplay + "</span>" + montoRealInline + '<div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + medio.corto + "</div></span></button>";
+    const montoRealInline = isCobrado ? '<span class="tx-amount-real tabular">' + money(netExpenseTx(t)) + "</span>" : "";
+    return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="' + categoryColorVars(primaryCat) + '">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name">' + t.comercio + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + leftLabel + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + (isCobrado ? " tachado" : "") + '">' + amtDisplay + "</span>" + montoRealInline + '<div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + medio.corto + "</div></span></button>";
   }
   __name(renderTxItem, "renderTxItem");
   function advFilterCount() {

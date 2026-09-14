@@ -129,34 +129,32 @@ export function renderTxItem(t){
   else leftLabel = primaryCat.nombre;
 
   let stateTag = '';
-  if(isCobrado) stateTag = '<span class="tx-state state-cobrado-inline">'+(hasReceivableType(t,'reembolso')?'Reembolsado':'Cobrado')+'</span>';
+  if(isCobrado) stateTag = '<span class="tx-state state-cobrado-inline">'+(hasReceivableType(t,'reembolso')?'Reembolsado':'Saldado')+'</span>';
   else if(t.estado==='por_cobrar') stateTag = hasReceivableType(t,'reembolso') ? '<span class="tx-state state-reembolso">Reembolso</span>' : '<span class="tx-state state-porcobrar">Por cobrar</span>';
   else if(t.estado==='no_es_gasto') stateTag = '<span class="tx-state state-noesgasto">'+(isIncome?'No es ingreso':'No es gasto')+'</span>';
 
   const medio = paymentMethodInfo(t.medio);
 
-  // Un gasto con reembolso ligado (ver netExpenseTx en helpers.ts) solo cambia de aspecto cuando
-  // el reembolso YA LLEGÓ -- mientras está pendiente se ve exactamente como un gasto normal (no
-  // existe un "reembolso pendiente" que se muestre distinto, eso ya lo cubre el tag "Reembolso").
-  // Una vez recibido, se tacha el MONTO (nunca el nombre -- el nombre solo se tacha cuando lo
-  // cobrado es un por-cobrar de persona, ver isCobrado más arriba) y al lado, en la misma línea,
-  // se muestra el costo neto real (bruto - reembolso) ya definitivo.
-  const reembolsoRows = !isIncome && !isNoGasto ? (t.porCobrar||[]).filter(p=>p.tipo==='reembolso') : [];
-  const personaRows = !isIncome && !isNoGasto ? (t.porCobrar||[]).filter(p=>p.tipo!=='reembolso') : [];
-  const reembolsoRecibido = reembolsoRows.length>0 && reembolsoRows.every(p=>p.pagado);
-  const nameTachado = isCobrado && personaRows.length>0;
-  const montoRealInline = reembolsoRecibido ? '<span class="tx-amount-real tabular">'+money(netExpenseTx(t))+'</span>' : '';
+  // Un gasto con algo por cobrar ligado (de una persona -- "yo pagué $25.000, me deben $15.000
+  // de vuelta" -- o de un reembolso, ver netExpenseTx en helpers.ts) solo cambia de aspecto
+  // cuando YA se saldó por completo (isCobrado más arriba). Mientras está pendiente se ve
+  // exactamente como un gasto normal (no hay un estado intermedio especial, eso ya lo cubre el
+  // tag "Por cobrar"/"Reembolso"). El NOMBRE nunca se tacha -- sigue siendo dinero que salió de
+  // tu cuenta ese día, tachar el nombre daría a entender que "no cuenta". En vez de eso, una vez
+  // saldado se tacha el MONTO bruto y al lado, en la misma línea, se muestra el costo neto real
+  // ya definitivo (lo que de verdad terminó siendo tuyo, ej. $25.000 tachado -> $10.000 al lado).
+  const montoRealInline = isCobrado ? '<span class="tx-amount-real tabular">'+money(netExpenseTx(t))+'</span>' : '';
 
   return '<button class="tx-item" data-tx="'+t.id+'">'+
     '<span class="tx-avatar" style="'+categoryColorVars(primaryCat)+'">'+catIconMarkup(primaryCat.icon)+'</span>'+
     '<span class="tx-info">'+
-      '<span class="tx-name'+(nameTachado?' tachado':'')+'">'+t.comercio+'</span>'+
+      '<span class="tx-name">'+t.comercio+'</span>'+
       '<span class="tx-sub">'+(t.reglaAuto?'<span class="lock-badge">'+ICONS.lockSmall+'</span>':'')+
         '<span style="overflow:hidden;text-overflow:ellipsis;">'+leftLabel+'</span>'+stateTag+
       '</span>'+
     '</span>'+
     '<span class="tx-right">'+
-      '<span class="tx-amount tabular '+amountClass+(reembolsoRecibido?' tachado':'')+'">'+amtDisplay+'</span>'+
+      '<span class="tx-amount tabular '+amountClass+(isCobrado?' tachado':'')+'">'+amtDisplay+'</span>'+
       montoRealInline+
       '<div class="tx-right-sub"><span class="tx-hora">'+t.hora+'</span><span>·</span>'+(paymentMethodTagIcon(medio)?'<span class="medio-tag-icon">'+paymentMethodTagIcon(medio)+'</span>':'')+medio.corto+'</div>'+
     '</span>'+
