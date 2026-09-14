@@ -487,50 +487,10 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
 
-  // ---------- (h) Demo mode masks every new preview amount ----------
-  const txDemo = await page.evaluate(() => {
-    const D = window.__debug;
-    const t = { id: 'test-split-demo', fecha: D.todayISO(), hora: '12:00', comercio: 'Test Split Demo',
-      monto: 10000, medio: 'efectivo', tipo: 'gasto', recurrencia: 'variable', estado: 'confirmado',
-      categorias: [{ cat: 'otros', monto: 10000 }], porCobrar: [], reglaAuto: false, nota: '' };
-    D.TRANSACTIONS.push(t);
-    D.state.demoMode = true;
-    D.render();
-    return t.id;
-  });
-  await page.evaluate((id) => {
-    window.__debug.state.openTxId = id;
-    document.getElementById('sheet-overlay').classList.add('open');
-    window.__debug.render();
-  }, txDemo);
-  await page.waitForTimeout(150);
-  await page.click('[data-action="porcobrar_persona"]');
-  await page.waitForTimeout(150);
-  await page.click('[data-share-include="Cata"]');
-  await page.waitForTimeout(150);
-  const demoPreview = await page.evaluate(() => {
-    const filas = Array.from(document.querySelectorAll('[data-share-include]')).filter(cb => cb.checked).map(cb => {
-      const row = cb.closest('.split-row');
-      const amt = row.querySelector('.tabular');
-      return amt ? amt.textContent : null;
-    });
-    const totalLine = document.querySelector('.split-remaining span:last-child').textContent;
-    return { filas, totalLine };
-  });
-  check('(h) En modo demo, los montos de cada fila del reparto quedan enmascarados ($••••••), sin ningún dígito',
-    demoPreview.filas.every(t => t === '$••••••'), demoPreview.filas);
-  check('   igual que el total repartido de arriba', /••••••/.test(demoPreview.totalLine) && !/\d/.test(demoPreview.totalLine), demoPreview.totalLine);
-
-  // confirm it and check the committed row's masked display too (moneyPlainMasked in the
-  // settlement view, renderPersonaSettlementRows).
-  await page.click('[data-share-confirm="' + txDemo + '"]');
-  await page.waitForTimeout(150);
-  const demoCommitted = await page.evaluate(() => document.querySelector('.persona-amt') ? document.querySelector('.persona-amt').textContent : null);
-  check('   y también la fila ya comprometida (settlement view), reusando moneyPlainMasked', demoCommitted === '••••••', demoCommitted);
-
-  await page.evaluate(() => { window.__debug.state.demoMode = false; });
-  await page.click('[data-close-sheet-done]');
-  await page.waitForTimeout(150);
+  // Nota: acá había una sección "(h) modo demo enmascara los montos del reparto" -- ese
+  // comportamiento (money()/moneyPlainMasked() masking based on state.demoMode) fue reemplazado
+  // por el modo demo de datos sintéticos (ver src/demo.ts y
+  // tests/shot_modo_demo_datos_sinteticos.js).
 
   await finish({ context, browser, errors });
 })();

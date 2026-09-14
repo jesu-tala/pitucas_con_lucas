@@ -216,21 +216,11 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('registrar una transferencia (Fran → Yo, $15.000) ajusta los saldos de ambos', trasInyectar.balanceYo === 70000 - 15000 && trasInyectar.balanceFran === -40000 + 15000, trasInyectar);
   check('   y aparece en el historial de la pestaña "Transferencias"', trasInyectar.apareceEnHistorial === true, trasInyectar);
 
-  // ---------- Demo mode masks every new amount shown ----------
-  await page.evaluate(() => { window.__debug.state.demoMode = true; window.__debug.render(); });
-  await page.waitForTimeout(150);
-  const demoTransferencias = await page.evaluate(() => document.getElementById('view-root').textContent);
-  check('(Transferencias, modo demo) el monto del historial queda enmascarado', demoTransferencias.includes('$••••••') && !demoTransferencias.includes('$15.000'));
-
-  await page.evaluate(() => { window.__debug.state.groupDetailTab = 'balances'; window.__debug.render(); });
-  await page.waitForTimeout(150);
-  const demoBalances = await page.evaluate(() => document.getElementById('view-root').textContent);
-  check('(Balances, modo demo) los saldos y las transferencias sugeridas quedan enmascarados', demoBalances.includes('$••••••') && !demoBalances.includes('$55.000') && !demoBalances.includes('$25.000'));
-
-  await page.evaluate(() => { window.__debug.state.groupDetailTab = 'gastos'; window.__debug.render(); });
-  await page.waitForTimeout(150);
-  const demoGastos = await page.evaluate(() => document.getElementById('view-root').textContent);
-  check('(Gastos, modo demo) el total gastado y los montos del feed quedan enmascarados', demoGastos.includes('$••••••') && !demoGastos.includes('$140.000'));
+  // Nota: acá había una sección "modo demo enmascara los montos" (Transferencias/Balances/
+  // Gastos) -- ese comportamiento (money()/moneyPlainMasked() masking based on state.demoMode)
+  // fue reemplazado por el modo demo de datos sintéticos (ver src/demo.ts y
+  // tests/shot_modo_demo_datos_sinteticos.js, que ya cubre que la pestaña Grupos muestra el
+  // grupo de ejemplo sintético completo, sin nada enmascarado).
 
   await finish({ context, browser, errors });
 })();
