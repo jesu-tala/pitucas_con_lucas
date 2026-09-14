@@ -84,12 +84,124 @@ export function catTotalAmount(t){ return t.categorias.reduce((s,c)=>s+c.monto,0
 // expected amount yet (reimbursements: you don't always know how much you'll get back until it
 // arrives). While it's not paid, it counts as "expected amount" (0 if not known yet — i.e. it's
 // still your share of the expense until it's resolved). Once paid/linked to a real deposit, it
-// reports the amount that actually arrived (montoRecibido), not the estimate.
+// reports the amount that actually arrived so far (see receivableAssignedTotal below) -- while
+// PARTIALLY paid, that's the confirmed amount, not the original estimate.
 export function pendingEffectiveAmount(p){
-  if(p.pagado) return p.montoRecibido!=null ? p.montoRecibido : (p.monto||0);
+  const estado = receivableEstado(p);
+  if(estado==='saldado') return receivableAssignedTotal(p);
+  // 'parcial' es un estado nuevo (ver receivableEstado) -- persona y reembolso lo tratan
+  // distinto: un reembolso neta progresivamente a medida que se confirma cada parte (igual que
+  // siempre netea "apenas se sabe", ver la nota grande más abajo), así que acá SÍ cuenta lo
+  // asignado hasta ahora. Un cobro de persona, en cambio, ya se descontó COMPLETO del gasto al
+  // compartirlo -- cuánto de la devolución ya llegó es irrelevante para esa cuenta (nunca lo fue,
+  // ni antes de que existiera "parcial"): sigue mostrando el monto esperado completo.
+  if(estado==='parcial' && p.tipo==='reembolso') return receivableAssignedTotal(p);
   return p.monto!=null ? p.monto : 0;
 }
 export function receivableTotal(t){ return t.porCobrar.reduce((s,p)=>s+pendingEffectiveAmount(p),0); }
+
+// ---- Conciliar cobros/reembolsos: montos parciales y varios depósitos ----------------------
+//
+// Antes, vincular un depósito a un por-cobrar era un solo movimiento, todo o nada (resolvePending
+// más abajo): un depósito, un por-cobrar, el monto completo del depósito. Este prompt generaliza
+// eso a montos parciales y varios-a-varios (un depósito puede saldar VARIOS por-cobrar; un
+// por-cobrar puede saldarse con VARIOS depósitos) -- sin crear un mecanismo paralelo: sigue
+// siendo la misma fila porCobrar de siempre, con un registro nuevo (`asignaciones`, ver
+// ReceivableAssignment en types.ts) de qué depósito aportó cuánto. pagado/montoRecibido/
+// linkedTxId (los campos de un solo vínculo, de antes de este prompt) se mantienen por
+// compatibilidad con datos ya guardados -- receivableAssignedTotal los lee como una asignación
+// implícita única cuando `asignaciones` todavía no existe en la fila.
+//
+// Todo se centraliza acá: el saldo de un por-cobrar (cuánto se le ha asignado, y su estado
+// pendiente/parcial/saldado) se calcula SIEMPRE desde estas funciones -- nunca hay un campo de
+// estado guardado aparte que se pueda desincronizar de lo realmente asignado.
+export function receivableAssignedTotal(p): number {
+  if(p.asignaciones && p.asignaciones.length) return p.asignaciones.reduce((s,a)=>s+(a.monto||0),0);
+  if(p.pagado && p.linkedTxId) return p.montoRecibido!=null ? p.montoRecibido : (p.monto||0);
+  return 0;
+}
+// Un por-cobrar sin monto esperado conocido (ej. un reembolso anticipado antes de que la isapre
+// diga cuánto) no tiene noción de "parcial" -- cualquier asignación lo cierra directamente,
+// igual que antes de este prompt (resolvePending siempre marcaba pagado=true de una).
+export function receivableEstado(p): 'pendiente' | 'parcial' | 'saldado' {
+  const asignado = receivableAssignedTotal(p);
+  if(asignado<=0) return 'pendiente';
+  const monto = p.monto;
+  if(monto==null || monto<=0) return 'saldado';
+  return asignado < monto ? 'parcial' : 'saldado';
+}
+// Único lugar donde pagado/montoRecibido se escriben -- así nunca quedan desincronizados de lo
+// que `asignaciones` realmente dice. pagado=true solo al quedar SALDADO por completo (no
+// "parcial"): el resto de la app ya trata pagado como "totalmente resuelto" (allCollected, el
+// tag "Saldado"/"Reembolsado" en Transacciones, writeOffReceivable...), y mantener ese
+// significado exacto es lo que evita tener que tocar cada lector existente.
+function syncPagadoFromAsignaciones(p){
+  p.pagado = receivableEstado(p)==='saldado';
+  p.montoRecibido = receivableAssignedTotal(p);
+}
+// Asigna (parcial o total) un monto de un depósito a un por-cobrar -- el reemplazo general de
+// resolvePending() de más abajo. Si ese mismo depósito ya le había aportado algo antes, se SUMA
+// (nunca se reemplaza ni duplica la fila). A propósito NO se topa al saldo pendiente del propio
+// por-cobrar -- un depósito puede superar lo que se debía (sobre-reembolso/sobre-cobro, caso
+// real y ya soportado: ver reimbursementExcess), y esa plata de más se sigue viendo reflejada en
+// `asignaciones` para que el cálculo del excedente (netIncomeTx) tenga con qué trabajar.
+export function assignIncomeToReceivable(expenseTxId, idx, incomeTxId, monto): boolean {
+  const expenseTx = getTx(expenseTxId), incomeTx = getTx(incomeTxId);
+  if(!expenseTx || !incomeTx || !expenseTx.porCobrar[idx]) return false;
+  const p = expenseTx.porCobrar[idx];
+  const amt = Math.round(monto||0);
+  if(amt<=0) return false;
+  if(!p.asignaciones) p.asignaciones = [];
+  const existing = p.asignaciones.find(a=>a.incomeTxId===incomeTxId);
+  if(existing) existing.monto += amt; else p.asignaciones.push({incomeTxId, monto: amt});
+  syncPagadoFromAsignaciones(p);
+  return true;
+}
+// Deshace lo que un depósito puntual le había aportado a un por-cobrar -- lo que hayan aportado
+// otros depósitos a esa misma fila queda intacto.
+export function removeIncomeAssignment(expenseTxId, idx, incomeTxId): boolean {
+  const expenseTx = getTx(expenseTxId);
+  if(!expenseTx || !expenseTx.porCobrar[idx]) return false;
+  const p = expenseTx.porCobrar[idx];
+  if(p.asignaciones && p.asignaciones.length){
+    const before = p.asignaciones.length;
+    p.asignaciones = p.asignaciones.filter(a=>a.incomeTxId!==incomeTxId);
+    if(p.asignaciones.length===before) return false;
+    syncPagadoFromAsignaciones(p);
+    return true;
+  }
+  // Dato de un solo vínculo directo, de antes de `asignaciones` -- desvincularlo es volver a
+  // como estaba antes de resolvePending().
+  if(p.linkedTxId===incomeTxId){
+    p.pagado = false; p.montoRecibido = null; p.linkedTxId = null;
+    return true;
+  }
+  return false;
+}
+// Todos los por-cobrar (de cualquier transacción) a los que este depósito puntual le aportó
+// algo -- para "ver los pagos ya asignados" desde el lado del depósito, y para poder deshacer
+// cada asignación por separado. Un mismo depósito puede aparecer repartido en varias filas (uno
+// de los casos nuevos de este prompt: "un depósito repartido entre varios por-cobrar").
+export function receivablesLinkedFrom(incomeTxId){
+  const out: {expenseTxId:string, idx:number, comercio:string, persona:string, tipo:string, montoAsignado:number}[] = [];
+  TRANSACTIONS.forEach(t=>{
+    (t.porCobrar||[]).forEach((p,idx)=>{
+      if(p.asignaciones && p.asignaciones.length){
+        const a = p.asignaciones.find(x=>x.incomeTxId===incomeTxId);
+        if(a) out.push({expenseTxId:t.id, idx, comercio:t.comercio, persona:p.persona, tipo:p.tipo||'persona', montoAsignado:a.monto});
+      } else if(p.linkedTxId===incomeTxId){
+        out.push({expenseTxId:t.id, idx, comercio:t.comercio, persona:p.persona, tipo:p.tipo||'persona', montoAsignado: p.montoRecibido!=null?p.montoRecibido:(p.monto||0)});
+      }
+    });
+  });
+  return out;
+}
+// Todo lo que un depósito puntual aportó, sumado a través de CUALQUIER por-cobrar de CUALQUIER
+// transacción -- lo que no cubre nada de esto sigue siendo ingreso normal (ver netIncomeTx). Un
+// simple total de receivablesLinkedFrom, para donde solo hace falta la cifra.
+export function incomeAssignedTotal(incomeTxId): number {
+  return receivablesLinkedFrom(incomeTxId).reduce((s,l)=>s+l.montoAsignado, 0);
+}
 
 // ---- Netting of receivables (splits with friends) vs. reimbursements ----
 //
@@ -170,16 +282,42 @@ export function reimbursementExcess(t){
 //    sobre-reembolso (reimbursementExcess), which the expense side could never absorb (it's
 //    floored at $0) and which is therefore real, legitimate Income.
 // Not linked to anything (the normal case: salary, a sale, whatever) keeps counting in full.
+// Generalizado para varios vínculos a la vez (un depósito puede repartirse entre varios
+// por-cobrar, ver assignIncomeToReceivable) -- agrupado por gasto para no recalcular ni
+// duplicar el sobre-reembolso de un mismo gasto más de una vez si este depósito le aportó a más
+// de una de sus filas. Si el mismo gasto recibió aportes de VARIOS depósitos distintos, el
+// sobre-reembolso de ese gasto se reparte entre ellos en proporción a cuánto aportó cada uno --
+// para un solo depósito/un solo por-cobrar (el caso de siempre) esto da EXACTAMENTE el mismo
+// resultado que antes: 0 para 'persona', reimbursementExcess(expenseTx) para 'reembolso'.
 export function netIncomeTx(t){
   if(t.tipo!=='ingreso') return catTotalAmount(t);
-  const link = pendingLinkedTo(t.id);
-  if(!link) return catTotalAmount(t);
-  const expenseTx = getTx(link.expenseTxId);
-  const p = expenseTx && expenseTx.porCobrar[link.idx];
-  if(!p) return catTotalAmount(t);
-  if(p.tipo==='persona') return 0;
-  if(p.tipo==='reembolso') return reimbursementExcess(expenseTx);
-  return catTotalAmount(t);
+  const links = receivablesLinkedFrom(t.id);
+  if(!links.length) return catTotalAmount(t);
+  // Agrupa por gasto -- si este depósito le aportó a más de una fila del MISMO gasto, el
+  // sobre-reembolso de ese gasto (una cifra por transacción, ver reimbursementExcess) no debe
+  // recalcularse/duplicarse por cada fila.
+  const gastoIds = Array.from(new Set(links.map(l=>l.expenseTxId)));
+  let cuentaComoIngreso = 0;
+  gastoIds.forEach(expenseTxId=>{
+    const expenseTx = getTx(expenseTxId);
+    if(!expenseTx) return;
+    const gastoLinks = links.filter(l=>l.expenseTxId===expenseTxId);
+    // 'persona': esa plata ya se descontó del gasto al compartirlo (ver netExpenseTx) -- $0 de
+    // esto cuenta como ingreso. Solo las filas 'reembolso' pueden generar sobre-reembolso.
+    const exceso = reimbursementExcess(expenseTx);
+    if(exceso<=0) return;
+    // Si VARIOS depósitos distintos le aportaron a las filas 'reembolso' de este mismo gasto, el
+    // sobre-reembolso se reparte entre ellos en proporción a cuánto aportó cada uno -- para un
+    // solo depósito (el caso de siempre) esto da exactamente reimbursementExcess(expenseTx)
+    // completo, igual que antes de este prompt.
+    const totalAportadoAlGasto = (expenseTx.porCobrar||[]).filter(p=>p.tipo==='reembolso').reduce((s,p)=>s+receivableAssignedTotal(p),0);
+    const aportadoPorEsteDeposito = gastoLinks.reduce((s,l)=>{
+      const p = expenseTx.porCobrar[l.idx];
+      return p && p.tipo==='reembolso' ? s + l.montoAsignado : s;
+    },0);
+    if(totalAportadoAlGasto>0) cuentaComoIngreso += exceso * (aportadoPorEsteDeposito/totalAportadoAlGasto);
+  });
+  return Math.round(cuentaComoIngreso);
 }
 // Same proportional-split idea as netExpenseFactor, for an income transaction that happens to
 // carry categories of its own (uncommon for a reembolso-linked deposit specifically -- resolvePending/
@@ -198,15 +336,17 @@ export function netIncomeFactor(t){
 // "traspaso entre mis cuentas" or an asset sale registered as plain income used to quietly
 // inflate tasa de ahorro/% de inversión before this existed.
 export function incomeNatureOf(t: Transaction): IncomeNature {
-  const link = pendingLinkedTo(t.id);
-  if(link){
-    const expenseTx = getTx(link.expenseTxId);
-    const p = expenseTx && expenseTx.porCobrar[link.idx];
-    // A linked deposit's nature is ALWAYS whatever the pending item it settles actually is --
-    // never an explicit override (naturalezaEntrada doesn't even apply here): the settlement
-    // relationship is the ground truth, already established the moment it was linked.
-    if(p && p.tipo==='persona') return 'cobro';
-    if(p && p.tipo==='reembolso') return 'reembolso';
+  const links = receivablesLinkedFrom(t.id);
+  if(links.length){
+    // A linked deposit's nature is ALWAYS whatever the pending item(s) it settles actually
+    // are -- never an explicit override (naturalezaEntrada doesn't even apply here): the
+    // settlement relationship is the ground truth, already established the moment it was
+    // linked. Un mismo depósito repartido entre un cobro Y un reembolso (caso nuevo, ver
+    // assignIncomeToReceivable) es infrecuente -- 'reembolso' manda en ese caso, porque implica
+    // plata real llegando que conviene que se note, no solo una deuda entre personas saldándose.
+    const tipos = new Set(links.map(l=>l.tipo));
+    if(tipos.has('reembolso')) return 'reembolso';
+    if(tipos.has('persona')) return 'cobro';
   }
   if(t.naturalezaEntrada) return t.naturalezaEntrada;
   // The only 2 categories that ship as unambiguously real income out of the box -- anything else
@@ -227,11 +367,10 @@ export function incomeNatureOf(t: Transaction): IncomeNature {
 // amount regardless of whether it's been categorized.
 export function incomeNatureAmount(t: Transaction): number {
   const nature = incomeNatureOf(t);
-  if(nature==='reembolso'){
-    const link = pendingLinkedTo(t.id);
-    const expenseTx = link ? getTx(link.expenseTxId) : null;
-    return expenseTx ? reimbursementExcess(expenseTx) : 0;
-  }
+  // netIncomeTx(t) YA es exactamente "cuánto de este depósito cuenta como ingreso real" --
+  // generalizado para varios vínculos a la vez (ver más arriba), da el mismo resultado que antes
+  // para el caso de un solo vínculo.
+  if(nature==='reembolso') return netIncomeTx(t);
   return t.monto;
 }
 
@@ -244,35 +383,40 @@ export function aggregatedTxAmount(t){
   return catTotalAmount(t);
 }
 
-// All the pending items (persona or reembolso) across every transaction that aren't paid yet —
-// for the "link a deposit" flow from the income side.
+// All the pending items (persona or reembolso) across every transaction that aren't fully
+// saldados yet -- for the "link a deposit" flow from the income side. Incluye los PARCIALMENTE
+// saldados (todavía tienen algo pendiente) además de los que no tienen nada asignado -- `asignado`
+// y `restante` dejan ver de un vistazo cuánto de cada uno ya está cubierto.
 export function allPendingReceivables(){
   const out = [];
   TRANSACTIONS.forEach(t=>{
     (t.porCobrar||[]).forEach((p,idx)=>{
-      if(!p.pagado) out.push({expenseTxId:t.id, idx, comercio:t.comercio, fecha:t.fecha, persona:p.persona, monto:p.monto, tipo:p.tipo||'persona'});
+      if(p.pagado) return;
+      const asignado = receivableAssignedTotal(p);
+      const restante = p.monto!=null ? Math.max(p.monto - asignado, 0) : null;
+      out.push({expenseTxId:t.id, idx, comercio:t.comercio, fecha:t.fecha, persona:p.persona, monto:p.monto, tipo:p.tipo||'persona', asignado, restante, estado: receivableEstado(p)});
     });
   });
   return out.sort((a,b)=> b.fecha.localeCompare(a.fecha));
 }
-// If this income is already linked to some pending item, finds it (so it can be shown and
-// "remove link" can be offered from the income's detail).
+// Si este depósito ya está vinculado a ALGÚN pendiente, encuentra el primero (para la tarjeta
+// simple "Vinculado a X" del detalle del depósito) -- receivablesLinkedFrom (más arriba) da la
+// lista completa cuando un mismo depósito está repartido entre varios.
 export function pendingLinkedTo(incomeTxId){
-  for(const t of TRANSACTIONS){
-    for(let idx=0; idx<(t.porCobrar||[]).length; idx++){
-      if(t.porCobrar[idx].linkedTxId===incomeTxId) return {expenseTxId:t.id, idx, comercio:t.comercio, persona:t.porCobrar[idx].persona};
-    }
-  }
-  return null;
+  const links = receivablesLinkedFrom(incomeTxId);
+  if(!links.length) return null;
+  const first = links[0];
+  return {expenseTxId:first.expenseTxId, idx:first.idx, comercio:first.comercio, persona:first.persona};
 }
+// Vínculo simple, todo-o-nada: asigna el monto COMPLETO del depósito a un por-cobrar de una
+// sola vez -- un caso particular de assignIncomeToReceivable (arriba), que se generalizó a
+// montos parciales y varios-a-varios. Se mantiene con este nombre y esta firma porque sigue
+// siendo el atajo correcto para "este depósito es exactamente el pago de este pendiente" (el
+// caso más común, y el que ya usan otros caminos existentes como applyUnexpectedReimbursement).
 export function resolvePending(expenseTxId, idx, incomeTxId){
-  const expenseTx = getTx(expenseTxId), incomeTx = getTx(incomeTxId);
-  if(!expenseTx || !incomeTx || !expenseTx.porCobrar[idx]) return false;
-  const p = expenseTx.porCobrar[idx];
-  p.pagado = true;
-  p.montoRecibido = incomeTx.monto;
-  p.linkedTxId = incomeTx.id;
-  return true;
+  const incomeTx = getTx(incomeTxId);
+  if(!incomeTx) return false;
+  return assignIncomeToReceivable(expenseTxId, idx, incomeTxId, incomeTx.monto);
 }
 // Caso B de reembolso ("inesperado"): un depósito llega sin haber sido anticipado como porCobrar
 // -- en vez de crear un sistema paralelo, se aplica exactamente como si el reembolso SÍ se

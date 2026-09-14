@@ -1,4 +1,4 @@
-import { allCollected, catInfo, dayLabel, incomeNatureOf, paymentMethodInfo, pendingEffectiveAmount, pendingLinkedTo, allPendingReceivables, receivableTotal, hasReceivableType } from './helpers';
+import { allCollected, catInfo, dayLabel, incomeNatureOf, paymentMethodInfo, pendingEffectiveAmount, pendingLinkedTo, allPendingReceivables, receivableTotal, hasReceivableType, receivableAssignedTotal, incomeAssignedTotal, receivablesLinkedFrom, receivableEstado } from './helpers';
 import { navPopIfTop, navPush } from './nav';
 import { categoryColorVars } from './category-colors';
 import { ICONS, catIconMarkup } from './icons';
@@ -113,7 +113,12 @@ function renderPersonaSettlementRows(t){
     // 'me_deben' (you paid, unchanged from before this feature): "<persona> te debe".
     const etiqueta = isDebo ? 'Le debes a '+(p.persona||'esta persona') : (p.persona||'Sin nombre')+' te debe';
     const nameField = '<span style="flex:1;min-width:0;"><span class="persona-label" style="font-size:13px;font-weight:600;">'+etiqueta+'</span></span>';
-    const amtField = '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">'+moneyPlainMasked(pendingEffectiveAmount(p))+'</span>';
+    // Un cobro PARCIALMENTE asignado (ver assignIncomeToReceivable en helpers.ts) sigue
+    // mostrando el monto completo que le corresponde (pendingEffectiveAmount no cambia para
+    // persona por esto -- ya se descontó del gasto al compartirlo, sin importar cuánto de la
+    // devolución ya llegó) -- este aviso es lo único nuevo: cuánto de eso ya te pagó.
+    const parcialHint = receivableEstado(p)==='parcial' ? '<span class="pend-esperado muted">ya pagó '+moneyPlainMasked(receivableAssignedTotal(p))+'</span>' : '';
+    const amtField = '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">'+moneyPlainMasked(pendingEffectiveAmount(p))+parcialHint+'</span>';
     // Linking to an incoming deposit only makes sense when money comes TO you ('me_deben') — a
     // 'debo' row settles when YOU pay someone else, there's no deposit to link, just a manual
     // "mark as paid" (the chk-pagado button, offered either way). Also never on the draft (isDraft).
@@ -175,12 +180,15 @@ export function renderChargeSplitBlock(t){
       ? '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span class="pend-tipo-tag">Reembolso</span><span class="persona-label" style="font-size:13px;font-weight:600;">'+(p.persona||'Sin nombre')+'</span></span>'
       : '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;"><span class="pend-tipo-tag">Reembolso</span>'+
           '<input type="text" class="persona-label" style="width:100%;" data-charge-name="'+idx+'" value="'+p.persona+'" placeholder="Isapre, seguro…"></span>';
+    // Un reembolso PARCIALMENTE asignado (ver assignIncomeToReceivable) todavía no está pagado
+    // -- sin este aviso el campo editable se vería igual a "nada asignado todavía".
+    const parcialHint = receivableEstado(p)==='parcial' ? '<span class="pend-esperado muted">ya llegó '+moneyPlainMasked(receivableAssignedTotal(p))+'</span>' : '';
     const amtField = p.pagado
       ? '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">'+
           moneyPlainMasked(pendingEffectiveAmount(p))+' '+unit+
           (p.montoRecibido!=null && p.monto!=null && p.montoRecibido!==p.monto ? '<span class="pend-esperado muted">de '+moneyPlainMasked(p.monto)+' esperado</span>' : '')+
         '</span>'
-      : '<span class="num-wrap persona-amt"><input type="text" inputmode="decimal" data-charge-amount="'+idx+'" value="'+shown+'" placeholder="Por confirmar"><span>'+unit+'</span></span>';
+      : '<span class="num-wrap persona-amt"><input type="text" inputmode="decimal" data-charge-amount="'+idx+'" value="'+shown+'" placeholder="Por confirmar"><span>'+unit+'</span></span>'+parcialHint;
     const linkBtn = (p.pagado || isDraft) ? '' : '<button class="link-btn" data-link-pending="'+idx+'" aria-label="Vincular a un depósito">'+ICONS.inbox+'</button>';
     return '<div>'+
       '<div class="split-row'+(p.pagado?' paid':'')+'" data-charge-row="'+idx+'">'+
@@ -611,18 +619,56 @@ export function closeSheet(){
   navPopIfTop('sheet');
 }
 
-/* ---------- link a deposit to a pending item (or vice versa) ---------- */
+/* ---------- link a deposit to a pending item (or vice versa) ----------
+   Conciliar cobros/reembolsos con montos parciales (ver assignIncomeToReceivable en helpers.ts):
+   elegir el otro lado (el depósito o el pendiente, según por dónde se entró) ya no resuelve todo
+   de un tap -- ahora es un segundo paso donde se ve/edita el monto a asignar (por defecto el
+   máximo posible: lo que quede pendiente, o el depósito completo si es menor), antes de
+   confirmar. `state.linkFlow.seleccionado` guarda ese segundo paso; null vuelve a la lista. */
 export function openLinkFromPending(expenseTxId, idx){
-  state.linkFlow = {mode:'fromPendiente', expenseTxId, idx};
+  state.linkFlow = {mode:'fromPendiente', expenseTxId, idx, seleccionado:null, montoDraft:''};
   openSheetOverlay();
   renderSheet();
   document.getElementById('sheet-content').scrollTop = 0;
 }
 export function openLinkFromIncome(incomeTxId){
-  state.linkFlow = {mode:'fromIngreso', incomeTxId, mostrarGastos:false};
+  state.linkFlow = {mode:'fromIngreso', incomeTxId, mostrarGastos:false, seleccionado:null, montoDraft:''};
   openSheetOverlay();
   renderSheet();
   document.getElementById('sheet-content').scrollTop = 0;
+}
+// Monto por defecto al elegir un lado: lo que falte del por-cobrar (si se conoce) o, si eso es
+// más que lo que queda sin asignar del depósito, lo que quede del depósito -- así el valor
+// inicial siempre es "lo más razonable", sin forzar a la usuaria a hacer la cuenta a mano; sigue
+// siendo un campo editable si de verdad quiere asignar otra cosa (ej. un sobre-reembolso).
+export function defaultAssignAmount(p, incomeTx){
+  const restanteDelPendiente = p.monto!=null ? Math.max(p.monto - receivableAssignedTotal(p), 0) : Infinity;
+  const restanteDelDeposito = Math.max(incomeTx.monto - incomeAssignedTotal(incomeTx.id), 0);
+  const base = Math.min(restanteDelPendiente, restanteDelDeposito);
+  return base>0 && base!==Infinity ? base : (restanteDelDeposito>0 ? restanteDelDeposito : incomeTx.monto);
+}
+// Segundo paso común a los dos modos: el monto a asignar, ya elegidos ambos lados.
+function renderAssignAmountStep(p, gastoTx, incomeTx, idx){
+  const d = state.linkFlow;
+  const restante = p.monto!=null ? Math.max(p.monto - receivableAssignedTotal(p), 0) : null;
+  return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
+      '<div class="merchant" style="font-size:17px;">¿Cuánto de este depósito?</div>'+
+      '<div class="meta">'+(p.persona||'Este pendiente')+' — '+gastoTx.comercio+
+        (restante!=null ? ' · quedan '+money(restante) : ' · monto por confirmar')+'</div>'+
+    '</div>'+
+    '<div class="card" style="padding:14px 16px;margin-top:6px;">'+
+      '<div class="split-row" style="align-items:center;margin-bottom:10px;">'+
+        '<span class="link-pick-body"><span class="link-pick-name">'+incomeTx.comercio+'</span>'+
+          '<span class="link-pick-sub">'+dayLabel(incomeTx.fecha)+'</span></span>'+
+        '<span class="link-pick-amt tabular pos">+'+money(incomeTx.monto)+'</span>'+
+      '</div>'+
+      '<label class="draft-label">Monto a asignar</label>'+
+      '<input type="text" inputmode="decimal" class="draft-input amount tabular" data-link-monto-field value="'+(d.montoDraft||'')+'" placeholder="0">'+
+      '<div style="display:flex;gap:10px;margin-top:14px;">'+
+        '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-link-cancel>Volver</button>'+
+        '<button class="save-tx-btn" style="flex:1;" data-link-confirm>Asignar</button>'+
+      '</div>'+
+    '</div>';
 }
 export function renderLinkFlowContent(){
   const lf = state.linkFlow;
@@ -630,29 +676,68 @@ export function renderLinkFlowContent(){
     const gastoTx = getTx(lf.expenseTxId);
     const p = gastoTx ? gastoTx.porCobrar[lf.idx] : null;
     if(!gastoTx || !p) return '<div class="sheet-top"><div class="merchant">Ya no existe</div></div>';
+    if(lf.seleccionado){
+      const incomeTx = getTx(lf.seleccionado);
+      if(incomeTx) return renderAssignAmountStep(p, gastoTx, incomeTx, lf.idx);
+      lf.seleccionado = null; // el depósito elegido ya no existe -- vuelve a la lista
+    }
+    const asignaciones = (p.asignaciones && p.asignaciones.length) ? p.asignaciones : (p.linkedTxId ? [{incomeTxId:p.linkedTxId, monto:p.montoRecibido}] : []);
+    const yaAsignadoTotal = receivableAssignedTotal(p);
+    const asignadosHtml = asignaciones.length ? '<div class="card" style="padding:12px 16px;margin-bottom:12px;">'+
+        '<div class="sheet-block-title" style="margin-bottom:6px;">Pagos ya asignados</div>'+
+        asignaciones.map(a=>{
+          const it = getTx(a.incomeTxId);
+          return '<div class="split-row" style="align-items:center;">'+
+            '<span style="flex:1;">'+(it?it.comercio:'Depósito')+'</span>'+
+            '<span class="tabular muted" style="margin-right:8px;">'+money(a.monto)+'</span>'+
+            '<button class="rm-btn" data-unassign-income="'+lf.expenseTxId+'|'+lf.idx+'|'+a.incomeTxId+'" aria-label="Quitar esta asignación">'+ICONS.trash+'</button>'+
+          '</div>';
+        }).join('')+
+      '</div>' : '';
     const ingresos = TRANSACTIONS.filter(t=>t.tipo==='ingreso').slice().sort((a,b)=> (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
     const rows = ingresos.map(t=>{
-      const yaVinculado = pendingLinkedTo(t.id);
-      return '<button class="link-pick-row" data-pick-income="'+t.id+'">'+
+      const restanteDeposito = Math.max(t.monto - incomeAssignedTotal(t.id), 0);
+      return '<button class="link-pick-row" data-select-income="'+t.id+'">'+
         '<span class="link-pick-body"><span class="link-pick-name">'+t.comercio+'</span>'+
-          '<span class="link-pick-sub">'+dayLabel(t.fecha)+(yaVinculado?' · ya vinculado a '+yaVinculado.comercio:'')+'</span></span>'+
+          '<span class="link-pick-sub">'+dayLabel(t.fecha)+(restanteDeposito<t.monto?' · le quedan '+money(restanteDeposito)+' sin asignar':'')+'</span></span>'+
         '<span class="link-pick-amt tabular pos">+'+money(t.monto)+'</span>'+
       '</button>';
     }).join('');
     return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
         '<div class="merchant" style="font-size:17px;">¿Qué depósito corresponde?</div>'+
-        '<div class="meta">Elige el ingreso que corresponde a '+(p.persona||'este pendiente')+' — '+gastoTx.comercio+'.</div>'+
+        '<div class="meta">Elige el ingreso que corresponde a '+(p.persona||'este pendiente')+' — '+gastoTx.comercio+
+          (yaAsignadoTotal>0 ? ' · ya asignado: '+money(yaAsignadoTotal) : '')+'.</div>'+
       '</div>'+
+      asignadosHtml+
       (ingresos.length? rows : '<div class="card placeholder-card">'+ICONS.inbox+'<h3>No tienes ingresos registrados</h3><p>Cuando tengas una transacción de ingreso, aparecerá acá para vincularla.</p></div>');
   } else {
     const ingresoTx = getTx(lf.incomeTxId);
     if(!ingresoTx) return '<div class="sheet-top"><div class="merchant">Ya no existe</div></div>';
+    if(lf.seleccionado){
+      const gastoTx = getTx(lf.seleccionado.expenseTxId);
+      const p = gastoTx ? gastoTx.porCobrar[lf.seleccionado.idx] : null;
+      if(gastoTx && p) return renderAssignAmountStep(p, gastoTx, ingresoTx, lf.seleccionado.idx);
+      lf.seleccionado = null; // el pendiente elegido ya no existe -- vuelve a la lista
+    }
     const pendientes = allPendingReceivables();
+    const yaAsignadoDelDeposito = incomeAssignedTotal(ingresoTx.id);
+    const linksDeEsteDeposito = receivablesLinkedFrom(ingresoTx.id);
+    const asignadosHtml = linksDeEsteDeposito.length ? '<div class="card" style="padding:12px 16px;margin-bottom:12px;">'+
+        '<div class="sheet-block-title" style="margin-bottom:6px;">Ya asignado a</div>'+
+        linksDeEsteDeposito.map(l=>{
+          return '<div class="split-row" style="align-items:center;">'+
+            '<span style="flex:1;">'+(l.persona||'Sin nombre')+' — '+l.comercio+'</span>'+
+            '<span class="tabular muted" style="margin-right:8px;">'+money(l.montoAsignado)+'</span>'+
+            '<button class="rm-btn" data-unassign-income="'+l.expenseTxId+'|'+l.idx+'|'+ingresoTx.id+'" aria-label="Quitar esta asignación">'+ICONS.trash+'</button>'+
+          '</div>';
+        }).join('')+
+      '</div>' : '';
     const rows = pendientes.map(p=>{
-      const montoTxt = p.monto!=null ? money(p.monto)+' esperado' : 'monto por confirmar';
-      return '<button class="link-pick-row" data-pick-pending="'+p.expenseTxId+'|'+p.idx+'">'+
+      const montoTxt = p.monto!=null ? money(p.restante)+' restante' : 'monto por confirmar';
+      return '<button class="link-pick-row" data-select-pending="'+p.expenseTxId+'|'+p.idx+'">'+
         '<span class="link-pick-body"><span class="link-pick-name">'+(p.persona||'Sin nombre')+
-          (p.tipo==='reembolso'?' <span class="pend-tipo-tag" style="margin-left:4px;">Reembolso</span>':'')+'</span>'+
+          (p.tipo==='reembolso'?' <span class="pend-tipo-tag" style="margin-left:4px;">Reembolso</span>':'')+
+          (p.estado==='parcial'?' <span class="pend-tipo-tag" style="margin-left:4px;">Parcial</span>':'')+'</span>'+
           '<span class="link-pick-sub">'+p.comercio+' · '+dayLabel(p.fecha)+'</span></span>'+
         '<span class="link-pick-amt tabular muted">'+montoTxt+'</span>'+
       '</button>';
@@ -678,8 +763,10 @@ export function renderLinkFlowContent(){
         : '');
     return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
         '<div class="merchant" style="font-size:17px;">¿A qué pendiente corresponde?</div>'+
-        '<div class="meta">Este depósito de '+money(ingresoTx.monto)+' ('+ingresoTx.comercio+') se vinculará a lo que elijas.</div>'+
+        '<div class="meta">Este depósito de '+money(ingresoTx.monto)+' ('+ingresoTx.comercio+')'+
+          (yaAsignadoDelDeposito>0 ? ' ya tiene '+money(yaAsignadoDelDeposito)+' asignado' : '')+'.</div>'+
       '</div>'+
+      asignadosHtml+
       (pendientes.length? rows : '<div class="card placeholder-card">'+ICONS.checkCircle+'<h3>No tienes pendientes</h3><p>No hay ningún cobro o reembolso pendiente para vincular todavía.</p></div>')+
       reembolsoInesperado;
   }
