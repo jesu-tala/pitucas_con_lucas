@@ -80,10 +80,31 @@ export function emptyAppStateBlob(){
   };
 }
 
+// Deep-copies a plain JSON-serializable value -- used below so that whoever calls
+// buildFullStateBlob() gets a truly INDEPENDENT snapshot, never a live reference into the
+// app's actual working state.
+function deepClone<T>(v: T): T { return JSON.parse(JSON.stringify(v)); }
+
 // The same format already used by "JSON Backup" (buildBackupJSON), extended with the
 // total-goal checks and the months — previously those two didn't travel in the backup.
+//
+// IMPORTANT (bug fixed here, real incident): this used to return several of these fields
+// (categorias, mediosPago, months, monthLabel) as LIVE REFERENCES to CATEGORIES/PAYMENT_METHODS/
+// MONTHS/MONTH_LABEL themselves -- not copies. applyStateBlob() (below) mutates those same
+// objects IN PLACE (it empties them, then Object.assign()s the new data in). Every caller that
+// takes a "snapshot" with buildFullStateBlob() and holds onto it while something ELSE later
+// calls applyStateBlob() (demo.ts's enterDemoMode/exitDemoMode is exactly this: snapshot the
+// real state, swap in synthetic data, swap back later) was silently getting its "snapshot"
+// corrupted by that later mutation, because it was never a separate object to begin with. That
+// is exactly how activating and then deactivating demo mode once destroyed a real account's
+// category names/colors and payment methods -- exitDemoMode() "restored" from a snapshot that
+// had already been overwritten by the demo data, and the app's normal autosave then wrote that
+// corrupted state back to Supabase a couple seconds later, no further action needed. The whole
+// return value is deep-cloned now so this function's result is ALWAYS a true, independent
+// snapshot, regardless of what happens to the live state afterward -- this class of bug can't
+// recur through this function again, for any current or future field.
 export function buildFullStateBlob(){
-  return {
+  return deepClone({
     // sharedByOthers is never persisted -- it's recalculated on its own from gastos_compartidos/
     // gasto_reparto every time (see syncSharedExpenses), so it can never end up
     // out of sync with the real source or duplicated.
@@ -93,7 +114,7 @@ export function buildFullStateBlob(){
     metasInversion: INVESTMENT_GOALS, plataformas: PLATFORM_DATA, planificador: PLANNER,
     metasTotalChecks: TOTAL_GOAL_CHECKS, presupuestoAvisosEnviados: BUDGET_ALERTS_SENT,
     months: MONTHS, monthLabel: MONTH_LABEL, contactos: CONTACTS, reglasGrupoCategoria: GROUP_CATEGORY_RULES
-  };
+  });
 }
 
 // CATEGORIES, PAYMENT_METHODS, MONTHS and MONTH_LABEL are const — they get emptied and refilled in the

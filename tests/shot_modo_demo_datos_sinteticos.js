@@ -17,6 +17,19 @@ const { openApp, check, finish } = require('./lib/test_kit');
     D.currentUser = { id: 'user-real-para-demo' };
     const actuales = D.buildFullStateBlob().transacciones;
     D.setTransactions(actuales.concat([{ id: 'real_tx_marca', fecha: D.todayISO(), hora: '08:00', comercio: 'MI TRANSACCIÓN REAL', monto: 999999, medio: 'efectivo', tipo: 'gasto', recurrencia: 'variable', estado: 'confirmado', categorias: [], porCobrar: [], reglaAuto: false, nota: '' }]));
+    // Regresión de un incidente real: activar y desactivar el demo una vez borró las categorías
+    // y medios de pago REALES de una cuenta (quedaron reemplazados por los del demo, incluso
+    // después de "salir"). Causa: buildFullStateBlob() devolvía CATEGORIES/PAYMENT_METHODS por
+    // REFERENCIA (no una copia) -- el "snapshot" de demo.ts apuntaba al mismo objeto que
+    // applyStateBlob() vacía y rellena en el sitio, así que quedaba corrompido antes de poder
+    // restaurarse. Acá se marcan una categoría PROPIA (con nombre/color distintos a los del seed
+    // por defecto, y además reusando la MISMA key que el demo también usa -- 'supermercado' --
+    // que es justo el caso donde el bug pisaba silenciosamente el valor real) y un medio de pago
+    // propio, para confirmar que sobreviven intactos al ciclo completo activar→desactivar.
+    D.CATEGORIES.supermercado.nombre = 'Super del barrio (mío)';
+    D.CATEGORIES.supermercado.colorHue = 271;
+    D.CATEGORIES.mi_categoria_custom = { nombre: 'Mascotas', tipo: 'gasto', colorHue: 199, icon: '🐶' };
+    D.PAYMENT_METHODS.mi_tarjeta_custom = { nombre: 'Mi Tarjeta Custom', corto: '•••• 0000', icon: 'card' };
     const txs = D.buildFullStateBlob().transacciones;
     return {
       txCount: txs.length,
@@ -88,10 +101,18 @@ const { openApp, check, finish } = require('./lib/test_kit');
       demoMode: D.state.demoMode,
       txIds: txs.map(t => t.id),
       txCount: txs.length,
+      superNombre: D.CATEGORIES.supermercado && D.CATEGORIES.supermercado.nombre,
+      superColorHue: D.CATEGORIES.supermercado && D.CATEGORIES.supermercado.colorHue,
+      customCat: D.CATEGORIES.mi_categoria_custom,
+      customMedio: D.PAYMENT_METHODS.mi_tarjeta_custom,
     };
   });
   check('4) Desactivar demo apaga state.demoMode', alDesactivar.demoMode === false, alDesactivar.demoMode);
   check('   la data real vuelve exacta (nuestra marca está de vuelta)', alDesactivar.txIds.includes('real_tx_marca'), alDesactivar.txIds.length);
+  check('   Regresión: una categoría propia con la MISMA key que usa el demo (supermercado) conserva TU nombre, no el del seed por defecto', alDesactivar.superNombre === 'Super del barrio (mío)', alDesactivar.superNombre);
+  check('   Regresión: y TU color, no el del demo', alDesactivar.superColorHue === 271, alDesactivar.superColorHue);
+  check('   Regresión: una categoría propia que el demo ni conoce sigue existiendo intacta', !!alDesactivar.customCat && alDesactivar.customCat.nombre === 'Mascotas' && alDesactivar.customCat.colorHue === 199, alDesactivar.customCat);
+  check('   Regresión: un medio de pago propio sigue existiendo intacto', !!alDesactivar.customMedio && alDesactivar.customMedio.nombre === 'Mi Tarjeta Custom', alDesactivar.customMedio);
   check('   la edición hecha durante el demo se descartó (no contaminó la data real)', !alDesactivar.txIds.includes('demo_edicion_efimera'), alDesactivar.txIds.includes('demo_edicion_efimera'));
   check('   el conteo de transacciones reales queda igual al de antes de activar el demo (+1 de nuestra marca)', alDesactivar.txCount === antes.txCount, { antes: antes.txCount, despues: alDesactivar.txCount });
 
