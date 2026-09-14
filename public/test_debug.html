@@ -230,15 +230,18 @@
     border-top:1px solid var(--border);
     background:var(--surface);
     flex-shrink:0;
-    padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));
+    /* Compacta, pegada al borde inferior real (ver .phone -- position:fixed + 100dvh en el
+       breakpoint móvil, más abajo) -- el único inset que se le suma es el propio de esta barra,
+       una sola vez, como padding (nunca se duplica en ningún wrapper). */
+    padding:4px 6px calc(4px + env(safe-area-inset-bottom,0px));
   }
   .tab{
-    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
-    background:none;border:none;color:var(--text-tertiary);padding:8px 4px 6px;
-    border-radius:14px;cursor:pointer;font-size:11.5px;font-weight:600;
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    background:none;border:none;color:var(--text-tertiary);padding:6px 4px 4px;
+    border-radius:14px;cursor:pointer;font-size:10.5px;font-weight:600;
     transition:color .15s ease;
   }
-  .tab svg{width:22px;height:22px;}
+  .tab svg{width:20px;height:20px;}
   .tab.active{color:var(--accent);}
   .tab:hover{color:var(--accent-ink);}
 
@@ -525,7 +528,7 @@
     /* la barra inferior (.tabbar) le suma su propio env(safe-area-inset-bottom) cuando hay
        una franja segura abajo (el "home indicator" de un iPhone sin botón físico) — si el
        + no suma lo mismo, la barra le gana en altura y el botón queda tapado detrás de ella. */
-    bottom:calc(78px + env(safe-area-inset-bottom,0px));
+    bottom:calc(65px + env(safe-area-inset-bottom,0px));
     background:var(--accent);color:#fff;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;
     cursor:pointer;z-index:15;transition:transform .15s ease;
   }
@@ -5272,7 +5275,7 @@
     if (state.filter === "entradas") {
       const ingresos = base.filter((t) => t.tipo === "ingreso").reduce((s, t) => s + netIncomeTx(t), 0);
       const reembolsos = base.reduce((s, t) => s + t.porCobrar.filter((p) => p.pagado && p.tipo === "reembolso").reduce((ss, p) => ss + pendingEffectiveAmount(p), 0), 0);
-      return '<div class="stat-grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px;"><div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">' + money(ingresos) + '</div></div><div class="card stat-tile" style="background:var(--surface);border:1px solid var(--border);"><div class="stat-label">Reembolsos</div><div class="stat-value tabular">' + money(reembolsos) + "</div></div></div>";
+      return '<div class="stat-grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px;"><div class="card stat-tile stat-ingresos"><div class="stat-label">Entradas</div><div class="stat-value tabular">' + money(ingresos) + '</div></div><div class="card stat-tile" style="background:var(--surface);border:1px solid var(--border);"><div class="stat-label">Reembolsos</div><div class="stat-value tabular">' + money(reembolsos) + "</div></div></div>";
     }
     if (state.filter === "porcobrar") {
       const relevantes = base.filter((t) => t.estado === "por_cobrar" && hasReceivableType(t, "persona"));
