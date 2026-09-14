@@ -8488,8 +8488,12 @@
     };
   }
   __name(emptyAppStateBlob, "emptyAppStateBlob");
+  function deepClone(v) {
+    return JSON.parse(JSON.stringify(v));
+  }
+  __name(deepClone, "deepClone");
   function buildFullStateBlob() {
-    return {
+    return deepClone({
       // sharedByOthers is never persisted -- it's recalculated on its own from gastos_compartidos/
       // gasto_reparto every time (see syncSharedExpenses), so it can never end up
       // out of sync with the real source or duplicated.
@@ -8509,7 +8513,7 @@
       monthLabel: MONTH_LABEL,
       contactos: CONTACTS,
       reglasGrupoCategoria: GROUP_CATEGORY_RULES
-    };
+    });
   }
   __name(buildFullStateBlob, "buildFullStateBlob");
   function applyStateBlob(blob) {
