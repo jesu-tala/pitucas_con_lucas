@@ -1240,9 +1240,21 @@
       const cat = r.cat ? catInfo(r.cat) : null;
       const confirmando = state.confirmDeleteRuleComercio === r.comercio;
       return '<div class="card rule-card"><div class="rule-card-head"><span class="rule-card-comercio">' + r.comercio + '</span><span class="rule-card-count">' + r.count + " transac.</span>" + (confirmando ? "" : '<button class="budget-edit-btn" data-ask-delete-rule="' + encodeURIComponent(r.comercio) + '" aria-label="Eliminar regla de ' + r.comercio + '">' + ICONS.trash + "</button>") + '</div><div class="rule-card-detail">' + (cat ? '<span class="rule-card-catchip" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + " " + cat.nombre + "</span>" : "") + "<span>" + (r.tipo === "gasto" ? "Gasto" : r.tipo === "ingreso" ? "Ingreso" : "Inversi\xF3n") + "</span><span>\xB7</span><span>" + (r.recurrencia === "mensual" ? "Fijo mensual" : "Variable") + "</span></div>" + (confirmando ? '<div class="file-format-hint" style="margin:10px 0 8px;">\xBFSeguro que quieres eliminar la regla de "' + r.comercio + '"? Las transacciones ya clasificadas no cambian, pero las nuevas de este comercio dejar\xE1n de clasificarse solas.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-rule>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-rule="' + encodeURIComponent(r.comercio) + '">S\xED, eliminar</button></div>' : "") + "</div>";
-    }).join(""));
+    }).join("")) + renderGroupCategoryRulesSection();
   }
   __name(renderMenuReglas, "renderMenuReglas");
+  function renderGroupCategoryRulesSection() {
+    const catIds = Object.keys(GROUP_CATEGORY_RULES);
+    if (!catIds.length) return "";
+    return '<h3 style="font-size:14px;margin:22px 0 10px;">Reglas de grupo por categor\xEDa</h3>' + catIds.map((catId) => {
+      const regla = GROUP_CATEGORY_RULES[catId];
+      const cat = catInfo(catId);
+      const grupo = GROUPS.find((g) => g.id === regla.groupId);
+      const confirmando = state.confirmDeleteGroupRuleCatId === catId;
+      return '<div class="card rule-card"><div class="rule-card-head"><span class="rule-card-comercio">' + cat.nombre + "</span>" + (confirmando ? "" : '<button class="budget-edit-btn" data-ask-delete-group-rule="' + catId + '" aria-label="Eliminar regla de grupo para ' + cat.nombre + '">' + ICONS.trash + "</button>") + '</div><div class="rule-card-detail"><span class="rule-card-catchip" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + " " + cat.nombre + "</span><span>\u2192 " + (grupo ? grupo.icono + " " + grupo.nombre : "grupo eliminado") + "</span><span>\xB7</span><span>" + (regla.divisionTipo === "iguales" ? "Por partes" : regla.divisionTipo === "pct" ? "Por %" : "Monto fijo") + "</span></div>" + (confirmando ? '<div class="file-format-hint" style="margin:10px 0 8px;">\xBFEliminar la regla de "' + cat.nombre + '" \u2192 ' + (grupo ? grupo.nombre : "ese grupo") + '? Las transacciones ya compartidas no cambian -- solo deja de sugerirse la pr\xF3xima vez.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-group-rule>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-group-rule="' + catId + '">S\xED, eliminar</button></div>' : "") + "</div>";
+    }).join("");
+  }
+  __name(renderGroupCategoryRulesSection, "renderGroupCategoryRulesSection");
   function renderMenuExportar() {
     document.getElementById("view-root").innerHTML = menuScreenHead("Exportar a Excel") + '<div class="card" style="padding:16px;"><div class="menu-item-card" style="padding:0;margin-bottom:16px;"><span class="menu-item-card-icon" style="--fill:var(--cat-sage-fill);--ink:var(--cat-sage-ink)">' + ICONS.trending + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">' + TRANSACTIONS.length + ' transacciones</div><div class="menu-item-card-sub">Se exportan todas, sin importar el filtro o mes abierto</div></div></div><button class="save-tx-btn" data-export-csv style="width:100%;">Descargar CSV</button><div class="file-format-hint">Se abre directo en Excel, Google Sheets o Numbers. Columnas: <code>fecha, hora, comercio, monto, tipo, categoria, medio, recurrencia, estado</code>.</div></div>';
   }
@@ -2112,6 +2124,37 @@
     return { ok: true, error: null };
   }
   __name(joinGroup, "joinGroup");
+  async function fetchGroupRoster(inviteCode) {
+    if (!sb) return { ok: false, error: { message: "No hay conexi\xF3n con el servidor todav\xEDa." } };
+    const { data, error } = await sb.rpc("roster_de_grupo", { p_invite_code: inviteCode });
+    if (error) {
+      console.error("Pitucas sin lucas \u2014 error buscando el grupo:", error);
+      return { ok: false, error };
+    }
+    if (!data || !data.length) return { ok: false, error: { message: "No encontr\xE9 ning\xFAn grupo con ese c\xF3digo." } };
+    return {
+      ok: true,
+      error: null,
+      roster: {
+        grupoId: data[0].grupo_id,
+        grupoNombre: data[0].grupo_nombre,
+        grupoIcono: data[0].grupo_icono,
+        participantes: data.map((row) => ({ id: row.participante_id, nombre: row.participante_nombre, reclamado: !!row.reclamado }))
+      }
+    };
+  }
+  __name(fetchGroupRoster, "fetchGroupRoster");
+  async function claimParticipant(participantId, inviteCode) {
+    if (!sb) return { ok: false, error: null };
+    const { error } = await sb.rpc("reclamar_participante", { p_participante_id: participantId, p_invite_code: inviteCode });
+    if (error) {
+      console.error("Pitucas sin lucas \u2014 error reclamando participante:", error);
+      return { ok: false, error };
+    }
+    await loadSharedExpenses();
+    return { ok: true, error: null };
+  }
+  __name(claimParticipant, "claimParticipant");
   async function addParticipantWithoutAccount(groupId, nombre, color) {
     if (!sb) return null;
     const { data, error } = await sb.from("grupo_participantes").insert({ grupo_id: groupId, nombre, color: color || "mint" }).select().single();
@@ -4897,7 +4940,7 @@
     const groupJoinOpenBtn = e.target.closest("[data-group-join-open]");
     if (groupJoinOpenBtn) {
       state.joiningGroup = true;
-      state.joinDraft = { inviteCode: "", nombre: "" };
+      state.joinDraft = { inviteCode: "", nombre: "", roster: null, loadingRoster: false, errorRoster: null, selectedParticipantId: null, addingNew: false };
       renderGroupsView();
       return;
     }
@@ -4907,10 +4950,48 @@
       renderGroupsView();
       return;
     }
+    const groupJoinBuscarBtn = e.target.closest("[data-group-join-buscar]");
+    if (groupJoinBuscarBtn) {
+      const d = state.joinDraft;
+      if (d.inviteCode.trim()) {
+        d.loadingRoster = true;
+        d.errorRoster = null;
+        renderGroupsView();
+        fetchGroupRoster(d.inviteCode.trim()).then(function(res) {
+          d.loadingRoster = false;
+          if (res.ok) d.roster = res.roster;
+          else d.errorRoster = res.error ? res.error.message : "No se pudo buscar el grupo.";
+          renderGroupsView();
+        });
+      }
+      return;
+    }
+    const joinSelectParticipantEl = e.target.closest("[data-join-select-participant]");
+    if (joinSelectParticipantEl) {
+      const d = state.joinDraft;
+      d.selectedParticipantId = joinSelectParticipantEl.getAttribute("data-join-select-participant");
+      d.addingNew = false;
+      renderGroupsView();
+      return;
+    }
+    const joinSelectNuevoEl = e.target.closest("[data-join-select-nuevo]");
+    if (joinSelectNuevoEl) {
+      const d = state.joinDraft;
+      d.addingNew = true;
+      d.selectedParticipantId = null;
+      renderGroupsView();
+      return;
+    }
     const groupJoinConfirmBtn = e.target.closest("[data-group-join-confirm]");
     if (groupJoinConfirmBtn) {
       const d = state.joinDraft;
-      if (d.inviteCode.trim() && d.nombre.trim()) {
+      if (d.selectedParticipantId) {
+        claimParticipant(d.selectedParticipantId, d.roster.grupoId).then(function(res) {
+          state.joiningGroup = false;
+          toast(res.ok ? "Te uniste al grupo" : "No se pudo unir \u2014 " + (res.error ? res.error.message : "revisa el c\xF3digo"));
+          renderGroupsView();
+        });
+      } else if (d.addingNew && d.nombre.trim()) {
         joinGroup(d.inviteCode.trim(), d.nombre.trim()).then(function(res) {
           state.joiningGroup = false;
           toast(res.ok ? "Te uniste al grupo" : "No se pudo unir \u2014 " + (res.error ? res.error.message : "revisa el c\xF3digo"));
@@ -5091,7 +5172,9 @@
     const shareOpenBtn = e.target.closest("[data-share-open]");
     if (shareOpenBtn) {
       const txId = shareOpenBtn.getAttribute("data-share-open");
-      state.shareDraft = defaultShareDraft(txId);
+      const t = getTx(txId);
+      state.shareDraft = t ? shareDraftForTx(t) : defaultShareDraft(txId);
+      state.shareDraftSaveAsRule = false;
       renderSheet();
       return;
     }
@@ -5105,6 +5188,7 @@
     if (shareEditBtn) {
       const t = getTx(shareEditBtn.getAttribute("data-share-edit"));
       if (t) state.shareDraft = draftFromExistingGroupSplit(t);
+      state.shareDraftSaveAsRule = false;
       renderSheet();
       return;
     }
@@ -5230,6 +5314,14 @@
         const reparto = computeShareAmounts(t.monto, d);
         const suma = shareAmountsSum(reparto, d.participantesIncluidos);
         if (suma !== t.monto) return;
+        if (d.groupId && state.shareDraftSaveAsRule && t.categorias.length === 1) {
+          GROUP_CATEGORY_RULES[t.categorias[0].cat] = {
+            groupId: d.groupId,
+            divisionTipo: d.divisionTipo,
+            pagadoPorId: d.pagadoPorId,
+            customValues: Object.assign({}, d.customValues)
+          };
+        }
         if (d.groupId && t.sharedExpenseId) {
           updateSharedTransaction(txId, d.groupId, d.pagadoPorId, d.divisionTipo, reparto).then(function(ok) {
             state.shareDraft = null;
@@ -5427,6 +5519,27 @@
       });
       state.confirmDeleteRuleComercio = null;
       toast("Regla eliminada para " + comercio);
+      renderMenuView();
+      return;
+    }
+    const askDeleteGroupRuleBtn = e.target.closest("[data-ask-delete-group-rule]");
+    if (askDeleteGroupRuleBtn) {
+      state.confirmDeleteGroupRuleCatId = askDeleteGroupRuleBtn.getAttribute("data-ask-delete-group-rule");
+      renderMenuView();
+      return;
+    }
+    const cancelDeleteGroupRuleBtn = e.target.closest("[data-cancel-delete-group-rule]");
+    if (cancelDeleteGroupRuleBtn) {
+      state.confirmDeleteGroupRuleCatId = null;
+      renderMenuView();
+      return;
+    }
+    const deleteGroupRuleBtn = e.target.closest("[data-confirm-delete-group-rule]");
+    if (deleteGroupRuleBtn) {
+      const catId = deleteGroupRuleBtn.getAttribute("data-confirm-delete-group-rule");
+      delete GROUP_CATEGORY_RULES[catId];
+      state.confirmDeleteGroupRuleCatId = null;
+      toast("Regla de grupo eliminada");
       renderMenuView();
       return;
     }
@@ -5686,6 +5799,11 @@
     if (sharePagadorSelect && state.shareDraft) {
       state.shareDraft.pagadoPorId = sharePagadorSelect.value;
       renderSheet();
+      return;
+    }
+    const shareSaveAsRuleBox = e.target.closest("[data-share-save-as-rule]");
+    if (shareSaveAsRuleBox) {
+      state.shareDraftSaveAsRule = shareSaveAsRuleBox.checked;
       return;
     }
     const compartirIncluirBox = e.target.closest("[data-share-include]");
@@ -6347,7 +6465,8 @@
       // A diferencia de categorías/medios de pago, no hay un valor "de ejemplo" razonable para
       // los nombres de personas con las que reparte gastos -- una cuenta nueva de verdad arranca
       // sin ninguno, no con los 4 nombres de la maqueta (Cata/Fran/Pancho/Mamá).
-      contactos: []
+      contactos: [],
+      reglasGrupoCategoria: {}
     };
   }
   __name(emptyAppStateBlob, "emptyAppStateBlob");
@@ -6370,7 +6489,8 @@
       presupuestoAvisosEnviados: BUDGET_ALERTS_SENT,
       months: MONTHS,
       monthLabel: MONTH_LABEL,
-      contactos: CONTACTS
+      contactos: CONTACTS,
+      reglasGrupoCategoria: GROUP_CATEGORY_RULES
     };
   }
   __name(buildFullStateBlob, "buildFullStateBlob");
@@ -6400,6 +6520,7 @@
       }
     });
     setContacts(blob.contactos || []);
+    setGroupCategoryRules(blob.reglasGrupoCategoria || {});
     setBudgets(blob.presupuestos || {});
     setMonthlyBudgetTotal(blob.monthlyBudgetTotal || 0);
     setSpendingGoalPct(blob.metasGastoPct || { fijo: 45, variable: 17 });
@@ -6889,6 +7010,33 @@
     };
   }
   __name(defaultShareDraft, "defaultShareDraft");
+  function shareDraftForTx(tx) {
+    const catId = tx.categorias[0] ? tx.categorias[0].cat : null;
+    const regla = catId ? GROUP_CATEGORY_RULES[catId] : null;
+    if (!regla || !GROUPS.find((g) => g.id === regla.groupId)) return defaultShareDraft(tx.id);
+    const participantes = participantsOfGroup(regla.groupId);
+    if (!participantes.length) return defaultShareDraft(tx.id);
+    const idsValidos = new Set(participantes.map((p) => p.id));
+    const participantesIncluidos = Object.keys(regla.customValues).filter((id) => idsValidos.has(id));
+    if (!participantesIncluidos.length) return defaultShareDraft(tx.id, regla.groupId);
+    const mi = myParticipantInGroup(regla.groupId);
+    const pagadoPorId = idsValidos.has(regla.pagadoPorId) ? regla.pagadoPorId : mi ? mi.id : participantes[0].id;
+    if (!participantesIncluidos.includes(pagadoPorId)) participantesIncluidos.push(pagadoPorId);
+    const customValues = {};
+    participantesIncluidos.forEach((id) => {
+      customValues[id] = regla.customValues[id] || "";
+    });
+    return {
+      txId: tx.id,
+      groupId: regla.groupId,
+      divisionTipo: regla.divisionTipo,
+      pagadoPorId,
+      participantesIncluidos,
+      customValues,
+      extraParticipants: []
+    };
+  }
+  __name(shareDraftForTx, "shareDraftForTx");
   function shareDraftParticipants(d) {
     if (d.groupId) return participantsOfGroup(d.groupId);
     const nombres = ["T\xFA", ...CONTACTS, ...d.extraParticipants];
@@ -6950,9 +7098,11 @@
     }).join("");
     const addPersonRow = d.groupId ? "" : '<div class="split-row" style="align-items:center;"><input type="text" class="draft-input" data-share-new-name placeholder="Agregar otra persona\u2026" style="flex:1;"><button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">' + ICONS.plus + "</button></div>";
     const editandoExistente = !!(d.groupId && tx.sharedExpenseId);
+    const catUnica = d.groupId && tx.categorias.length === 1 ? catInfo(tx.categorias[0].cat) : null;
+    const saveAsRuleHtml = !catUnica ? "" : '<label class="split-row" style="align-items:center;cursor:pointer;margin-top:6px;"><input type="checkbox" data-share-save-as-rule ' + (state.shareDraftSaveAsRule ? "checked" : "") + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;"><span style="flex:1;font-size:13px;">Usar siempre esta divisi\xF3n para <b>' + catUnica.nombre + "</b></span></label>";
     return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">' + (editandoExistente ? "Editar reparto del grupo" : d.groupId ? "Compartir con un grupo" : "Dividir este gasto") + "</div>" + groupSelectHtml + '<label class="draft-label" style="margin-top:12px;">\xBFC\xF3mo se divide?</label>' + modalidadSeg + // Un segmented (fila de botones) se ve bien con 2-4 opciones, pero con un grupo grande (10+
     // personas) se desborda y queda ilegible -- un <select> escala a cualquier cantidad de gente.
-    '<label class="draft-label" style="margin-top:12px;">\xBFQui\xE9n pag\xF3?</label><select data-share-pagador>' + participantes.map((p) => '<option value="' + p.id + '" ' + (p.id === d.pagadoPorId ? "selected" : "") + ">" + p.nombre + "</option>").join("") + '</select><label class="draft-label" style="margin-top:12px;">\xBFEntre qui\xE9nes se divide?</label>' + rows + addPersonRow + '<div class="split-remaining"><span>Total repartido</span><span class="' + (ok ? "ok" : "bad") + ' tabular">' + money(suma) + " de " + money(tx.monto) + '</span></div><div class="field-error" style="' + (ok ? "display:none;" : "") + '">' + (remaining > 0 ? "Faltan " + money(remaining) + " por repartir" : remaining < 0 ? "Sobran " + money(-remaining) + " por repartir" : "") + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-share-confirm="' + tx.id + '" ' + (ok ? "" : "disabled") + ">" + (editandoExistente ? "Guardar cambios" : d.groupId ? "Compartir" : "Guardar reparto") + "</button></div></div>";
+    '<label class="draft-label" style="margin-top:12px;">\xBFQui\xE9n pag\xF3?</label><select data-share-pagador>' + participantes.map((p) => '<option value="' + p.id + '" ' + (p.id === d.pagadoPorId ? "selected" : "") + ">" + p.nombre + "</option>").join("") + '</select><label class="draft-label" style="margin-top:12px;">\xBFEntre qui\xE9nes se divide?</label>' + rows + addPersonRow + '<div class="split-remaining"><span>Total repartido</span><span class="' + (ok ? "ok" : "bad") + ' tabular">' + money(suma) + " de " + money(tx.monto) + '</span></div><div class="field-error" style="' + (ok ? "display:none;" : "") + '">' + (remaining > 0 ? "Faltan " + money(remaining) + " por repartir" : remaining < 0 ? "Sobran " + money(-remaining) + " por repartir" : "") + "</div>" + saveAsRuleHtml + '<div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-share-confirm="' + tx.id + '" ' + (ok ? "" : "disabled") + ">" + (editandoExistente ? "Guardar cambios" : d.groupId ? "Compartir" : "Guardar reparto") + "</button></div></div>";
   }
   __name(renderSplitDraftForm, "renderSplitDraftForm");
   function renderGroupsView() {
@@ -6993,7 +7143,16 @@
   __name(renderCreateGroupForm, "renderCreateGroupForm");
   function renderJoinGroupForm() {
     const d = state.joinDraft;
-    return groupScreenHead("Unirme a un grupo") + '<div class="sheet-block card" style="padding:16px;"><div class="platform-hint muted" style="margin-bottom:12px;">Pide el c\xF3digo de invitaci\xF3n a alg\xFAn miembro del grupo (lo ve al entrar al grupo, m\xE1s abajo).</div><label class="draft-label">C\xF3digo de invitaci\xF3n</label><input type="text" class="draft-input" data-join-draft-field="inviteCode" value="' + d.inviteCode + '" placeholder="Pega el c\xF3digo ac\xE1"><label class="draft-label" style="margin-top:12px;">Tu nombre en este grupo</label><input type="text" class="draft-input" data-join-draft-field="nombre" value="' + d.nombre + '" placeholder="Como quieres que te vean los dem\xE1s"><div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-group-join-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-group-join-confirm>Unirme</button></div></div>';
+    if (!d.roster) {
+      return groupScreenHead("Unirme a un grupo") + '<div class="sheet-block card" style="padding:16px;"><div class="platform-hint muted" style="margin-bottom:12px;">Pide el c\xF3digo de invitaci\xF3n a alg\xFAn miembro del grupo (lo ve al entrar al grupo, m\xE1s abajo).</div><label class="draft-label">C\xF3digo de invitaci\xF3n</label><input type="text" class="draft-input" data-join-draft-field="inviteCode" value="' + d.inviteCode + '" placeholder="Pega el c\xF3digo ac\xE1">' + (d.errorRoster ? '<div class="field-error">' + d.errorRoster + "</div>" : "") + '<div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-group-join-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-group-join-buscar ' + (d.loadingRoster ? "disabled" : "") + ">" + (d.loadingRoster ? "Buscando\u2026" : "Buscar grupo") + "</button></div></div>";
+    }
+    const r = d.roster;
+    const rows = r.participantes.map((p) => {
+      const seleccionado = d.selectedParticipantId === p.id;
+      return '<label class="split-row" style="align-items:center;' + (p.reclamado ? "opacity:.5;" : "cursor:pointer;") + '"><input type="radio" name="join-participant" ' + (p.reclamado ? "disabled" : "") + " " + (seleccionado ? "checked" : "") + ' data-join-select-participant="' + p.id + '" style="width:18px;height:18px;flex-shrink:0;margin-right:8px;"><span style="flex:1;">' + p.nombre + "</span>" + (p.reclamado ? '<span class="muted" style="font-size:12px;">Ya reclamado</span>' : "") + "</label>";
+    }).join("");
+    const confirmHabilitado = !!d.selectedParticipantId || d.addingNew;
+    return groupScreenHead('Unirme a "' + r.grupoNombre + '"') + '<div class="sheet-block card" style="padding:16px;"><div class="platform-hint muted" style="margin-bottom:10px;">\xBFCu\xE1l de estos participantes eres t\xFA?</div>' + rows + '<label class="split-row" style="align-items:center;cursor:pointer;"><input type="radio" name="join-participant" ' + (d.addingNew ? "checked" : "") + ' data-join-select-nuevo style="width:18px;height:18px;flex-shrink:0;margin-right:8px;"><span style="flex:1;">No estoy en la lista</span></label>' + (d.addingNew ? '<input type="text" class="draft-input" style="margin-top:8px;" data-join-draft-field="nombre" value="' + d.nombre + '" placeholder="Tu nombre en este grupo" autofocus>' : "") + (d.errorRoster ? '<div class="field-error">' + d.errorRoster + "</div>" : "") + '<div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-group-join-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-group-join-confirm ' + (confirmHabilitado ? "" : "disabled") + ">Unirme</button></div></div>";
   }
   __name(renderJoinGroupForm, "renderJoinGroupForm");
   var GROUP_TABS_META = {
@@ -8436,6 +8595,11 @@
   var SHARED_EXPENSES = [];
   var PAID_BALANCES = [];
   var CATEGORY_MAPPINGS = [];
+  var GROUP_CATEGORY_RULES = {};
+  function setGroupCategoryRules(v) {
+    GROUP_CATEGORY_RULES = v;
+  }
+  __name(setGroupCategoryRules, "setGroupCategoryRules");
   var MONTHS = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08"];
   var MONTH_LABEL = { "2026-04": "Abril 2026", "2026-05": "Mayo 2026", "2026-06": "Junio 2026", "2026-07": "Julio 2026", "2026-08": "Agosto 2026" };
   var MONTHS_LONG = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -8584,6 +8748,8 @@
     medioDraft: { nombre: "", corto: "", icon: "card" },
     confirmDeleteRuleComercio: null,
     // comercio (rule key) showing "are you sure?" before actually deleting it
+    confirmDeleteGroupRuleCatId: null,
+    // categoryId with a pending "are you sure?" before deleting its group rule (refinamiento C)
     demoMode: false,
     importSummary: null,
     // result of the last CSV imported, to show on screen
@@ -8630,7 +8796,11 @@
     groupDraft: { nombre: "", icono: "\u{1F465}" },
     joiningGroup: false,
     // true while the "Join with a code" form is shown
-    joinDraft: { inviteCode: "", nombre: "" },
+    // roster: null (still entering the code) | {grupoId, grupoNombre, grupoIcono, participantes:
+    // [{id, nombre, reclamado}]} once fetched -- lets you pick "cuál eres tú" (reclamar un
+    // participante existente) or "no estoy en la lista" (addingNew, nombre = tu nombre nuevo)
+    // before actually joining (ver fetchGroupRoster/claimParticipant/joinGroup en views/menu.ts).
+    joinDraft: { inviteCode: "", nombre: "", roster: null, loadingRoster: false, errorRoster: null, selectedParticipantId: null, addingNew: false },
     addingParticipant: false,
     // true while "Add person" (no account) inside a group is shown
     participantDraft: { nombre: "" },
@@ -8645,6 +8815,8 @@
     // "Share with a group" inside a expense transaction's detail/creation:
     shareDraft: null,
     // null, or {groupId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
+    shareDraftSaveAsRule: false,
+    // checkbox "guardar como regla" dentro del draft (refinamiento C) -- solo tiene efecto si la tx tiene 1 sola categoría
     confirmRemoveShareId: null,
     // txId with a pending "quitar del grupo" ask (renderShareGroupSection), or null
     // Editing/deleting a CONTACTS entry from within "divide this expense" (no group) -- same

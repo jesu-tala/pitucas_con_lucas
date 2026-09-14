@@ -119,6 +119,8 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  get SHARED_EXPENSES(){ return SHARED_EXPENSES; }, set SHARED_EXPENSES(v){ SHARED_EXPENSES = v; },
 """ + indent + """  get PAID_BALANCES(){ return PAID_BALANCES; }, set PAID_BALANCES(v){ PAID_BALANCES = v; },
 """ + indent + """  get CATEGORY_MAPPINGS(){ return CATEGORY_MAPPINGS; }, set CATEGORY_MAPPINGS(v){ CATEGORY_MAPPINGS = v; },
+""" + indent + """  get GROUP_CATEGORY_RULES(){ return GROUP_CATEGORY_RULES; }, set GROUP_CATEGORY_RULES(v){ GROUP_CATEGORY_RULES = v; },
+""" + indent + """  shareDraftForTx: shareDraftForTx,
 """ + indent + """  groupBalances: groupBalances, suggestedTransfers: suggestedTransfers, splitEqually: splitEqually,
 """ + indent + """  participantsOfGroup: participantsOfGroup, expensesOfGroup: expensesOfGroup,
 """ + indent + """  syncSharedExpenses: syncSharedExpenses, participantIdForUser: participantIdForUser,

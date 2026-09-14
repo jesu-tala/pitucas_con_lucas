@@ -60,7 +60,9 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('   y el grupo sigue en la lista local (no se borra de la UI con una falsa confirmación)',
     caso1.grupoSigueEnLista === true, caso1);
 
-  // ---------- Caso 2: joinGroup muestra el error real, no siempre "revisa el código" ----------
+  // ---------- Caso 2: buscar el roster con un código malo muestra el error real de Supabase,
+  // no siempre "revisa el código" (refinamiento A: ahora el código se busca primero, mostrando
+  // el roster del grupo, antes de siquiera pedir tu nombre) ----------
   await page.evaluate(() => {
     document.getElementById('toast-stack').innerHTML = '';
     const D = window.__debug;
@@ -71,17 +73,20 @@ const { openApp, check, finish } = require('./lib/test_kit');
     };
     D.state.openGroupId = null;
     D.state.joiningGroup = true;
-    D.state.joinDraft = { inviteCode: '', nombre: '' };
+    D.state.joinDraft = { inviteCode: '', nombre: '', roster: null, loadingRoster: false, errorRoster: null, selectedParticipantId: null, addingNew: false };
     D.render();
   });
   await page.waitForTimeout(150);
   await page.fill('[data-join-draft-field="inviteCode"]', 'abc-123');
-  await page.fill('[data-join-draft-field="nombre"]', 'Yo');
-  await page.click('[data-group-join-confirm]');
+  await page.click('[data-group-join-buscar]');
   await page.waitForTimeout(300);
-  const caso2 = await page.evaluate(() => document.getElementById('toast-stack').textContent);
-  check('Si unirse a un grupo falla, muestra el error real de Supabase (no siempre "revisa el código")',
-    /no se pudo unir.*c[oó]digo de invitaci[oó]n expirado/i.test(caso2), caso2);
+  const caso2 = await page.evaluate(() => ({
+    errorEnPantalla: document.getElementById('view-root').textContent,
+    siguePidiendoCodigo: !!document.querySelector('[data-join-draft-field="inviteCode"]'),
+  }));
+  check('Si buscar el grupo falla, muestra el error real de Supabase (no siempre "revisa el código")',
+    /c[oó]digo de invitaci[oó]n expirado/i.test(caso2.errorEnPantalla), caso2.errorEnPantalla);
+  check('   y se queda en el paso 1 (nunca llega a mostrar un roster que no existe)', caso2.siguePidiendoCodigo, caso2);
 
   check('no hubo errores de JS (pageerror) durante todo el flujo', errors.length === 0, errors);
   await finish({ context, browser, errors: [] });

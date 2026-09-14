@@ -3,8 +3,8 @@ import { categoryColorVars } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
 import { expensesOfGroup, participantsOfGroup, participantIdForUser, computeShareAmounts, shareAmountsSum, groupBalances, suggestedTransfers } from '../shared-expenses';
 import { segmentedHtml } from '../sheet';
-import { CATEGORIES, CATEGORY_MAPPINGS, CONTACTS, GROUPS, GROUP_PARTICIPANTS, PAID_BALANCES, money, state } from '../state';
-import { SharedExpense } from '../types';
+import { CATEGORIES, CATEGORY_MAPPINGS, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, PAID_BALANCES, money, state } from '../state';
+import { SharedExpense, Transaction } from '../types';
 import { currentUser } from '../supabase';
 /* ===================== GROUPS (shared expenses) ===================== */
 // Round avatar with the participant's initial + color -- same category-color reuse approach
@@ -43,6 +43,34 @@ export function defaultShareDraft(txId, groupId?){
     pagadoPorId: mi ? mi.id : (participantes[0] ? participantes[0].id : null),
     participantesIncluidos: participantes.map(p=>p.id),
     customValues: {}, extraParticipants: []
+  };
+}
+
+// Refinamiento C: si la transacción tiene una sola categoría y esa categoría tiene una regla de
+// grupo guardada (GROUP_CATEGORY_RULES -- ver GroupCategoryRule en types.ts), pre-llena el draft
+// desde ahí (grupo, división, quién paga, participantes) en vez del default genérico "todos los
+// miembros, partes iguales" -- se puede sobrescribir libremente en el formulario, esto solo
+// decide el punto de partida. Nunca toca la regla en sí ni ninguna transacción pasada.
+export function shareDraftForTx(tx: Transaction){
+  const catId = tx.categorias[0] ? tx.categorias[0].cat : null;
+  const regla = catId ? GROUP_CATEGORY_RULES[catId] : null;
+  if(!regla || !GROUPS.find(g=>g.id===regla.groupId)) return defaultShareDraft(tx.id);
+  const participantes = participantsOfGroup(regla.groupId);
+  if(!participantes.length) return defaultShareDraft(tx.id);
+  const idsValidos = new Set(participantes.map(p=>p.id));
+  // El grupo puede haber cambiado desde que se guardó la regla (alguien se fue, alguien nuevo se
+  // unió) -- solo se reusan los participantes/pagador que TODAVÍA existen; si ya no queda nadie
+  // de la regla, cae de vuelta al default genérico en vez de un draft vacío/roto.
+  const participantesIncluidos = Object.keys(regla.customValues).filter(id=>idsValidos.has(id));
+  if(!participantesIncluidos.length) return defaultShareDraft(tx.id, regla.groupId);
+  const mi = myParticipantInGroup(regla.groupId);
+  const pagadoPorId = idsValidos.has(regla.pagadoPorId) ? regla.pagadoPorId : (mi ? mi.id : participantes[0].id);
+  if(!participantesIncluidos.includes(pagadoPorId)) participantesIncluidos.push(pagadoPorId);
+  const customValues: Record<string,string> = {};
+  participantesIncluidos.forEach(id=>{ customValues[id] = regla.customValues[id] || ''; });
+  return {
+    txId: tx.id, groupId: regla.groupId, divisionTipo: regla.divisionTipo, pagadoPorId,
+    participantesIncluidos, customValues, extraParticipants: []
   };
 }
 
@@ -174,6 +202,14 @@ export function renderSplitDraftForm(tx, d){
       '<button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">'+ICONS.plus+'</button>'+
     '</div>';
   const editandoExistente = !!(d.groupId && tx.sharedExpenseId);
+  // Refinamiento C: solo tiene sentido ofrecer "guardar como regla" cuando la categoría es
+  // inequívoca (una sola) -- con varias no hay una sola categoría a la que ligar el default.
+  const catUnica = d.groupId && tx.categorias.length===1 ? catInfo(tx.categorias[0].cat) : null;
+  const saveAsRuleHtml = !catUnica ? '' :
+    '<label class="split-row" style="align-items:center;cursor:pointer;margin-top:6px;">'+
+      '<input type="checkbox" data-share-save-as-rule '+(state.shareDraftSaveAsRule?'checked':'')+' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
+      '<span style="flex:1;font-size:13px;">Usar siempre esta división para <b>'+catUnica.nombre+'</b></span>'+
+    '</label>';
   return '<div class="sheet-block card" style="padding:16px;">'+
     '<div class="sheet-block-title">'+(editandoExistente?'Editar reparto del grupo':d.groupId?'Compartir con un grupo':'Dividir este gasto')+'</div>'+
     groupSelectHtml+
@@ -186,6 +222,7 @@ export function renderSplitDraftForm(tx, d){
     rows+addPersonRow+
     '<div class="split-remaining"><span>Total repartido</span><span class="'+(ok?'ok':'bad')+' tabular">'+money(suma)+' de '+money(tx.monto)+'</span></div>'+
     '<div class="field-error" style="'+(ok?'display:none;':'')+'">'+(remaining>0?'Faltan '+money(remaining)+' por repartir':(remaining<0?'Sobran '+money(-remaining)+' por repartir':''))+'</div>'+
+    saveAsRuleHtml+
     '<div style="display:flex;gap:10px;margin-top:14px;">'+
       '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button>'+
       '<button class="save-tx-btn" style="flex:1;" data-share-confirm="'+tx.id+'" '+(ok?'':'disabled')+'>'+(editandoExistente?'Guardar cambios':d.groupId?'Compartir':'Guardar reparto')+'</button>'+
@@ -258,16 +295,54 @@ export function renderCreateGroupForm(){
 
 export function renderJoinGroupForm(){
   const d = state.joinDraft;
-  return groupScreenHead('Unirme a un grupo')+
+  // Paso 1: todavía no se buscó el grupo -- solo pide el código.
+  if(!d.roster){
+    return groupScreenHead('Unirme a un grupo')+
+      '<div class="sheet-block card" style="padding:16px;">'+
+        '<div class="platform-hint muted" style="margin-bottom:12px;">Pide el código de invitación a algún miembro del grupo (lo ve al entrar al grupo, más abajo).</div>'+
+        '<label class="draft-label">Código de invitación</label>'+
+        '<input type="text" class="draft-input" data-join-draft-field="inviteCode" value="'+d.inviteCode+'" placeholder="Pega el código acá">'+
+        (d.errorRoster ? '<div class="field-error">'+d.errorRoster+'</div>' : '')+
+        '<div style="display:flex;gap:10px;margin-top:16px;">'+
+          '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-group-join-cancel>Cancelar</button>'+
+          // No se deshabilita en base al contenido del campo de texto (ese no re-renderiza en
+          // cada tecla, para no perder el foco/cursor -- ver data-join-draft-field en
+          // events.ts): se valida recién al hacer click, mismo patrón que "Crear grupo".
+          '<button class="save-tx-btn" style="flex:1;" data-group-join-buscar '+(d.loadingRoster?'disabled':'')+'>'+(d.loadingRoster?'Buscando…':'Buscar grupo')+'</button>'+
+        '</div>'+
+      '</div>';
+  }
+  // Paso 2: roster ya cargado -- elegir cuál participante eres, o "no estoy en la lista". Los
+  // nombres de todos los participantes son visibles para cualquiera con el código (no solo los
+  // ya reclamados) -- separado por completo del nombre del GRUPO (el título de la pantalla),
+  // nunca se confunde uno con el otro.
+  const r = d.roster;
+  const rows = r.participantes.map(p=>{
+    const seleccionado = d.selectedParticipantId===p.id;
+    return '<label class="split-row" style="align-items:center;'+(p.reclamado?'opacity:.5;':'cursor:pointer;')+'">'+
+      '<input type="radio" name="join-participant" '+(p.reclamado?'disabled':'')+' '+(seleccionado?'checked':'')+' data-join-select-participant="'+p.id+'" style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
+      '<span style="flex:1;">'+p.nombre+'</span>'+
+      (p.reclamado?'<span class="muted" style="font-size:12px;">Ya reclamado</span>':'')+
+    '</label>';
+  }).join('');
+  // El campo de nombre no se re-renderiza en cada tecla (como cualquier <input> de texto en esta
+  // app, para no perder el foco/cursor -- ver data-join-draft-field en events.ts), así que el
+  // botón no puede quedar deshabilitado en base a su contenido: se valida recién al hacer click
+  // (mismo patrón que "Crear grupo" -- data-group-create-confirm en events.ts).
+  const confirmHabilitado = !!d.selectedParticipantId || d.addingNew;
+  return groupScreenHead('Unirme a "'+r.grupoNombre+'"')+
     '<div class="sheet-block card" style="padding:16px;">'+
-      '<div class="platform-hint muted" style="margin-bottom:12px;">Pide el código de invitación a algún miembro del grupo (lo ve al entrar al grupo, más abajo).</div>'+
-      '<label class="draft-label">Código de invitación</label>'+
-      '<input type="text" class="draft-input" data-join-draft-field="inviteCode" value="'+d.inviteCode+'" placeholder="Pega el código acá">'+
-      '<label class="draft-label" style="margin-top:12px;">Tu nombre en este grupo</label>'+
-      '<input type="text" class="draft-input" data-join-draft-field="nombre" value="'+d.nombre+'" placeholder="Como quieres que te vean los demás">'+
+      '<div class="platform-hint muted" style="margin-bottom:10px;">¿Cuál de estos participantes eres tú?</div>'+
+      rows+
+      '<label class="split-row" style="align-items:center;cursor:pointer;">'+
+        '<input type="radio" name="join-participant" '+(d.addingNew?'checked':'')+' data-join-select-nuevo style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
+        '<span style="flex:1;">No estoy en la lista</span>'+
+      '</label>'+
+      (d.addingNew ? '<input type="text" class="draft-input" style="margin-top:8px;" data-join-draft-field="nombre" value="'+d.nombre+'" placeholder="Tu nombre en este grupo" autofocus>' : '')+
+      (d.errorRoster ? '<div class="field-error">'+d.errorRoster+'</div>' : '')+
       '<div style="display:flex;gap:10px;margin-top:16px;">'+
         '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-group-join-cancel>Cancelar</button>'+
-        '<button class="save-tx-btn" style="flex:1;" data-group-join-confirm>Unirme</button>'+
+        '<button class="save-tx-btn" style="flex:1;" data-group-join-confirm '+(confirmHabilitado?'':'disabled')+'>Unirme</button>'+
       '</div>'+
     '</div>';
 }
