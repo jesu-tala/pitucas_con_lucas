@@ -1,10 +1,10 @@
-import { allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
+import { allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, receivableTotal, hasReceivableType, receivablesLinkedFrom, removeIncomeAssignment, assignIncomeToReceivable } from './helpers';
 import { categoryFillCss, nextCategoryHue } from './category-colors';
 import { enterDemoMode, exitDemoMode } from './demo';
 import { navClearType, navDepth, navPeek, navPop, navPush, NavFrame } from './nav';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
-import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
+import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter, defaultAssignAmount } from './sheet';
 import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { buildGroupExportWorkbookArrayBuffer } from './group-export';
 import { handleLogout, switchAuthMode } from './supabase';
@@ -1170,40 +1170,86 @@ phone.addEventListener('click', function(e: any){
     openLinkFromIncome(openLinkIncomeBtn.getAttribute('data-open-link-income'));
     return;
   }
+  // "Quitar vínculo" desde la tarjeta simple del detalle del depósito (una sola línea, el caso
+  // común de un solo pendiente) -- deshace TODO lo que este depósito hubiera asignado, en
+  // cualquier por-cobrar. Deshacer una asignación puntual entre varias (cuando el depósito está
+  // repartido) es data-unassign-income, más abajo.
   const unlinkPendingBtn = e.target.closest('[data-unlink-income]');
   if(unlinkPendingBtn){
     const ingresoId = unlinkPendingBtn.getAttribute('data-unlink-income');
-    const found = pendingLinkedTo(ingresoId);
-    if(found){
-      const gastoTx = getTx(found.expenseTxId);
-      const p = gastoTx.porCobrar[found.idx];
-      p.pagado = false; p.montoRecibido = null; p.linkedTxId = null;
+    const links = receivablesLinkedFrom(ingresoId);
+    links.forEach(l=>removeIncomeAssignment(l.expenseTxId, l.idx, ingresoId));
+    if(links.length){
       toast('Vínculo eliminado');
       renderSheet(); renderIfListVisible();
     }
     return;
   }
-  const pickIncomeBtn = e.target.closest('[data-pick-income]');
-  if(pickIncomeBtn && state.linkFlow && state.linkFlow.mode==='fromPendiente'){
-    const ingresoId = pickIncomeBtn.getAttribute('data-pick-income');
-    const {expenseTxId, idx} = state.linkFlow;
-    if(resolvePending(expenseTxId, idx, ingresoId)){
-      state.linkFlow = null;
-      toast('Depósito vinculado');
-      openSheet(expenseTxId);
-      renderIfListVisible();
+  // Deshace una asignación puntual (un depósito específico de un por-cobrar que tiene varias) --
+  // aparece en la lista de "Pagos ya asignados"/"Ya asignado a", tanto desde el pendiente como
+  // desde el depósito.
+  const unassignBtn = e.target.closest('[data-unassign-income]');
+  if(unassignBtn){
+    const [expenseTxId, idxStr, incomeTxId] = unassignBtn.getAttribute('data-unassign-income').split('|');
+    if(removeIncomeAssignment(expenseTxId, parseInt(idxStr,10), incomeTxId)){
+      toast('Asignación quitada');
+      renderSheet(); renderIfListVisible();
     }
     return;
   }
-  const pickPendingBtn = e.target.closest('[data-pick-pending]');
-  if(pickPendingBtn && state.linkFlow && state.linkFlow.mode==='fromIngreso'){
-    const [expenseTxId, idxStr] = pickPendingBtn.getAttribute('data-pick-pending').split('|');
+  // Paso 1 -> 2 del flujo de conciliar: elegir el otro lado ya no asigna de una -- solo
+  // selecciona y prellena el monto sugerido (lo que quede del pendiente, topado por lo que
+  // quede sin asignar del depósito); el monto en sí se confirma con data-link-confirm.
+  const selectIncomeBtn = e.target.closest('[data-select-income]');
+  if(selectIncomeBtn && state.linkFlow && state.linkFlow.mode==='fromPendiente'){
+    const incomeTxId = selectIncomeBtn.getAttribute('data-select-income');
+    const incomeTx = getTx(incomeTxId);
+    const gastoTx = getTx(state.linkFlow.expenseTxId);
+    const p = gastoTx && gastoTx.porCobrar[state.linkFlow.idx];
+    if(incomeTx && p){
+      state.linkFlow.seleccionado = incomeTxId;
+      state.linkFlow.montoDraft = String(defaultAssignAmount(p, incomeTx));
+      renderSheet();
+    }
+    return;
+  }
+  const selectPendingBtn = e.target.closest('[data-select-pending]');
+  if(selectPendingBtn && state.linkFlow && state.linkFlow.mode==='fromIngreso'){
+    const [expenseTxId, idxStr] = selectPendingBtn.getAttribute('data-select-pending').split('|');
     const idx = parseInt(idxStr,10);
-    const incomeTxId = state.linkFlow.incomeTxId;
-    if(resolvePending(expenseTxId, idx, incomeTxId)){
+    const gastoTx = getTx(expenseTxId);
+    const p = gastoTx && gastoTx.porCobrar[idx];
+    const incomeTx = getTx(state.linkFlow.incomeTxId);
+    if(p && incomeTx){
+      state.linkFlow.seleccionado = {expenseTxId, idx};
+      state.linkFlow.montoDraft = String(defaultAssignAmount(p, incomeTx));
+      renderSheet();
+    }
+    return;
+  }
+  const linkCancelBtn = e.target.closest('[data-link-cancel]');
+  if(linkCancelBtn && state.linkFlow){
+    state.linkFlow.seleccionado = null;
+    state.linkFlow.montoDraft = '';
+    renderSheet();
+    return;
+  }
+  // Confirma el paso 2. montoDraft ya viene actualizado en pesos limpios (sin puntos de miles)
+  // por el listener de 'input' de data-link-monto-field, más abajo -- leer directo del DOM acá
+  // reinterpretaría el punto de los miles como decimal.
+  const linkConfirmBtn = e.target.closest('[data-link-confirm]');
+  if(linkConfirmBtn && state.linkFlow && state.linkFlow.seleccionado){
+    const monto = parseFloat(state.linkFlow.montoDraft);
+    if(!monto || monto<=0){ toast('Ingresa un monto válido'); return; }
+    const lf = state.linkFlow;
+    const expenseTxId = lf.mode==='fromPendiente' ? lf.expenseTxId : lf.seleccionado.expenseTxId;
+    const idx = lf.mode==='fromPendiente' ? lf.idx : lf.seleccionado.idx;
+    const incomeTxId = lf.mode==='fromPendiente' ? lf.seleccionado : lf.incomeTxId;
+    const reabreId = lf.mode==='fromPendiente' ? expenseTxId : incomeTxId;
+    if(assignIncomeToReceivable(expenseTxId, idx, incomeTxId, monto)){
       state.linkFlow = null;
-      toast('Pendiente vinculado');
-      openSheet(incomeTxId);
+      toast('Asignado');
+      openSheet(reabreId);
       renderIfListVisible();
     }
     return;
@@ -2638,6 +2684,13 @@ phone.addEventListener('input', function(e: any){
     state.editContactDraft = editContactName.value;
     const saveBtn = document.querySelector<HTMLButtonElement>('[data-save-edit-contact]');
     if(saveBtn) saveBtn.disabled = !state.editContactDraft.trim();
+    return;
+  }
+  const linkMontoField = e.target.closest('[data-link-monto-field]');
+  if(linkMontoField && state.linkFlow){
+    const v = safeEvalMoneyExpr(linkMontoField.value);
+    if(v!==null) state.linkFlow.montoDraft = String(v);
+    liveFormatThousands(linkMontoField);
     return;
   }
   const manualTransferMonto = e.target.closest('[data-manual-transfer-field="monto"]');

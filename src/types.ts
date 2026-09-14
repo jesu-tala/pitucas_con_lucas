@@ -79,6 +79,20 @@ export interface ReceivableItem {
   // or an even split of whatever's left for 'montos'/'pct' -- see computeShareAmounts), and for
   // data saved before this field existed (undefined there too, with the same fallback meaning).
   divisionValor?: number;
+  // Conciliar cobros/reembolsos con montos parciales y varios depósitos (ver
+  // assignIncomeToReceivable en helpers.ts): cada entrada es "este depósito aportó tanto a este
+  // por-cobrar". pagado/montoRecibido/linkedTxId (arriba) siguen existiendo por compatibilidad
+  // hacia atrás -- receivableAssignedTotal() los trata como una asignación implícita única
+  // cuando `asignaciones` todavía no existe (datos guardados antes de este campo) -- pero para
+  // cualquier vínculo NUEVO, `asignaciones` es la única fuente de verdad: pagado/montoRecibido
+  // se recalculan siempre desde acá (nunca se tocan a mano en ningún otro lugar), así el estado
+  // pendiente/parcial/saldado nunca puede desincronizarse de lo realmente asignado.
+  asignaciones?: ReceivableAssignment[];
+}
+
+export interface ReceivableAssignment {
+  incomeTxId: string;
+  monto: number;
 }
 
 // montoTotal is the full purchase price as originally entered (before splitting it across

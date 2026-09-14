@@ -124,7 +124,9 @@
   }
   __name(catTotalAmount, "catTotalAmount");
   function pendingEffectiveAmount(p) {
-    if (p.pagado) return p.montoRecibido != null ? p.montoRecibido : p.monto || 0;
+    const estado = receivableEstado(p);
+    if (estado === "saldado") return receivableAssignedTotal(p);
+    if (estado === "parcial" && p.tipo === "reembolso") return receivableAssignedTotal(p);
     return p.monto != null ? p.monto : 0;
   }
   __name(pendingEffectiveAmount, "pendingEffectiveAmount");
@@ -132,6 +134,78 @@
     return t.porCobrar.reduce((s, p) => s + pendingEffectiveAmount(p), 0);
   }
   __name(receivableTotal, "receivableTotal");
+  function receivableAssignedTotal(p) {
+    if (p.asignaciones && p.asignaciones.length) return p.asignaciones.reduce((s, a) => s + (a.monto || 0), 0);
+    if (p.pagado && p.linkedTxId) return p.montoRecibido != null ? p.montoRecibido : p.monto || 0;
+    return 0;
+  }
+  __name(receivableAssignedTotal, "receivableAssignedTotal");
+  function receivableEstado(p) {
+    const asignado = receivableAssignedTotal(p);
+    if (asignado <= 0) return "pendiente";
+    const monto = p.monto;
+    if (monto == null || monto <= 0) return "saldado";
+    return asignado < monto ? "parcial" : "saldado";
+  }
+  __name(receivableEstado, "receivableEstado");
+  function syncPagadoFromAsignaciones(p) {
+    p.pagado = receivableEstado(p) === "saldado";
+    p.montoRecibido = receivableAssignedTotal(p);
+  }
+  __name(syncPagadoFromAsignaciones, "syncPagadoFromAsignaciones");
+  function assignIncomeToReceivable(expenseTxId, idx, incomeTxId, monto) {
+    const expenseTx = getTx(expenseTxId), incomeTx = getTx(incomeTxId);
+    if (!expenseTx || !incomeTx || !expenseTx.porCobrar[idx]) return false;
+    const p = expenseTx.porCobrar[idx];
+    const amt = Math.round(monto || 0);
+    if (amt <= 0) return false;
+    if (!p.asignaciones) p.asignaciones = [];
+    const existing = p.asignaciones.find((a) => a.incomeTxId === incomeTxId);
+    if (existing) existing.monto += amt;
+    else p.asignaciones.push({ incomeTxId, monto: amt });
+    syncPagadoFromAsignaciones(p);
+    return true;
+  }
+  __name(assignIncomeToReceivable, "assignIncomeToReceivable");
+  function removeIncomeAssignment(expenseTxId, idx, incomeTxId) {
+    const expenseTx = getTx(expenseTxId);
+    if (!expenseTx || !expenseTx.porCobrar[idx]) return false;
+    const p = expenseTx.porCobrar[idx];
+    if (p.asignaciones && p.asignaciones.length) {
+      const before = p.asignaciones.length;
+      p.asignaciones = p.asignaciones.filter((a) => a.incomeTxId !== incomeTxId);
+      if (p.asignaciones.length === before) return false;
+      syncPagadoFromAsignaciones(p);
+      return true;
+    }
+    if (p.linkedTxId === incomeTxId) {
+      p.pagado = false;
+      p.montoRecibido = null;
+      p.linkedTxId = null;
+      return true;
+    }
+    return false;
+  }
+  __name(removeIncomeAssignment, "removeIncomeAssignment");
+  function receivablesLinkedFrom(incomeTxId) {
+    const out = [];
+    TRANSACTIONS.forEach((t) => {
+      (t.porCobrar || []).forEach((p, idx) => {
+        if (p.asignaciones && p.asignaciones.length) {
+          const a = p.asignaciones.find((x) => x.incomeTxId === incomeTxId);
+          if (a) out.push({ expenseTxId: t.id, idx, comercio: t.comercio, persona: p.persona, tipo: p.tipo || "persona", montoAsignado: a.monto });
+        } else if (p.linkedTxId === incomeTxId) {
+          out.push({ expenseTxId: t.id, idx, comercio: t.comercio, persona: p.persona, tipo: p.tipo || "persona", montoAsignado: p.montoRecibido != null ? p.montoRecibido : p.monto || 0 });
+        }
+      });
+    });
+    return out;
+  }
+  __name(receivablesLinkedFrom, "receivablesLinkedFrom");
+  function incomeAssignedTotal(incomeTxId) {
+    return receivablesLinkedFrom(incomeTxId).reduce((s, l) => s + l.montoAsignado, 0);
+  }
+  __name(incomeAssignedTotal, "incomeAssignedTotal");
   function netExpenseTx(t) {
     if (t.tipo !== "gasto") return catTotalAmount(t);
     const deboRow = (t.porCobrar || []).find((p) => p.tipo === "persona" && p.direccion === "debo");
@@ -161,14 +235,24 @@
   __name(reimbursementExcess, "reimbursementExcess");
   function netIncomeTx(t) {
     if (t.tipo !== "ingreso") return catTotalAmount(t);
-    const link = pendingLinkedTo(t.id);
-    if (!link) return catTotalAmount(t);
-    const expenseTx = getTx(link.expenseTxId);
-    const p = expenseTx && expenseTx.porCobrar[link.idx];
-    if (!p) return catTotalAmount(t);
-    if (p.tipo === "persona") return 0;
-    if (p.tipo === "reembolso") return reimbursementExcess(expenseTx);
-    return catTotalAmount(t);
+    const links = receivablesLinkedFrom(t.id);
+    if (!links.length) return catTotalAmount(t);
+    const gastoIds = Array.from(new Set(links.map((l) => l.expenseTxId)));
+    let cuentaComoIngreso = 0;
+    gastoIds.forEach((expenseTxId) => {
+      const expenseTx = getTx(expenseTxId);
+      if (!expenseTx) return;
+      const gastoLinks = links.filter((l) => l.expenseTxId === expenseTxId);
+      const exceso = reimbursementExcess(expenseTx);
+      if (exceso <= 0) return;
+      const totalAportadoAlGasto = (expenseTx.porCobrar || []).filter((p) => p.tipo === "reembolso").reduce((s, p) => s + receivableAssignedTotal(p), 0);
+      const aportadoPorEsteDeposito = gastoLinks.reduce((s, l) => {
+        const p = expenseTx.porCobrar[l.idx];
+        return p && p.tipo === "reembolso" ? s + l.montoAsignado : s;
+      }, 0);
+      if (totalAportadoAlGasto > 0) cuentaComoIngreso += exceso * (aportadoPorEsteDeposito / totalAportadoAlGasto);
+    });
+    return Math.round(cuentaComoIngreso);
   }
   __name(netIncomeTx, "netIncomeTx");
   function netIncomeFactor(t) {
@@ -177,12 +261,11 @@
   }
   __name(netIncomeFactor, "netIncomeFactor");
   function incomeNatureOf(t) {
-    const link = pendingLinkedTo(t.id);
-    if (link) {
-      const expenseTx = getTx(link.expenseTxId);
-      const p = expenseTx && expenseTx.porCobrar[link.idx];
-      if (p && p.tipo === "persona") return "cobro";
-      if (p && p.tipo === "reembolso") return "reembolso";
+    const links = receivablesLinkedFrom(t.id);
+    if (links.length) {
+      const tipos = new Set(links.map((l) => l.tipo));
+      if (tipos.has("reembolso")) return "reembolso";
+      if (tipos.has("persona")) return "cobro";
     }
     if (t.naturalezaEntrada) return t.naturalezaEntrada;
     if (t.categorias.some((c) => c.cat === "sueldo" || c.cat === "pololos_extra")) return "ingreso";
@@ -191,11 +274,7 @@
   __name(incomeNatureOf, "incomeNatureOf");
   function incomeNatureAmount(t) {
     const nature = incomeNatureOf(t);
-    if (nature === "reembolso") {
-      const link = pendingLinkedTo(t.id);
-      const expenseTx = link ? getTx(link.expenseTxId) : null;
-      return expenseTx ? reimbursementExcess(expenseTx) : 0;
-    }
+    if (nature === "reembolso") return netIncomeTx(t);
     return t.monto;
   }
   __name(incomeNatureAmount, "incomeNatureAmount");
@@ -209,29 +288,26 @@
     const out = [];
     TRANSACTIONS.forEach((t) => {
       (t.porCobrar || []).forEach((p, idx) => {
-        if (!p.pagado) out.push({ expenseTxId: t.id, idx, comercio: t.comercio, fecha: t.fecha, persona: p.persona, monto: p.monto, tipo: p.tipo || "persona" });
+        if (p.pagado) return;
+        const asignado = receivableAssignedTotal(p);
+        const restante = p.monto != null ? Math.max(p.monto - asignado, 0) : null;
+        out.push({ expenseTxId: t.id, idx, comercio: t.comercio, fecha: t.fecha, persona: p.persona, monto: p.monto, tipo: p.tipo || "persona", asignado, restante, estado: receivableEstado(p) });
       });
     });
     return out.sort((a, b) => b.fecha.localeCompare(a.fecha));
   }
   __name(allPendingReceivables, "allPendingReceivables");
   function pendingLinkedTo(incomeTxId) {
-    for (const t of TRANSACTIONS) {
-      for (let idx = 0; idx < (t.porCobrar || []).length; idx++) {
-        if (t.porCobrar[idx].linkedTxId === incomeTxId) return { expenseTxId: t.id, idx, comercio: t.comercio, persona: t.porCobrar[idx].persona };
-      }
-    }
-    return null;
+    const links = receivablesLinkedFrom(incomeTxId);
+    if (!links.length) return null;
+    const first = links[0];
+    return { expenseTxId: first.expenseTxId, idx: first.idx, comercio: first.comercio, persona: first.persona };
   }
   __name(pendingLinkedTo, "pendingLinkedTo");
   function resolvePending(expenseTxId, idx, incomeTxId) {
-    const expenseTx = getTx(expenseTxId), incomeTx = getTx(incomeTxId);
-    if (!expenseTx || !incomeTx || !expenseTx.porCobrar[idx]) return false;
-    const p = expenseTx.porCobrar[idx];
-    p.pagado = true;
-    p.montoRecibido = incomeTx.monto;
-    p.linkedTxId = incomeTx.id;
-    return true;
+    const incomeTx = getTx(incomeTxId);
+    if (!incomeTx) return false;
+    return assignIncomeToReceivable(expenseTxId, idx, incomeTxId, incomeTx.monto);
   }
   __name(resolvePending, "resolvePending");
   function applyUnexpectedReimbursement(gastoTxId, incomeTxId) {
@@ -5286,40 +5362,75 @@
     const unlinkPendingBtn = e.target.closest("[data-unlink-income]");
     if (unlinkPendingBtn) {
       const ingresoId = unlinkPendingBtn.getAttribute("data-unlink-income");
-      const found = pendingLinkedTo(ingresoId);
-      if (found) {
-        const gastoTx = getTx(found.expenseTxId);
-        const p = gastoTx.porCobrar[found.idx];
-        p.pagado = false;
-        p.montoRecibido = null;
-        p.linkedTxId = null;
+      const links = receivablesLinkedFrom(ingresoId);
+      links.forEach((l) => removeIncomeAssignment(l.expenseTxId, l.idx, ingresoId));
+      if (links.length) {
         toast("V\xEDnculo eliminado");
         renderSheet();
         renderIfListVisible();
       }
       return;
     }
-    const pickIncomeBtn = e.target.closest("[data-pick-income]");
-    if (pickIncomeBtn && state.linkFlow && state.linkFlow.mode === "fromPendiente") {
-      const ingresoId = pickIncomeBtn.getAttribute("data-pick-income");
-      const { expenseTxId, idx } = state.linkFlow;
-      if (resolvePending(expenseTxId, idx, ingresoId)) {
-        state.linkFlow = null;
-        toast("Dep\xF3sito vinculado");
-        openSheet(expenseTxId);
+    const unassignBtn = e.target.closest("[data-unassign-income]");
+    if (unassignBtn) {
+      const [expenseTxId, idxStr, incomeTxId] = unassignBtn.getAttribute("data-unassign-income").split("|");
+      if (removeIncomeAssignment(expenseTxId, parseInt(idxStr, 10), incomeTxId)) {
+        toast("Asignaci\xF3n quitada");
+        renderSheet();
         renderIfListVisible();
       }
       return;
     }
-    const pickPendingBtn = e.target.closest("[data-pick-pending]");
-    if (pickPendingBtn && state.linkFlow && state.linkFlow.mode === "fromIngreso") {
-      const [expenseTxId, idxStr] = pickPendingBtn.getAttribute("data-pick-pending").split("|");
+    const selectIncomeBtn = e.target.closest("[data-select-income]");
+    if (selectIncomeBtn && state.linkFlow && state.linkFlow.mode === "fromPendiente") {
+      const incomeTxId = selectIncomeBtn.getAttribute("data-select-income");
+      const incomeTx = getTx(incomeTxId);
+      const gastoTx = getTx(state.linkFlow.expenseTxId);
+      const p = gastoTx && gastoTx.porCobrar[state.linkFlow.idx];
+      if (incomeTx && p) {
+        state.linkFlow.seleccionado = incomeTxId;
+        state.linkFlow.montoDraft = String(defaultAssignAmount(p, incomeTx));
+        renderSheet();
+      }
+      return;
+    }
+    const selectPendingBtn = e.target.closest("[data-select-pending]");
+    if (selectPendingBtn && state.linkFlow && state.linkFlow.mode === "fromIngreso") {
+      const [expenseTxId, idxStr] = selectPendingBtn.getAttribute("data-select-pending").split("|");
       const idx = parseInt(idxStr, 10);
-      const incomeTxId = state.linkFlow.incomeTxId;
-      if (resolvePending(expenseTxId, idx, incomeTxId)) {
+      const gastoTx = getTx(expenseTxId);
+      const p = gastoTx && gastoTx.porCobrar[idx];
+      const incomeTx = getTx(state.linkFlow.incomeTxId);
+      if (p && incomeTx) {
+        state.linkFlow.seleccionado = { expenseTxId, idx };
+        state.linkFlow.montoDraft = String(defaultAssignAmount(p, incomeTx));
+        renderSheet();
+      }
+      return;
+    }
+    const linkCancelBtn = e.target.closest("[data-link-cancel]");
+    if (linkCancelBtn && state.linkFlow) {
+      state.linkFlow.seleccionado = null;
+      state.linkFlow.montoDraft = "";
+      renderSheet();
+      return;
+    }
+    const linkConfirmBtn = e.target.closest("[data-link-confirm]");
+    if (linkConfirmBtn && state.linkFlow && state.linkFlow.seleccionado) {
+      const monto = parseFloat(state.linkFlow.montoDraft);
+      if (!monto || monto <= 0) {
+        toast("Ingresa un monto v\xE1lido");
+        return;
+      }
+      const lf = state.linkFlow;
+      const expenseTxId = lf.mode === "fromPendiente" ? lf.expenseTxId : lf.seleccionado.expenseTxId;
+      const idx = lf.mode === "fromPendiente" ? lf.idx : lf.seleccionado.idx;
+      const incomeTxId = lf.mode === "fromPendiente" ? lf.seleccionado : lf.incomeTxId;
+      const reabreId = lf.mode === "fromPendiente" ? expenseTxId : incomeTxId;
+      if (assignIncomeToReceivable(expenseTxId, idx, incomeTxId, monto)) {
         state.linkFlow = null;
-        toast("Pendiente vinculado");
-        openSheet(incomeTxId);
+        toast("Asignado");
+        openSheet(reabreId);
         renderIfListVisible();
       }
       return;
@@ -6811,6 +6922,13 @@
       if (saveBtn) saveBtn.disabled = !state.editContactDraft.trim();
       return;
     }
+    const linkMontoField = e.target.closest("[data-link-monto-field]");
+    if (linkMontoField && state.linkFlow) {
+      const v = safeEvalMoneyExpr(linkMontoField.value);
+      if (v !== null) state.linkFlow.montoDraft = String(v);
+      liveFormatThousands(linkMontoField);
+      return;
+    }
     const manualTransferMonto = e.target.closest('[data-manual-transfer-field="monto"]');
     if (manualTransferMonto && state.manualTransferDraft) {
       const v = safeEvalMoneyExpr(manualTransferMonto.value);
@@ -8090,7 +8208,8 @@
       const isDebo = p.direccion === "debo";
       const etiqueta = isDebo ? "Le debes a " + (p.persona || "esta persona") : (p.persona || "Sin nombre") + " te debe";
       const nameField = '<span style="flex:1;min-width:0;"><span class="persona-label" style="font-size:13px;font-weight:600;">' + etiqueta + "</span></span>";
-      const amtField = '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">' + moneyPlainMasked(pendingEffectiveAmount(p)) + "</span>";
+      const parcialHint = receivableEstado(p) === "parcial" ? '<span class="pend-esperado muted">ya pag\xF3 ' + moneyPlainMasked(receivableAssignedTotal(p)) + "</span>" : "";
+      const amtField = '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">' + moneyPlainMasked(pendingEffectiveAmount(p)) + parcialHint + "</span>";
       const linkBtn = !p.pagado && !isDebo && !isDraft ? '<button class="link-btn" data-link-pending="' + idx + '" aria-label="Vincular a un dep\xF3sito">' + ICONS.inbox + "</button>" : "";
       const writeOffLink = !p.pagado && !isDebo && !isDraft ? '<button class="split-toggle-link" data-write-off="' + idx + '" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida \u2014 pasarla a gasto de este mes</button>' : "";
       return '<div><div class="split-row' + (p.pagado ? " paid" : "") + '" data-charge-row="' + idx + '"><button class="chk-pagado' + (p.pagado ? " checked" : "") + '" data-toggle-paid="' + idx + '" aria-label="Marcar como ' + (isDebo ? "pagado" : "cobrado") + '" aria-pressed="' + (p.pagado ? "true" : "false") + '">' + ICONS.check + "</button>" + nameField + amtField + linkBtn + '<button class="rm-btn" data-charge-remove="' + idx + '">' + ICONS.trash + "</button></div>" + writeOffLink + "</div>";
@@ -8116,7 +8235,8 @@
       const montoConocido = p.monto != null;
       const shown = !montoConocido ? "" : unit === "%" ? Math.round(p.monto / t.monto * 1e3) / 10 : p.monto;
       const nameField = p.pagado ? '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span class="pend-tipo-tag">Reembolso</span><span class="persona-label" style="font-size:13px;font-weight:600;">' + (p.persona || "Sin nombre") + "</span></span>" : '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;"><span class="pend-tipo-tag">Reembolso</span><input type="text" class="persona-label" style="width:100%;" data-charge-name="' + idx + '" value="' + p.persona + '" placeholder="Isapre, seguro\u2026"></span>';
-      const amtField = p.pagado ? '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">' + moneyPlainMasked(pendingEffectiveAmount(p)) + " " + unit + (p.montoRecibido != null && p.monto != null && p.montoRecibido !== p.monto ? '<span class="pend-esperado muted">de ' + moneyPlainMasked(p.monto) + " esperado</span>" : "") + "</span>" : '<span class="num-wrap persona-amt"><input type="text" inputmode="decimal" data-charge-amount="' + idx + '" value="' + shown + '" placeholder="Por confirmar"><span>' + unit + "</span></span>";
+      const parcialHint = receivableEstado(p) === "parcial" ? '<span class="pend-esperado muted">ya lleg\xF3 ' + moneyPlainMasked(receivableAssignedTotal(p)) + "</span>" : "";
+      const amtField = p.pagado ? '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">' + moneyPlainMasked(pendingEffectiveAmount(p)) + " " + unit + (p.montoRecibido != null && p.monto != null && p.montoRecibido !== p.monto ? '<span class="pend-esperado muted">de ' + moneyPlainMasked(p.monto) + " esperado</span>" : "") + "</span>" : '<span class="num-wrap persona-amt"><input type="text" inputmode="decimal" data-charge-amount="' + idx + '" value="' + shown + '" placeholder="Por confirmar"><span>' + unit + "</span></span>" + parcialHint;
       const linkBtn = p.pagado || isDraft ? "" : '<button class="link-btn" data-link-pending="' + idx + '" aria-label="Vincular a un dep\xF3sito">' + ICONS.inbox + "</button>";
       return '<div><div class="split-row' + (p.pagado ? " paid" : "") + '" data-charge-row="' + idx + '"><button class="chk-pagado' + (p.pagado ? " checked" : "") + '" data-toggle-paid="' + idx + '" aria-label="Marcar ' + (p.persona || "este reembolso") + ' como pagado" aria-pressed="' + (p.pagado ? "true" : "false") + '">' + ICONS.check + "</button>" + nameField + amtField + linkBtn + '<button class="rm-btn" data-charge-remove="' + idx + '">' + ICONS.trash + "</button></div></div>";
     }).join("");
@@ -8316,45 +8436,80 @@
   }
   __name(closeSheet, "closeSheet");
   function openLinkFromPending(expenseTxId, idx) {
-    state.linkFlow = { mode: "fromPendiente", expenseTxId, idx };
+    state.linkFlow = { mode: "fromPendiente", expenseTxId, idx, seleccionado: null, montoDraft: "" };
     openSheetOverlay();
     renderSheet();
     document.getElementById("sheet-content").scrollTop = 0;
   }
   __name(openLinkFromPending, "openLinkFromPending");
   function openLinkFromIncome(incomeTxId) {
-    state.linkFlow = { mode: "fromIngreso", incomeTxId, mostrarGastos: false };
+    state.linkFlow = { mode: "fromIngreso", incomeTxId, mostrarGastos: false, seleccionado: null, montoDraft: "" };
     openSheetOverlay();
     renderSheet();
     document.getElementById("sheet-content").scrollTop = 0;
   }
   __name(openLinkFromIncome, "openLinkFromIncome");
+  function defaultAssignAmount(p, incomeTx) {
+    const restanteDelPendiente = p.monto != null ? Math.max(p.monto - receivableAssignedTotal(p), 0) : Infinity;
+    const restanteDelDeposito = Math.max(incomeTx.monto - incomeAssignedTotal(incomeTx.id), 0);
+    const base = Math.min(restanteDelPendiente, restanteDelDeposito);
+    return base > 0 && base !== Infinity ? base : restanteDelDeposito > 0 ? restanteDelDeposito : incomeTx.monto;
+  }
+  __name(defaultAssignAmount, "defaultAssignAmount");
+  function renderAssignAmountStep(p, gastoTx, incomeTx, idx) {
+    const d = state.linkFlow;
+    const restante = p.monto != null ? Math.max(p.monto - receivableAssignedTotal(p), 0) : null;
+    return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">\xBFCu\xE1nto de este dep\xF3sito?</div><div class="meta">' + (p.persona || "Este pendiente") + " \u2014 " + gastoTx.comercio + (restante != null ? " \xB7 quedan " + money(restante) : " \xB7 monto por confirmar") + '</div></div><div class="card" style="padding:14px 16px;margin-top:6px;"><div class="split-row" style="align-items:center;margin-bottom:10px;"><span class="link-pick-body"><span class="link-pick-name">' + incomeTx.comercio + '</span><span class="link-pick-sub">' + dayLabel(incomeTx.fecha) + '</span></span><span class="link-pick-amt tabular pos">+' + money(incomeTx.monto) + '</span></div><label class="draft-label">Monto a asignar</label><input type="text" inputmode="decimal" class="draft-input amount tabular" data-link-monto-field value="' + (d.montoDraft || "") + '" placeholder="0"><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-link-cancel>Volver</button><button class="save-tx-btn" style="flex:1;" data-link-confirm>Asignar</button></div></div>';
+  }
+  __name(renderAssignAmountStep, "renderAssignAmountStep");
   function renderLinkFlowContent() {
     const lf = state.linkFlow;
     if (lf.mode === "fromPendiente") {
       const gastoTx = getTx(lf.expenseTxId);
       const p = gastoTx ? gastoTx.porCobrar[lf.idx] : null;
       if (!gastoTx || !p) return '<div class="sheet-top"><div class="merchant">Ya no existe</div></div>';
+      if (lf.seleccionado) {
+        const incomeTx = getTx(lf.seleccionado);
+        if (incomeTx) return renderAssignAmountStep(p, gastoTx, incomeTx, lf.idx);
+        lf.seleccionado = null;
+      }
+      const asignaciones = p.asignaciones && p.asignaciones.length ? p.asignaciones : p.linkedTxId ? [{ incomeTxId: p.linkedTxId, monto: p.montoRecibido }] : [];
+      const yaAsignadoTotal = receivableAssignedTotal(p);
+      const asignadosHtml = asignaciones.length ? '<div class="card" style="padding:12px 16px;margin-bottom:12px;"><div class="sheet-block-title" style="margin-bottom:6px;">Pagos ya asignados</div>' + asignaciones.map((a) => {
+        const it = getTx(a.incomeTxId);
+        return '<div class="split-row" style="align-items:center;"><span style="flex:1;">' + (it ? it.comercio : "Dep\xF3sito") + '</span><span class="tabular muted" style="margin-right:8px;">' + money(a.monto) + '</span><button class="rm-btn" data-unassign-income="' + lf.expenseTxId + "|" + lf.idx + "|" + a.incomeTxId + '" aria-label="Quitar esta asignaci\xF3n">' + ICONS.trash + "</button></div>";
+      }).join("") + "</div>" : "";
       const ingresos = TRANSACTIONS.filter((t) => t.tipo === "ingreso").slice().sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
       const rows = ingresos.map((t) => {
-        const yaVinculado = pendingLinkedTo(t.id);
-        return '<button class="link-pick-row" data-pick-income="' + t.id + '"><span class="link-pick-body"><span class="link-pick-name">' + t.comercio + '</span><span class="link-pick-sub">' + dayLabel(t.fecha) + (yaVinculado ? " \xB7 ya vinculado a " + yaVinculado.comercio : "") + '</span></span><span class="link-pick-amt tabular pos">+' + money(t.monto) + "</span></button>";
+        const restanteDeposito = Math.max(t.monto - incomeAssignedTotal(t.id), 0);
+        return '<button class="link-pick-row" data-select-income="' + t.id + '"><span class="link-pick-body"><span class="link-pick-name">' + t.comercio + '</span><span class="link-pick-sub">' + dayLabel(t.fecha) + (restanteDeposito < t.monto ? " \xB7 le quedan " + money(restanteDeposito) + " sin asignar" : "") + '</span></span><span class="link-pick-amt tabular pos">+' + money(t.monto) + "</span></button>";
       }).join("");
-      return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">\xBFQu\xE9 dep\xF3sito corresponde?</div><div class="meta">Elige el ingreso que corresponde a ' + (p.persona || "este pendiente") + " \u2014 " + gastoTx.comercio + ".</div></div>" + (ingresos.length ? rows : '<div class="card placeholder-card">' + ICONS.inbox + "<h3>No tienes ingresos registrados</h3><p>Cuando tengas una transacci\xF3n de ingreso, aparecer\xE1 ac\xE1 para vincularla.</p></div>");
+      return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">\xBFQu\xE9 dep\xF3sito corresponde?</div><div class="meta">Elige el ingreso que corresponde a ' + (p.persona || "este pendiente") + " \u2014 " + gastoTx.comercio + (yaAsignadoTotal > 0 ? " \xB7 ya asignado: " + money(yaAsignadoTotal) : "") + ".</div></div>" + asignadosHtml + (ingresos.length ? rows : '<div class="card placeholder-card">' + ICONS.inbox + "<h3>No tienes ingresos registrados</h3><p>Cuando tengas una transacci\xF3n de ingreso, aparecer\xE1 ac\xE1 para vincularla.</p></div>");
     } else {
       const ingresoTx = getTx(lf.incomeTxId);
       if (!ingresoTx) return '<div class="sheet-top"><div class="merchant">Ya no existe</div></div>';
+      if (lf.seleccionado) {
+        const gastoTx = getTx(lf.seleccionado.expenseTxId);
+        const p = gastoTx ? gastoTx.porCobrar[lf.seleccionado.idx] : null;
+        if (gastoTx && p) return renderAssignAmountStep(p, gastoTx, ingresoTx, lf.seleccionado.idx);
+        lf.seleccionado = null;
+      }
       const pendientes = allPendingReceivables();
+      const yaAsignadoDelDeposito = incomeAssignedTotal(ingresoTx.id);
+      const linksDeEsteDeposito = receivablesLinkedFrom(ingresoTx.id);
+      const asignadosHtml = linksDeEsteDeposito.length ? '<div class="card" style="padding:12px 16px;margin-bottom:12px;"><div class="sheet-block-title" style="margin-bottom:6px;">Ya asignado a</div>' + linksDeEsteDeposito.map((l) => {
+        return '<div class="split-row" style="align-items:center;"><span style="flex:1;">' + (l.persona || "Sin nombre") + " \u2014 " + l.comercio + '</span><span class="tabular muted" style="margin-right:8px;">' + money(l.montoAsignado) + '</span><button class="rm-btn" data-unassign-income="' + l.expenseTxId + "|" + l.idx + "|" + ingresoTx.id + '" aria-label="Quitar esta asignaci\xF3n">' + ICONS.trash + "</button></div>";
+      }).join("") + "</div>" : "";
       const rows = pendientes.map((p) => {
-        const montoTxt = p.monto != null ? money(p.monto) + " esperado" : "monto por confirmar";
-        return '<button class="link-pick-row" data-pick-pending="' + p.expenseTxId + "|" + p.idx + '"><span class="link-pick-body"><span class="link-pick-name">' + (p.persona || "Sin nombre") + (p.tipo === "reembolso" ? ' <span class="pend-tipo-tag" style="margin-left:4px;">Reembolso</span>' : "") + '</span><span class="link-pick-sub">' + p.comercio + " \xB7 " + dayLabel(p.fecha) + '</span></span><span class="link-pick-amt tabular muted">' + montoTxt + "</span></button>";
+        const montoTxt = p.monto != null ? money(p.restante) + " restante" : "monto por confirmar";
+        return '<button class="link-pick-row" data-select-pending="' + p.expenseTxId + "|" + p.idx + '"><span class="link-pick-body"><span class="link-pick-name">' + (p.persona || "Sin nombre") + (p.tipo === "reembolso" ? ' <span class="pend-tipo-tag" style="margin-left:4px;">Reembolso</span>' : "") + (p.estado === "parcial" ? ' <span class="pend-tipo-tag" style="margin-left:4px;">Parcial</span>' : "") + '</span><span class="link-pick-sub">' + p.comercio + " \xB7 " + dayLabel(p.fecha) + '</span></span><span class="link-pick-amt tabular muted">' + montoTxt + "</span></button>";
       }).join("");
       const gastos = TRANSACTIONS.filter((t) => t.tipo === "gasto" && t.estado !== "no_es_gasto").slice().sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
       const gastoRows = gastos.map(
         (t) => '<button class="link-pick-row" data-pick-gasto-reembolso="' + t.id + '"><span class="link-pick-body"><span class="link-pick-name">' + t.comercio + '</span><span class="link-pick-sub">' + dayLabel(t.fecha) + '</span></span><span class="link-pick-amt tabular muted">' + money(t.monto) + "</span></button>"
       ).join("");
       const reembolsoInesperado = '<button class="split-toggle-link" data-toggle-mostrar-gastos-reembolso style="display:block;margin:14px 0 8px;">' + (lf.mostrarGastos ? "Ocultar gastos" : "\xBFEs un reembolso que no esperabas? Elige el gasto original") + "</button>" + (lf.mostrarGastos ? gastos.length ? gastoRows : '<p class="muted" style="font-size:12.5px;">No tienes gastos registrados todav\xEDa.</p>' : "");
-      return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">\xBFA qu\xE9 pendiente corresponde?</div><div class="meta">Este dep\xF3sito de ' + money(ingresoTx.monto) + " (" + ingresoTx.comercio + ") se vincular\xE1 a lo que elijas.</div></div>" + (pendientes.length ? rows : '<div class="card placeholder-card">' + ICONS.checkCircle + "<h3>No tienes pendientes</h3><p>No hay ning\xFAn cobro o reembolso pendiente para vincular todav\xEDa.</p></div>") + reembolsoInesperado;
+      return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;"><div class="merchant" style="font-size:17px;">\xBFA qu\xE9 pendiente corresponde?</div><div class="meta">Este dep\xF3sito de ' + money(ingresoTx.monto) + " (" + ingresoTx.comercio + ")" + (yaAsignadoDelDeposito > 0 ? " ya tiene " + money(yaAsignadoDelDeposito) + " asignado" : "") + ".</div></div>" + asignadosHtml + (pendientes.length ? rows : '<div class="card placeholder-card">' + ICONS.checkCircle + "<h3>No tienes pendientes</h3><p>No hay ning\xFAn cobro o reembolso pendiente para vincular todav\xEDa.</p></div>") + reembolsoInesperado;
     }
   }
   __name(renderLinkFlowContent, "renderLinkFlowContent");
@@ -9755,6 +9910,9 @@
     inversionesMonthsCalendarYear: inversionesMonthsCalendarYear, moneyShort: moneyShort,
     activePlatformIds: activePlatformIds, allPendingReceivables: allPendingReceivables,
     pendingLinkedTo: pendingLinkedTo, metaTotalRacha: metaTotalRacha,
+    receivableAssignedTotal: receivableAssignedTotal, receivableEstado: receivableEstado,
+    assignIncomeToReceivable: assignIncomeToReceivable, removeIncomeAssignment: removeIncomeAssignment,
+    incomeAssignedTotal: incomeAssignedTotal, receivablesLinkedFrom: receivablesLinkedFrom,
     metaChecksMonths: metaChecksMonths, metaRacha: metaRacha, TOTAL_GOAL_CHECKS: TOTAL_GOAL_CHECKS,
     fullYearMonths: fullYearMonths, moneyPlain: moneyPlain, money: money, projectedContributions: projectedContributions,
     notifApiSupported: notifApiSupported, pushWorkerConfigured: pushWorkerConfigured,
