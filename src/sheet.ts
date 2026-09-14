@@ -1,4 +1,5 @@
 import { allCollected, catInfo, dayLabel, incomeNatureOf, paymentMethodInfo, pendingEffectiveAmount, pendingLinkedTo, allPendingReceivables, receivableTotal, hasReceivableType } from './helpers';
+import { navPopIfTop, navPush } from './nav';
 import { categoryColorVars } from './category-colors';
 import { ICONS, catIconMarkup } from './icons';
 import { render } from './render';
@@ -517,10 +518,29 @@ export function renderSheetContent(t){
     ;
 }
 
+// Every opener below (tx detail, new tx, filter, link-flow, receipt/boleta) funnels through
+// here instead of touching the overlay's class directly -- these functions are also used to
+// SWITCH what the ALREADY-open sheet is showing (e.g. tapping "link to a pending item" from
+// inside an open tx detail just changes the content, it doesn't stack a second overlay), so a
+// nav frame is only pushed the first time the overlay actually goes from closed to open. That
+// keeps one visible sheet == one frame on the stack, so a single back press/swipe/grabber-drag
+// always closes it in one step, never two.
+function openSheetOverlay(){
+  const overlay = document.getElementById('sheet-overlay');
+  const wasOpen = overlay.classList.contains('open');
+  overlay.classList.add('open');
+  if(!wasOpen){
+    navPush({type:'sheet'});
+    // See the matching comment in events.ts (near the popstate listener) for why this doesn't
+    // try to stay perfectly reconciled with manual pops -- it doesn't need to.
+    try{ history.pushState({}, ''); }catch(err){}
+  }
+}
+
 export function openSheet(txId){
   state.openTxId = txId;
   state.creatingNew = false;
-  document.getElementById('sheet-overlay').classList.add('open');
+  openSheetOverlay();
   renderSheet();
   document.getElementById('sheet-content').scrollTop = 0;
   setTimeout(()=>{ const b=document.getElementById('sheet-close-btn'); if(b) b.focus(); }, 260);
@@ -562,7 +582,7 @@ export function openNewTxSheet(tipoInicial?){
   delete state.splitCollectMode[DRAFT_TX_ID];
   delete state.splitCollectUnit[DRAFT_TX_ID];
   if(state.shareDraft && state.shareDraft.txId===DRAFT_TX_ID) state.shareDraft = null;
-  document.getElementById('sheet-overlay').classList.add('open');
+  openSheetOverlay();
   renderSheet();
   document.getElementById('sheet-content').scrollTop = 0;
   setTimeout(()=>{ const el=document.querySelector<HTMLElement>('[data-draft-field="comercio"]'); if(el) el.focus(); }, 260);
@@ -571,7 +591,7 @@ export function openFilterSheet(){
   state.openTxId = null;
   state.creatingNew = false;
   state.filterSheetOpen = true;
-  document.getElementById('sheet-overlay').classList.add('open');
+  openSheetOverlay();
   renderSheet();
   document.getElementById('sheet-content').scrollTop = 0;
 }
@@ -584,18 +604,23 @@ export function closeSheet(){
   state.boleta = null;
   state.confirmDeleteTxId = null;
   document.getElementById('sheet-overlay').classList.remove('open');
+  // Undoes any in-progress drag-to-dismiss transform so the NEXT time a sheet opens it starts
+  // from its resting position, not wherever a previous drag left it.
+  const sheetEl = document.getElementById('sheet');
+  if(sheetEl){ sheetEl.style.transform = ''; sheetEl.style.transition = ''; }
+  navPopIfTop('sheet');
 }
 
 /* ---------- link a deposit to a pending item (or vice versa) ---------- */
 export function openLinkFromPending(expenseTxId, idx){
   state.linkFlow = {mode:'fromPendiente', expenseTxId, idx};
-  document.getElementById('sheet-overlay').classList.add('open');
+  openSheetOverlay();
   renderSheet();
   document.getElementById('sheet-content').scrollTop = 0;
 }
 export function openLinkFromIncome(incomeTxId){
   state.linkFlow = {mode:'fromIngreso', incomeTxId, mostrarGastos:false};
-  document.getElementById('sheet-overlay').classList.add('open');
+  openSheetOverlay();
   renderSheet();
   document.getElementById('sheet-content').scrollTop = 0;
 }
@@ -671,7 +696,7 @@ export function openReceiptFlow(expenseTxId){
   const gastoTx = getTx(expenseTxId);
   if(!gastoTx) return;
   state.boleta = {step:'capturar', expenseTxId, comercio: gastoTx.comercio, items:[], asign:{}, propinaUnit:'%', propinaValor:''};
-  document.getElementById('sheet-overlay').classList.add('open');
+  openSheetOverlay();
   renderSheet();
   document.getElementById('sheet-content').scrollTop = 0;
 }

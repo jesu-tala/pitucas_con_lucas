@@ -215,8 +215,14 @@
     font-family:var(--font-editorial);font-style:italic;font-size:16px;font-weight:600;color:var(--accent-ink);letter-spacing:.01em;
   }
   .app-header h1{font-size:24px;font-weight:700;letter-spacing:-0.01em;}
-  .view-scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:4px 16px 24px;}
+  /* .view-stack takes over the flex:1 slot #view-root used to have directly -- #view-root and
+     the peek layer underneath it (edge-swipe-back's "previous screen" preview, see events.ts)
+     both sit absolutely inside it instead, so the peek can overlay exactly where the real
+     content is without knowing the header/tabbar's heights. */
+  .view-stack{flex:1;position:relative;overflow:hidden;}
+  .view-scroll{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:4px 16px 24px;}
   .view-scroll::-webkit-scrollbar{width:0;height:0;}
+  .view-peek{z-index:-1;pointer-events:none;}
 
   .tabbar{
     display:flex;
@@ -1249,7 +1255,10 @@
           <span class="demo-mode-banner" id="demo-banner" hidden></span>
         </div>
       </header>
-      <main class="view-scroll" id="view-root"></main>
+      <div class="view-stack" id="view-stack">
+        <main class="view-scroll" id="view-root"></main>
+        <div class="view-scroll view-peek" id="view-root-peek" hidden></div>
+      </div>
       <button class="fab-add" id="fab-add" aria-label="Agregar transacción"></button>
       <nav class="tabbar" id="tabbar"></nav>
       <div class="sheet-overlay" id="sheet-overlay">
