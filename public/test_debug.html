@@ -17,6 +17,12 @@
 <style>
   :root{
     color-scheme:light dark;
+    /* Alto real de .tabbar (contenido, sin el safe-area que se le suma aparte) -- un par de px
+       de holgura sobre lo medido (54px) para no cortar por una diferencia de line-height entre
+       plataformas. Usado por .view-scroll en el breakpoint móvil para reservar exactamente ese
+       espacio abajo, ahora que la barra es position:fixed y ya no empuja el contenido por sí
+       sola (ver más abajo, .tabbar y .view-scroll dentro de @media max-width:480px). */
+    --tabbar-height:58px;
     --bg:#FFFCF9;
     --stage-bg:#F3EEE7;
     --surface:#FFFFFF;
@@ -244,6 +250,33 @@
   .tab svg{width:20px;height:20px;}
   .tab.active{color:var(--accent);}
   .tab:hover{color:var(--accent-ink);}
+
+  @media (max-width:480px){
+    /* Bug real reportado: al abrir la app la barra se veía grande y despegada del borde
+       inferior, con hueco muerto debajo -- y se corregía sola al mover/inclinar el teléfono
+       (dispara un resize/orientationchange real). Eso apunta a .phone (100dvh) resolviendo un
+       alto momentáneamente más grande que el real en el primer pintado, antes de que iOS
+       termine de asentar el viewport dinámico (barra de direcciones, safe-area) -- como .tabbar
+       vivía DENTRO de .phone (un hijo más de su columna flex), quedaba empujada fuera del área
+       visible real ese primer instante, aunque .phone en sí terminara ajustándose después.
+       Sacarla de esa cadena por completo es la solución robusta: ahora se fija directo contra
+       el viewport real (position:fixed + bottom:0), sin depender en absoluto de que el alto de
+       .phone haya terminado de asentarse -- así nunca puede quedar "despegada" del borde
+       inferior real, pase lo que pase con esa medición. (Va DESPUÉS de la regla base de
+       .view-scroll más abajo en la cascada a propósito -- si fuera antes, el `padding` shorthand
+       de esa regla base pisaría este padding-bottom por orden de aparición.) */
+    .tabbar{
+      position:fixed; left:0; right:0; bottom:0; z-index:10;
+    }
+    /* .tabbar ya no reserva su espacio dentro del flujo de .phone (position:fixed la saca de
+       ahí) -- sin esto, el contenido con scroll pasaría por DEBAJO de la barra flotante en vez
+       de parar antes. El padding de abajo reserva exactamente su alto real (--tabbar-height)
+       más su propio safe-area-inset-bottom (el mismo que ya se le suma a la barra -- nunca se
+       duplica, se usa el mismo cálculo en los dos lugares con toda intención). */
+    .view-scroll{
+      padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom,0px) + 24px);
+    }
+  }
 
   /* ---------- generic bits ---------- */
   .section-title{font-size:15px;font-weight:600;margin:22px 0 10px;letter-spacing:-0.01em;}
@@ -11157,7 +11190,11 @@
   });
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", setAppHeight);
+    window.visualViewport.addEventListener("scroll", setAppHeight);
   }
+  requestAnimationFrame(function() {
+    requestAnimationFrame(setAppHeight);
+  });
   document.getElementById("fab-add").innerHTML = ICONS.plus;
   document.getElementById("auth-brand-icon").innerHTML = ICONS.lock;
   document.getElementById("auth-recovery-brand-icon").innerHTML = ICONS.lock;
