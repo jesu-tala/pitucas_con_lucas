@@ -1,6 +1,7 @@
 import { allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { categoryFillCss, nextCategoryHue } from './category-colors';
 import { enterDemoMode, exitDemoMode } from './demo';
+import { navClearType, navDepth, navPeek, navPop, navPush, NavFrame } from './nav';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
@@ -16,6 +17,73 @@ import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly 
 import { buildReconcileDiff } from './reconcile';
 /* ===================== EVENT HANDLING (delegated) ===================== */
 export const phone = document.getElementById('phone');
+
+/* ---------- central navigation: back arrow, edge-swipe, OS back and closing a sheet all end up
+   here (see nav.ts for the stack itself). Popping a frame and reversing whatever it was ARE the
+   same step for each frame type, kept together so every "go back" entry point produces exactly
+   the same result. ---------- */
+export function navigateBack(): boolean {
+  const frame = navPeek();
+  if(!frame) return false;
+  if(frame.type==='sheet'){ closeSheet(); renderSheet(); return true; }
+  if(frame.type==='menu-section'){
+    navPop();
+    state.menuSection = null; state.editingCategoryId = null; state.editingPaymentMethodId = null;
+    renderMenuView();
+    return true;
+  }
+  if(frame.type==='group-detail'){
+    navPop();
+    state.openGroupId = null; state.addingParticipant = false;
+    renderGroupsView();
+    return true;
+  }
+  return false;
+}
+// Double-tap the active tab (or just tap it again, see the [data-tab] handler below) resets it
+// to its default view: scrolled to the top, any sub-view/sheet in THAT tab closed. Sheets aren't
+// handled here -- the tab bar sits under the sheet overlay while one is open (see .sheet-overlay
+// CSS, inset:0 over the whole phone), so it's never actually reachable mid-sheet.
+function resetTabToDefault(tab: string){
+  if(tab==='menu'){
+    navClearType('menu-section');
+    state.menuSection = null; state.editingCategoryId = null; state.editingPaymentMethodId = null;
+  } else if(tab==='grupos'){
+    navClearType('group-detail');
+    state.openGroupId = null; state.addingParticipant = false;
+  }
+  render();
+  const scrollEl = document.getElementById('view-root');
+  if(scrollEl) scrollEl.scrollTop = 0;
+}
+// Edge-swipe-back "peek": renders what going back would actually show (the Menu/Grupos root
+// list) into a string, without leaving that state applied -- state flips to the target, render()
+// writes it into #view-root, the resulting HTML is captured, then state flips right back and
+// render() runs again to restore the current screen. Two extra renders per gesture START only
+// (never per pointermove frame) -- render() is cheap string-building, not worth caching further.
+function capturePeekHTML(frame: NavFrame): string | null {
+  const root = document.getElementById('view-root');
+  if(!root) return null;
+  if(frame.type==='menu-section'){
+    const saved = state.menuSection;
+    state.menuSection = null;
+    renderMenuView();
+    const html = root.innerHTML;
+    state.menuSection = saved;
+    renderMenuView();
+    return html;
+  }
+  if(frame.type==='group-detail'){
+    const saved = state.openGroupId;
+    state.openGroupId = null;
+    renderGroupsView();
+    const html = root.innerHTML;
+    state.openGroupId = saved;
+    renderGroupsView();
+    return html;
+  }
+  return null;
+}
 
 phone.addEventListener('click', function(e: any){
   const authTabBtn = e.target.closest('[data-auth-tab]');
@@ -65,7 +133,12 @@ phone.addEventListener('click', function(e: any){
   if(fabBtn){ openNewTxSheet(); return; }
   const tabBtn = e.target.closest('[data-tab]');
   if(tabBtn){
-    state.tab = tabBtn.getAttribute('data-tab');
+    const tappedTab = tabBtn.getAttribute('data-tab');
+    // Tapping the tab you're ALREADY on (which is exactly what a real double-tap becomes, the
+    // instant the first tap switches you onto it) resets that section to its default instead of
+    // doing nothing -- same convention as most tab-bar apps.
+    if(tappedTab===state.tab){ resetTabToDefault(tappedTab); return; }
+    state.tab = tappedTab;
     render();
     // we take advantage of the Transacciones tab being opened to check whether the Google
     // script left something new in the imported inbox and add it automatically, without the user having to go look for it
@@ -1221,6 +1294,8 @@ phone.addEventListener('click', function(e: any){
   const menuOpenBtn = e.target.closest('[data-menu-open]');
   if(menuOpenBtn){
     state.menuSection = menuOpenBtn.getAttribute('data-menu-open');
+    navPush({type:'menu-section'});
+    try{ history.pushState({}, ''); }catch(err){}
     if(state.menuSection==='importarcorreo' && !state.emailImportLoaded){
       state.emailImportLoading = true;
       renderMenuView();
@@ -1248,24 +1323,16 @@ phone.addEventListener('click', function(e: any){
     return;
   }
   const menuBackBtn = e.target.closest('[data-menu-back]');
-  if(menuBackBtn){
-    state.menuSection = null;
-    state.editingCategoryId = null;
-    state.editingPaymentMethodId = null;
-    renderMenuView();
-    return;
-  }
+  if(menuBackBtn){ navigateBack(); return; }
 
   /* ---- Groups (shared expenses) ---- */
   const groupBackBtn = e.target.closest('[data-group-back]');
-  if(groupBackBtn){
-    state.openGroupId = null; state.addingParticipant = false;
-    renderGroupsView();
-    return;
-  }
+  if(groupBackBtn){ navigateBack(); return; }
   const groupOpenBtn = e.target.closest('[data-group-open]');
   if(groupOpenBtn){
     state.openGroupId = groupOpenBtn.getAttribute('data-group-open');
+    navPush({type:'group-detail'});
+    try{ history.pushState({}, ''); }catch(err){}
     renderGroupsView();
     return;
   }
@@ -2754,6 +2821,142 @@ export function endSubtabDrag(e){
 }
 phone.addEventListener('pointerup', endSubtabDrag);
 phone.addEventListener('pointercancel', endSubtabDrag);
+
+/* ---------- edge-swipe-back: drag left-to-right starting from a thin strip on the left edge
+   pops the nav stack, same as the back arrow. Scoped to that edge strip (never the whole
+   screen) so it never steals a horizontal scroller (the donut, a carousel) that happens to
+   start further in -- and skipped entirely while a sheet is open (its own drag-to-dismiss,
+   right below, owns that territory instead; the tab bar/underlying screen aren't reachable
+   under an open sheet anyway). ---------- */
+const EDGE_ZONE_PX = 24;
+const EDGE_SWIPE_THRESHOLD_PX = 80;
+const EDGE_SWIPE_VELOCITY_PXMS = 0.5;
+let edgeSwipe: { pointerId:number, startX:number, startY:number, startTime:number, dragging:boolean, rejected:boolean } | null = null;
+
+phone.addEventListener('pointerdown', function(e: any){
+  if(e.button!=null && e.button!==0) return;
+  if(edgeSwipe || sheetDrag) return;
+  if(overlayEl().classList.contains('open')) return;
+  if(navDepth()===0) return; // nothing to go back to -- don't even start tracking
+  if(e.clientX > EDGE_ZONE_PX) return;
+  edgeSwipe = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, startTime: Date.now(), dragging:false, rejected:false };
+});
+phone.addEventListener('pointermove', function(e: any){
+  if(!edgeSwipe || e.pointerId!==edgeSwipe.pointerId || edgeSwipe.rejected) return;
+  const dx = e.clientX - edgeSwipe.startX;
+  const dy = e.clientY - edgeSwipe.startY;
+  if(!edgeSwipe.dragging){
+    if(Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+    // Direction lock: a mostly-vertical move (or a right-to-left one) near the edge was a
+    // normal scroll/tap, not a back gesture -- release it and never touch it again this drag.
+    if(Math.abs(dy) >= Math.abs(dx) || dx <= 0){ edgeSwipe.rejected = true; return; }
+    edgeSwipe.dragging = true;
+    try{ phone.setPointerCapture(e.pointerId); }catch(err){}
+    const frame = navPeek();
+    const peekEl = document.getElementById('view-root-peek');
+    if(frame && peekEl){
+      const html = capturePeekHTML(frame);
+      if(html!=null){ peekEl.innerHTML = html; peekEl.hidden = false; }
+    }
+    const rootEl = document.getElementById('view-root');
+    if(rootEl) rootEl.style.transition = 'none';
+  }
+  e.preventDefault();
+  const rootEl = document.getElementById('view-root');
+  if(rootEl) rootEl.style.transform = 'translateX('+Math.max(0, Math.min(dx, window.innerWidth))+'px)';
+});
+function endEdgeSwipe(e: any){
+  if(!edgeSwipe || e.pointerId!==edgeSwipe.pointerId) return;
+  const wasDragging = edgeSwipe.dragging;
+  const dx = e.clientX - edgeSwipe.startX;
+  const velocity = dx / Math.max(1, Date.now() - edgeSwipe.startTime);
+  try{ phone.releasePointerCapture(e.pointerId); }catch(err){}
+  edgeSwipe = null;
+  if(!wasDragging) return;
+  const rootEl = document.getElementById('view-root');
+  const peekEl = document.getElementById('view-root-peek');
+  if(!rootEl) return;
+  rootEl.style.transition = '';
+  if(dx > EDGE_SWIPE_THRESHOLD_PX || velocity > EDGE_SWIPE_VELOCITY_PXMS){
+    rootEl.style.transform = 'translateX(100%)';
+    setTimeout(function(){
+      navigateBack();
+      rootEl.style.transform = '';
+      if(peekEl){ peekEl.hidden = true; peekEl.innerHTML = ''; }
+    }, 220);
+  } else {
+    rootEl.style.transform = '';
+    setTimeout(function(){ if(peekEl){ peekEl.hidden = true; peekEl.innerHTML = ''; } }, 220);
+  }
+}
+phone.addEventListener('pointerup', endEdgeSwipe);
+phone.addEventListener('pointercancel', endEdgeSwipe);
+
+/* ---------- sheet drag-to-dismiss: the grabber always starts it; the content area only when
+   it's scrolled all the way to the top (otherwise this would fight the sheet's own internal
+   scroll). Follows the finger live via an inline transform (transition disabled while dragging,
+   restored on release), then either snaps back or finishes closing based on distance/speed. The
+   backdrop's own click-to-close (see the click handler above) is untouched by any of this. ---- */
+const SHEET_DISMISS_THRESHOLD_PX = 120;
+const SHEET_DISMISS_VELOCITY_PXMS = 0.6;
+let sheetDrag: { pointerId:number, startY:number, startTime:number, dragging:boolean } | null = null;
+
+phone.addEventListener('pointerdown', function(e: any){
+  if(e.button!=null && e.button!==0) return;
+  if(sheetDrag || edgeSwipe) return;
+  if(!overlayEl().classList.contains('open')) return;
+  const onHandle = !!e.target.closest('.sheet-handle');
+  const contentEl = document.getElementById('sheet-content');
+  const onContentAtTop = !onHandle && !!e.target.closest('#sheet-content') && !!contentEl && contentEl.scrollTop<=0;
+  if(!onHandle && !onContentAtTop) return;
+  sheetDrag = { pointerId: e.pointerId, startY: e.clientY, startTime: Date.now(), dragging:false };
+});
+phone.addEventListener('pointermove', function(e: any){
+  if(!sheetDrag || e.pointerId!==sheetDrag.pointerId) return;
+  const dy = e.clientY - sheetDrag.startY;
+  if(!sheetDrag.dragging){
+    if(dy < 8) return; // small/negative movement -- not a committed downward drag yet
+    sheetDrag.dragging = true;
+    try{ phone.setPointerCapture(e.pointerId); }catch(err){}
+    const sheetEl = document.getElementById('sheet');
+    if(sheetEl) sheetEl.style.transition = 'none';
+  }
+  e.preventDefault();
+  const sheetEl = document.getElementById('sheet');
+  if(sheetEl) sheetEl.style.transform = 'translateY('+Math.max(0, dy)+'px)';
+});
+function endSheetDrag(e: any){
+  if(!sheetDrag || e.pointerId!==sheetDrag.pointerId) return;
+  const wasDragging = sheetDrag.dragging;
+  const dy = e.clientY - sheetDrag.startY;
+  const velocity = dy / Math.max(1, Date.now() - sheetDrag.startTime);
+  try{ phone.releasePointerCapture(e.pointerId); }catch(err){}
+  sheetDrag = null;
+  if(!wasDragging) return;
+  const sheetEl = document.getElementById('sheet');
+  if(!sheetEl) return;
+  sheetEl.style.transition = '';
+  if(dy > SHEET_DISMISS_THRESHOLD_PX || velocity > SHEET_DISMISS_VELOCITY_PXMS){
+    const sheetHeight = sheetEl.getBoundingClientRect().height || window.innerHeight;
+    sheetEl.style.transform = 'translateY('+sheetHeight+'px)';
+    setTimeout(function(){ closeSheet(); renderSheet(); }, 260);
+  } else {
+    sheetEl.style.transform = '';
+  }
+}
+phone.addEventListener('pointerup', endSheetDrag);
+phone.addEventListener('pointercancel', endSheetDrag);
+
+/* ---------- "OS back" -- mainly Android (hardware/gesture back) or a plain browser tab; iOS
+   standalone has no such control at all, which is the whole reason the edge-swipe gesture above
+   exists. Every nav-stack push also pushes a lightweight history entry (no URL change, just a
+   marker) so the platform's own back control has something to fire a popstate against; popstate
+   always calls the exact same navigateBack() the arrow/gesture use, so all three stay identical.
+   Manual pops (arrow tap, edge-swipe) never call history.back() themselves -- the harmless
+   result is a few unconsumed history entries after several manual backs, silently absorbed as
+   no-op popstates the next time the OS control is actually used. ---------- */
+try{ history.pushState({navRoot:true}, ''); }catch(err){}
+window.addEventListener('popstate', function(){ navigateBack(); });
 
 export function overlayEl(){ return document.getElementById('sheet-overlay'); }
 

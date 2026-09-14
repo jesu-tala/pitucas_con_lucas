@@ -215,8 +215,14 @@
     font-family:var(--font-editorial);font-style:italic;font-size:16px;font-weight:600;color:var(--accent-ink);letter-spacing:.01em;
   }
   .app-header h1{font-size:24px;font-weight:700;letter-spacing:-0.01em;}
-  .view-scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:4px 16px 24px;}
+  /* .view-stack takes over the flex:1 slot #view-root used to have directly -- #view-root and
+     the peek layer underneath it (edge-swipe-back's "previous screen" preview, see events.ts)
+     both sit absolutely inside it instead, so the peek can overlay exactly where the real
+     content is without knowing the header/tabbar's heights. */
+  .view-stack{flex:1;position:relative;overflow:hidden;}
+  .view-scroll{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:4px 16px 24px;}
   .view-scroll::-webkit-scrollbar{width:0;height:0;}
+  .view-peek{z-index:-1;pointer-events:none;}
 
   .tabbar{
     display:flex;
@@ -1249,7 +1255,10 @@
           <span class="demo-mode-banner" id="demo-banner" hidden></span>
         </div>
       </header>
-      <main class="view-scroll" id="view-root"></main>
+      <div class="view-stack" id="view-stack">
+        <main class="view-scroll" id="view-root"></main>
+        <div class="view-scroll view-peek" id="view-root-peek" hidden></div>
+      </div>
       <button class="fab-add" id="fab-add" aria-label="Agregar transacción"></button>
       <nav class="tabbar" id="tabbar"></nav>
       <div class="sheet-overlay" id="sheet-overlay">
@@ -1635,6 +1644,45 @@
   }
   __name(hasReceivableType, "hasReceivableType");
 
+  // src/nav.ts
+  var stack = [];
+  function navPush(frame) {
+    stack.push(frame);
+  }
+  __name(navPush, "navPush");
+  function navPop() {
+    return stack.length ? stack.pop() : null;
+  }
+  __name(navPop, "navPop");
+  function navPeek() {
+    return stack.length ? stack[stack.length - 1] : null;
+  }
+  __name(navPeek, "navPeek");
+  function navDepth() {
+    return stack.length;
+  }
+  __name(navDepth, "navDepth");
+  function navClear() {
+    stack.length = 0;
+  }
+  __name(navClear, "navClear");
+  function navPopIfTop(type) {
+    if (stack.length && stack[stack.length - 1].type === type) {
+      stack.pop();
+      return true;
+    }
+    return false;
+  }
+  __name(navPopIfTop, "navPopIfTop");
+  function navClearType(type) {
+    stack = stack.filter((f) => f.type !== type);
+  }
+  __name(navClearType, "navClearType");
+  function navStackSnapshot() {
+    return stack.slice();
+  }
+  __name(navStackSnapshot, "navStackSnapshot");
+
   // src/category-colors.ts
   var FILL_LIGHT = { l: 0.86, c: 0.075 };
   var FILL_DARK = { l: 0.32, c: 0.1 };
@@ -1891,11 +1939,11 @@
 
   // src/ui/toasts.ts
   function toast(msg) {
-    const stack = document.getElementById("toast-stack");
+    const stack2 = document.getElementById("toast-stack");
     const el = document.createElement("div");
     el.className = "toast";
     el.innerHTML = icon("check") + "<span>" + msg + "</span>";
-    stack.appendChild(el);
+    stack2.appendChild(el);
     requestAnimationFrame(() => el.classList.add("show"));
     setTimeout(() => {
       el.classList.remove("show");
@@ -5256,6 +5304,72 @@
 
   // src/events.ts
   var phone = document.getElementById("phone");
+  function navigateBack() {
+    const frame = navPeek();
+    if (!frame) return false;
+    if (frame.type === "sheet") {
+      closeSheet();
+      renderSheet();
+      return true;
+    }
+    if (frame.type === "menu-section") {
+      navPop();
+      state.menuSection = null;
+      state.editingCategoryId = null;
+      state.editingPaymentMethodId = null;
+      renderMenuView();
+      return true;
+    }
+    if (frame.type === "group-detail") {
+      navPop();
+      state.openGroupId = null;
+      state.addingParticipant = false;
+      renderGroupsView();
+      return true;
+    }
+    return false;
+  }
+  __name(navigateBack, "navigateBack");
+  function resetTabToDefault(tab) {
+    if (tab === "menu") {
+      navClearType("menu-section");
+      state.menuSection = null;
+      state.editingCategoryId = null;
+      state.editingPaymentMethodId = null;
+    } else if (tab === "grupos") {
+      navClearType("group-detail");
+      state.openGroupId = null;
+      state.addingParticipant = false;
+    }
+    render();
+    const scrollEl = document.getElementById("view-root");
+    if (scrollEl) scrollEl.scrollTop = 0;
+  }
+  __name(resetTabToDefault, "resetTabToDefault");
+  function capturePeekHTML(frame) {
+    const root = document.getElementById("view-root");
+    if (!root) return null;
+    if (frame.type === "menu-section") {
+      const saved = state.menuSection;
+      state.menuSection = null;
+      renderMenuView();
+      const html = root.innerHTML;
+      state.menuSection = saved;
+      renderMenuView();
+      return html;
+    }
+    if (frame.type === "group-detail") {
+      const saved = state.openGroupId;
+      state.openGroupId = null;
+      renderGroupsView();
+      const html = root.innerHTML;
+      state.openGroupId = saved;
+      renderGroupsView();
+      return html;
+    }
+    return null;
+  }
+  __name(capturePeekHTML, "capturePeekHTML");
   phone.addEventListener("click", function(e) {
     const authTabBtn = e.target.closest("[data-auth-tab]");
     if (authTabBtn) {
@@ -5327,7 +5441,12 @@
     }
     const tabBtn = e.target.closest("[data-tab]");
     if (tabBtn) {
-      state.tab = tabBtn.getAttribute("data-tab");
+      const tappedTab = tabBtn.getAttribute("data-tab");
+      if (tappedTab === state.tab) {
+        resetTabToDefault(tappedTab);
+        return;
+      }
+      state.tab = tappedTab;
       render();
       if (state.tab === "transacciones") absorbImportedRows();
       return;
@@ -6475,6 +6594,11 @@
     const menuOpenBtn = e.target.closest("[data-menu-open]");
     if (menuOpenBtn) {
       state.menuSection = menuOpenBtn.getAttribute("data-menu-open");
+      navPush({ type: "menu-section" });
+      try {
+        history.pushState({}, "");
+      } catch (err) {
+      }
       if (state.menuSection === "importarcorreo" && !state.emailImportLoaded) {
         state.emailImportLoading = true;
         renderMenuView();
@@ -6504,22 +6628,22 @@
     }
     const menuBackBtn = e.target.closest("[data-menu-back]");
     if (menuBackBtn) {
-      state.menuSection = null;
-      state.editingCategoryId = null;
-      state.editingPaymentMethodId = null;
-      renderMenuView();
+      navigateBack();
       return;
     }
     const groupBackBtn = e.target.closest("[data-group-back]");
     if (groupBackBtn) {
-      state.openGroupId = null;
-      state.addingParticipant = false;
-      renderGroupsView();
+      navigateBack();
       return;
     }
     const groupOpenBtn = e.target.closest("[data-group-open]");
     if (groupOpenBtn) {
       state.openGroupId = groupOpenBtn.getAttribute("data-group-open");
+      navPush({ type: "group-detail" });
+      try {
+        history.pushState({}, "");
+      } catch (err) {
+      }
       renderGroupsView();
       return;
     }
@@ -8035,6 +8159,152 @@
   __name(endSubtabDrag, "endSubtabDrag");
   phone.addEventListener("pointerup", endSubtabDrag);
   phone.addEventListener("pointercancel", endSubtabDrag);
+  var EDGE_ZONE_PX = 24;
+  var EDGE_SWIPE_THRESHOLD_PX = 80;
+  var EDGE_SWIPE_VELOCITY_PXMS = 0.5;
+  var edgeSwipe = null;
+  phone.addEventListener("pointerdown", function(e) {
+    if (e.button != null && e.button !== 0) return;
+    if (edgeSwipe || sheetDrag) return;
+    if (overlayEl().classList.contains("open")) return;
+    if (navDepth() === 0) return;
+    if (e.clientX > EDGE_ZONE_PX) return;
+    edgeSwipe = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, startTime: Date.now(), dragging: false, rejected: false };
+  });
+  phone.addEventListener("pointermove", function(e) {
+    if (!edgeSwipe || e.pointerId !== edgeSwipe.pointerId || edgeSwipe.rejected) return;
+    const dx = e.clientX - edgeSwipe.startX;
+    const dy = e.clientY - edgeSwipe.startY;
+    if (!edgeSwipe.dragging) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      if (Math.abs(dy) >= Math.abs(dx) || dx <= 0) {
+        edgeSwipe.rejected = true;
+        return;
+      }
+      edgeSwipe.dragging = true;
+      try {
+        phone.setPointerCapture(e.pointerId);
+      } catch (err) {
+      }
+      const frame = navPeek();
+      const peekEl = document.getElementById("view-root-peek");
+      if (frame && peekEl) {
+        const html = capturePeekHTML(frame);
+        if (html != null) {
+          peekEl.innerHTML = html;
+          peekEl.hidden = false;
+        }
+      }
+      const rootEl2 = document.getElementById("view-root");
+      if (rootEl2) rootEl2.style.transition = "none";
+    }
+    e.preventDefault();
+    const rootEl = document.getElementById("view-root");
+    if (rootEl) rootEl.style.transform = "translateX(" + Math.max(0, Math.min(dx, window.innerWidth)) + "px)";
+  });
+  function endEdgeSwipe(e) {
+    if (!edgeSwipe || e.pointerId !== edgeSwipe.pointerId) return;
+    const wasDragging = edgeSwipe.dragging;
+    const dx = e.clientX - edgeSwipe.startX;
+    const velocity = dx / Math.max(1, Date.now() - edgeSwipe.startTime);
+    try {
+      phone.releasePointerCapture(e.pointerId);
+    } catch (err) {
+    }
+    edgeSwipe = null;
+    if (!wasDragging) return;
+    const rootEl = document.getElementById("view-root");
+    const peekEl = document.getElementById("view-root-peek");
+    if (!rootEl) return;
+    rootEl.style.transition = "";
+    if (dx > EDGE_SWIPE_THRESHOLD_PX || velocity > EDGE_SWIPE_VELOCITY_PXMS) {
+      rootEl.style.transform = "translateX(100%)";
+      setTimeout(function() {
+        navigateBack();
+        rootEl.style.transform = "";
+        if (peekEl) {
+          peekEl.hidden = true;
+          peekEl.innerHTML = "";
+        }
+      }, 220);
+    } else {
+      rootEl.style.transform = "";
+      setTimeout(function() {
+        if (peekEl) {
+          peekEl.hidden = true;
+          peekEl.innerHTML = "";
+        }
+      }, 220);
+    }
+  }
+  __name(endEdgeSwipe, "endEdgeSwipe");
+  phone.addEventListener("pointerup", endEdgeSwipe);
+  phone.addEventListener("pointercancel", endEdgeSwipe);
+  var SHEET_DISMISS_THRESHOLD_PX = 120;
+  var SHEET_DISMISS_VELOCITY_PXMS = 0.6;
+  var sheetDrag = null;
+  phone.addEventListener("pointerdown", function(e) {
+    if (e.button != null && e.button !== 0) return;
+    if (sheetDrag || edgeSwipe) return;
+    if (!overlayEl().classList.contains("open")) return;
+    const onHandle = !!e.target.closest(".sheet-handle");
+    const contentEl = document.getElementById("sheet-content");
+    const onContentAtTop = !onHandle && !!e.target.closest("#sheet-content") && !!contentEl && contentEl.scrollTop <= 0;
+    if (!onHandle && !onContentAtTop) return;
+    sheetDrag = { pointerId: e.pointerId, startY: e.clientY, startTime: Date.now(), dragging: false };
+  });
+  phone.addEventListener("pointermove", function(e) {
+    if (!sheetDrag || e.pointerId !== sheetDrag.pointerId) return;
+    const dy = e.clientY - sheetDrag.startY;
+    if (!sheetDrag.dragging) {
+      if (dy < 8) return;
+      sheetDrag.dragging = true;
+      try {
+        phone.setPointerCapture(e.pointerId);
+      } catch (err) {
+      }
+      const sheetEl2 = document.getElementById("sheet");
+      if (sheetEl2) sheetEl2.style.transition = "none";
+    }
+    e.preventDefault();
+    const sheetEl = document.getElementById("sheet");
+    if (sheetEl) sheetEl.style.transform = "translateY(" + Math.max(0, dy) + "px)";
+  });
+  function endSheetDrag(e) {
+    if (!sheetDrag || e.pointerId !== sheetDrag.pointerId) return;
+    const wasDragging = sheetDrag.dragging;
+    const dy = e.clientY - sheetDrag.startY;
+    const velocity = dy / Math.max(1, Date.now() - sheetDrag.startTime);
+    try {
+      phone.releasePointerCapture(e.pointerId);
+    } catch (err) {
+    }
+    sheetDrag = null;
+    if (!wasDragging) return;
+    const sheetEl = document.getElementById("sheet");
+    if (!sheetEl) return;
+    sheetEl.style.transition = "";
+    if (dy > SHEET_DISMISS_THRESHOLD_PX || velocity > SHEET_DISMISS_VELOCITY_PXMS) {
+      const sheetHeight = sheetEl.getBoundingClientRect().height || window.innerHeight;
+      sheetEl.style.transform = "translateY(" + sheetHeight + "px)";
+      setTimeout(function() {
+        closeSheet();
+        renderSheet();
+      }, 260);
+    } else {
+      sheetEl.style.transform = "";
+    }
+  }
+  __name(endSheetDrag, "endSheetDrag");
+  phone.addEventListener("pointerup", endSheetDrag);
+  phone.addEventListener("pointercancel", endSheetDrag);
+  try {
+    history.pushState({ navRoot: true }, "");
+  } catch (err) {
+  }
+  window.addEventListener("popstate", function() {
+    navigateBack();
+  });
   function overlayEl() {
     return document.getElementById("sheet-overlay");
   }
@@ -9104,10 +9374,23 @@
     })() : renderQuickActionsBlock(t)) + renderShareGroupSection(t) + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nota</div><input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="' + t.id + '" value="' + (t.nota || "").replace(/"/g, "&quot;") + '" placeholder="Agregar notas personales"></div>' + importedBlock + (state.confirmDeleteTxId === t.id ? '<div class="sheet-delete-confirm"><p class="muted" style="font-size:12.5px;margin:0 0 10px;">\xBFSeguro que quieres eliminar esta transacci\xF3n? No se puede deshacer.</p><div style="display:flex;gap:8px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="' + t.id + '">Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="' + t.id + '">S\xED, eliminar</button></div></div>' : '<div class="sheet-bottom-actions"><button class="sheet-delete-btn" data-ask-delete-tx="' + t.id + '" aria-label="Eliminar transacci\xF3n">' + ICONS.trash + '</button><button class="sheet-done-btn" data-close-sheet-done>' + ICONS.check + " Listo</button></div>");
   }
   __name(renderSheetContent, "renderSheetContent");
+  function openSheetOverlay() {
+    const overlay = document.getElementById("sheet-overlay");
+    const wasOpen = overlay.classList.contains("open");
+    overlay.classList.add("open");
+    if (!wasOpen) {
+      navPush({ type: "sheet" });
+      try {
+        history.pushState({}, "");
+      } catch (err) {
+      }
+    }
+  }
+  __name(openSheetOverlay, "openSheetOverlay");
   function openSheet(txId) {
     state.openTxId = txId;
     state.creatingNew = false;
-    document.getElementById("sheet-overlay").classList.add("open");
+    openSheetOverlay();
     renderSheet();
     document.getElementById("sheet-content").scrollTop = 0;
     setTimeout(() => {
@@ -9158,7 +9441,7 @@
     delete state.splitCollectMode[DRAFT_TX_ID];
     delete state.splitCollectUnit[DRAFT_TX_ID];
     if (state.shareDraft && state.shareDraft.txId === DRAFT_TX_ID) state.shareDraft = null;
-    document.getElementById("sheet-overlay").classList.add("open");
+    openSheetOverlay();
     renderSheet();
     document.getElementById("sheet-content").scrollTop = 0;
     setTimeout(() => {
@@ -9171,7 +9454,7 @@
     state.openTxId = null;
     state.creatingNew = false;
     state.filterSheetOpen = true;
-    document.getElementById("sheet-overlay").classList.add("open");
+    openSheetOverlay();
     renderSheet();
     document.getElementById("sheet-content").scrollTop = 0;
   }
@@ -9185,18 +9468,24 @@
     state.boleta = null;
     state.confirmDeleteTxId = null;
     document.getElementById("sheet-overlay").classList.remove("open");
+    const sheetEl = document.getElementById("sheet");
+    if (sheetEl) {
+      sheetEl.style.transform = "";
+      sheetEl.style.transition = "";
+    }
+    navPopIfTop("sheet");
   }
   __name(closeSheet, "closeSheet");
   function openLinkFromPending(expenseTxId, idx) {
     state.linkFlow = { mode: "fromPendiente", expenseTxId, idx };
-    document.getElementById("sheet-overlay").classList.add("open");
+    openSheetOverlay();
     renderSheet();
     document.getElementById("sheet-content").scrollTop = 0;
   }
   __name(openLinkFromPending, "openLinkFromPending");
   function openLinkFromIncome(incomeTxId) {
     state.linkFlow = { mode: "fromIngreso", incomeTxId, mostrarGastos: false };
-    document.getElementById("sheet-overlay").classList.add("open");
+    openSheetOverlay();
     renderSheet();
     document.getElementById("sheet-content").scrollTop = 0;
   }
@@ -9244,7 +9533,7 @@
     const gastoTx = getTx(expenseTxId);
     if (!gastoTx) return;
     state.boleta = { step: "capturar", expenseTxId, comercio: gastoTx.comercio, items: [], asign: {}, propinaUnit: "%", propinaValor: "" };
-    document.getElementById("sheet-overlay").classList.add("open");
+    openSheetOverlay();
     renderSheet();
     document.getElementById("sheet-content").scrollTop = 0;
   }
@@ -10639,6 +10928,9 @@
     useImportedStatement: useImportedStatement,
     enterDemoMode: enterDemoMode, exitDemoMode: exitDemoMode, isDemoActive: isDemoActive,
     preserveGroupTransactionsBeforeUnlink: preserveGroupTransactionsBeforeUnlink,
+    navPush: navPush, navPop: navPop, navPeek: navPeek, navDepth: navDepth,
+    navClear: navClear, navClearType: navClearType, navPopIfTop: navPopIfTop,
+    navStackSnapshot: navStackSnapshot, navigateBack: navigateBack,
     categoriesCollidingWithHue: categoriesCollidingWithHue, nextCategoryHue: nextCategoryHue,
     categoryFillCss: categoryFillCss, categoryInkCss: categoryInkCss, categoryColorVars: categoryColorVars,
     DONUT_OTROS_THRESHOLD_PCT: DONUT_OTROS_THRESHOLD_PCT,
