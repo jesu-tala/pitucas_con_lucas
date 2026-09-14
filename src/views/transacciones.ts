@@ -71,7 +71,7 @@ export function renderFilterSummary(){
     const ingresos = base.filter(t=>t.tipo==='ingreso').reduce((s,t)=>s+netIncomeTx(t),0);
     const reembolsos = base.reduce((s,t)=> s + t.porCobrar.filter(p=>p.pagado && p.tipo==='reembolso').reduce((ss,p)=>ss+pendingEffectiveAmount(p),0), 0);
     return '<div class="stat-grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px;">'+
-      '<div class="card stat-tile stat-ingresos"><div class="stat-label">Ingresos</div><div class="stat-value tabular">'+money(ingresos)+'</div></div>'+
+      '<div class="card stat-tile stat-ingresos"><div class="stat-label">Entradas</div><div class="stat-value tabular">'+money(ingresos)+'</div></div>'+
       '<div class="card stat-tile" style="background:var(--surface);border:1px solid var(--border);"><div class="stat-label">Reembolsos</div><div class="stat-value tabular">'+money(reembolsos)+'</div></div>'+
     '</div>';
   }
