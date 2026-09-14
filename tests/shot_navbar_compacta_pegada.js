@@ -6,10 +6,23 @@
 //      que quede junto al resto de este bug puntual;
 //  (2) la barra en sí es compacta -- padding vertical achicado (4px, antes 6px) y altura de
 //      contenido bajo un techo razonable (<=60px sin safe-area, Tricount-style), no "gigante";
-//  (3) el safe-area-inset-bottom del iPhone se suma UNA sola vez -- nunca se duplica en un
-//      wrapper además de la barra -- verificado inspeccionando el CSS generado (env() resuelve
-//      a 0 en Chromium de escritorio sin notch, así que la única forma confiable de detectar una
-//      duplicación es contar cuántas reglas lo usan, no medir píxeles).
+//  (3) el safe-area-inset-bottom del iPhone se usa en exactamente 3 lugares, cada uno con un
+//      propósito propio y sin pisarse entre sí: el padding de la barra (para no tapar sus
+//      propios íconos con el home indicator), el padding-bottom de .view-scroll (para que el
+//      contenido con scroll no quede oculto DETRÁS de la barra, que ahora es position:fixed y
+//      ya no reserva su espacio en el flujo normal) y el offset del botón + (para no quedar
+//      tapado por la barra) -- verificado inspeccionando el CSS generado (env() resuelve a 0 en
+//      Chromium de escritorio sin notch, así que la única forma confiable de detectar una
+//      duplicación ACCIDENTAL es contar cuántas reglas lo usan, no medir píxeles);
+//  (4) la causa raíz real del bug reportado -- la barra se dibujaba "despegada" del borde SOLO
+//      al recién abrir la app (y se autocorregía al mover/inclinar el teléfono, un resize real).
+//      Eso apuntaba a .phone (100dvh) resolviendo un alto momentáneamente MÁS GRANDE que el real
+//      en el primer pintado en iOS, antes de asentar el viewport dinámico -- y como la barra
+//      vivía dentro del flujo de .phone, quedaba empujada fuera del área visible real ese primer
+//      instante. Este test simula exactamente esa condición (fuerza a .phone a un alto mayor al
+//      viewport real, sin esperar a que iOS realmente la produzca) y confirma que la barra
+//      YA NO le importa: al ser position:fixed contra el viewport real, se queda pegada al
+//      borde real sin importar cuánto se equivoque .phone en su propia altura.
 const fs = require('fs');
 const path = require('path');
 const { openApp, check, finish } = require('./lib/test_kit');
@@ -41,7 +54,34 @@ const { openApp, check, finish } = require('./lib/test_kit');
   // El patrón exige la coma + valor por defecto (",0px)") -- así solo cuenta usos reales en
   // una declaración CSS, no una mención suelta en un comentario.
   const ocurrencias = (html.match(/env\(safe-area-inset-bottom,0px\)/g) || []).length;
-  check('(3) safe-area-inset-bottom se usa exactamente 2 veces en el CSS (barra + botón +, nunca duplicado)', ocurrencias === 2, ocurrencias);
+  check('(3) safe-area-inset-bottom se usa exactamente 3 veces en el CSS (barra + view-scroll + botón +, nunca duplicado por accidente)', ocurrencias === 3, ocurrencias);
+
+  // (4) Simula la condición real del bug: .phone midiéndose (momentáneamente, en iOS) más alto
+  // que el viewport real. Sin el fix, eso empujaba la barra fuera del área visible -- con el
+  // fix (la barra es position:fixed contra el viewport, ya no un hijo del flujo de .phone) debe
+  // quedarse exactamente donde estaba, sin importar este error de .phone.
+  const conPhoneMasAlto = await page.evaluate(() => {
+    const phone = document.querySelector('.phone');
+    phone.style.setProperty('height', '1200px', 'important'); // viewport real: 844px
+    const tabbar = document.getElementById('tabbar');
+    const r = tabbar.getBoundingClientRect();
+    return { tabbarBottom: r.bottom, phoneHeight: phone.getBoundingClientRect().height, viewportHeight: window.innerHeight };
+  });
+  console.log('con .phone forzado más alto que el viewport real:', JSON.stringify(conPhoneMasAlto));
+  check('(4) Aunque .phone se mida 1200px (más alto que el viewport real de 844px, la condición exacta del bug), la barra sigue pegada al borde real', Math.abs(conPhoneMasAlto.tabbarBottom - conPhoneMasAlto.viewportHeight) <= 2, conPhoneMasAlto);
+
+  // (5) Ahora que la barra es position:fixed (ya no reserva su espacio en el flujo normal de
+  // .phone), .view-scroll debe reservar manualmente al menos esa misma altura como
+  // padding-bottom -- si no, el contenido con scroll pasaría por DEBAJO de la barra flotante.
+  const clearance = await page.evaluate(() => {
+    const tabbar = document.getElementById('tabbar');
+    const scroll = document.querySelector('.view-scroll');
+    return {
+      tabbarHeight: tabbar.getBoundingClientRect().height,
+      scrollPaddingBottom: parseFloat(getComputedStyle(scroll).paddingBottom)
+    };
+  });
+  check('(5) .view-scroll reserva abajo al menos el alto real de la barra (para no ocultar contenido detrás de ella)', clearance.scrollPaddingBottom >= clearance.tabbarHeight, clearance);
 
   await finish({ context, browser, errors });
 })();

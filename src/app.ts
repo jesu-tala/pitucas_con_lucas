@@ -69,7 +69,24 @@ setAppHeight();
 });
 if(window.visualViewport){
   window.visualViewport.addEventListener('resize', setAppHeight);
+  window.visualViewport.addEventListener('scroll', setAppHeight);
 }
+// Bug real reportado: la barra inferior se veía "despegada" del borde real al recién abrir la
+// app, y se corregía sola apenas se movía/inclinaba el teléfono (lo que dispara un resize real).
+// Eso confirma que el problema era de TIMING, no de fórmula: este script corre y llama a
+// setAppHeight() (arriba) antes de que iOS termine de asentar el viewport dinámico real (barra
+// de direcciones, safe-area) en el primerísimo pintado -- la medición de ESE instante puede no
+// ser la definitiva, y como nada disparaba un recálculo hasta el primer resize/orientation real
+// de la usuaria, la medición equivocada quedaba pegada mientras tanto. Un doble
+// requestAnimationFrame (space para que el navegador termine el layout/paint del frame actual
+// antes de volver a medir) agarra el valor ya asentado sin depender de que la usuaria mueva el
+// teléfono para "arreglarlo" ella misma. (El arreglo estructural, que esto no dependa de la
+// medición de .phone en absoluto, vive en CSS: .tabbar es position:fixed contra el viewport real
+// -- ver plata-clara.html, @media max-width:480px -- así que aunque esta medición llegara tarde
+// otra vez, la barra en sí ya no se vería afectada. Este recálculo extra igual se agrega porque
+// --app-height sigue siendo lo que usa .phone como respaldo de 100dvh mientras el teclado está
+// abierto, y merece el mismo cuidado.)
+requestAnimationFrame(function(){ requestAnimationFrame(setAppHeight); });
 
 document.getElementById('fab-add').innerHTML = ICONS.plus;
 document.getElementById('auth-brand-icon').innerHTML = ICONS.lock;
