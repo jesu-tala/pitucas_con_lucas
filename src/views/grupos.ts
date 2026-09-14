@@ -598,7 +598,9 @@ export function renderGroupDetail(groupId){
         '</div>'
       : '<button class="split-add" style="color:var(--expense-ink);margin-top:14px;" data-ask-delete-group="'+groupId+'">'+ICONS.trash+' Eliminar grupo</button>');
 
-  cont.innerHTML = groupScreenHead(g.nombre)+subtabsHtml+contentHtml+inviteBlock+deleteBlock;
+  const exportBlock = '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);width:100%;margin-top:12px;" data-export-group="'+groupId+'">Exportar info del grupo (.xlsx)</button>';
+
+  cont.innerHTML = groupScreenHead(g.nombre)+subtabsHtml+contentHtml+inviteBlock+exportBlock+deleteBlock;
 }
 
 export function renderAddParticipantForm(groupId){

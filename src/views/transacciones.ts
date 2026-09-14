@@ -135,28 +135,30 @@ export function renderTxItem(t){
 
   const medio = paymentMethodInfo(t.medio);
 
-  // Un gasto con reembolso ligado (ver netExpenseTx en helpers.ts) muestra el monto BRUTO como
-  // principal (lo que de verdad salió de la tarjeta/cuenta ese día -- nunca se cambia, es el
-  // registro real) y, en chico debajo, el costo neto real (bruto - reembolso) para que se vea de
-  // un vistazo cuánto quedó puesto tras la recuperación. Distingue si el reembolso ya llegó
-  // ("Pagado real": el neto es definitivo) de si todavía está pendiente ("Neto estimado": el
-  // neto usa el monto esperado, no uno ya confirmado, así que puede ajustarse cuando llegue).
+  // Un gasto con reembolso ligado (ver netExpenseTx en helpers.ts) solo cambia de aspecto cuando
+  // el reembolso YA LLEGÓ -- mientras está pendiente se ve exactamente como un gasto normal (no
+  // existe un "reembolso pendiente" que se muestre distinto, eso ya lo cubre el tag "Reembolso").
+  // Una vez recibido, se tacha el MONTO (nunca el nombre -- el nombre solo se tacha cuando lo
+  // cobrado es un por-cobrar de persona, ver isCobrado más arriba) y al lado, en la misma línea,
+  // se muestra el costo neto real (bruto - reembolso) ya definitivo.
   const reembolsoRows = !isIncome && !isNoGasto ? (t.porCobrar||[]).filter(p=>p.tipo==='reembolso') : [];
-  const netoLine = reembolsoRows.length===0 ? '' :
-    '<div class="tx-right-sub tx-neto-reembolso">'+(reembolsoRows.every(p=>p.pagado)?'Pagado real: ':'Neto estimado: ')+money(netExpenseTx(t))+'</div>';
+  const personaRows = !isIncome && !isNoGasto ? (t.porCobrar||[]).filter(p=>p.tipo!=='reembolso') : [];
+  const reembolsoRecibido = reembolsoRows.length>0 && reembolsoRows.every(p=>p.pagado);
+  const nameTachado = isCobrado && personaRows.length>0;
+  const montoRealInline = reembolsoRecibido ? '<span class="tx-amount-real tabular">'+money(netExpenseTx(t))+'</span>' : '';
 
   return '<button class="tx-item" data-tx="'+t.id+'">'+
     '<span class="tx-avatar" style="'+categoryColorVars(primaryCat)+'">'+catIconMarkup(primaryCat.icon)+'</span>'+
     '<span class="tx-info">'+
-      '<span class="tx-name'+(isCobrado?' tachado':'')+'">'+t.comercio+'</span>'+
+      '<span class="tx-name'+(nameTachado?' tachado':'')+'">'+t.comercio+'</span>'+
       '<span class="tx-sub">'+(t.reglaAuto?'<span class="lock-badge">'+ICONS.lockSmall+'</span>':'')+
         '<span style="overflow:hidden;text-overflow:ellipsis;">'+leftLabel+'</span>'+stateTag+
       '</span>'+
     '</span>'+
     '<span class="tx-right">'+
-      '<span class="tx-amount tabular '+amountClass+'">'+amtDisplay+'</span>'+
+      '<span class="tx-amount tabular '+amountClass+(reembolsoRecibido?' tachado':'')+'">'+amtDisplay+'</span>'+
+      montoRealInline+
       '<div class="tx-right-sub"><span class="tx-hora">'+t.hora+'</span><span>·</span>'+(paymentMethodTagIcon(medio)?'<span class="medio-tag-icon">'+paymentMethodTagIcon(medio)+'</span>':'')+medio.corto+'</div>'+
-      netoLine+
     '</span>'+
   '</button>';
 }

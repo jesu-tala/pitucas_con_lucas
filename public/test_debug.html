@@ -340,6 +340,8 @@
   .tx-amount.pos{color:var(--income-ink);}
   .tx-amount.neg{color:var(--text);}
   .tx-amount.muted-amt{color:var(--text-tertiary);text-decoration:line-through;text-decoration-thickness:1px;}
+  .tx-amount.tachado{color:var(--text-tertiary);text-decoration:line-through;text-decoration-thickness:1px;}
+  .tx-amount-real{font-size:15px;font-weight:500;color:var(--text);margin-left:4px;}
   .tx-right-sub{font-size:10px;color:var(--text-tertiary);margin-top:3px;display:flex;align-items:center;justify-content:flex-end;gap:3px;}
   .tx-right-sub .medio-tag-icon{font-size:11px;line-height:1;}
   .tx-state{font-size:10.5px;font-weight:700;padding:1.5px 7px;border-radius:var(--radius-chip);display:inline-block;flex-shrink:0;}
@@ -1277,6 +1279,9 @@
 <!-- Para leer el PDF de la cartola/estado de cuenta directo en el navegador (nunca sale de
      tu teléfono hacia ningún servidor nuestro — se procesa acá mismo). -->
 <script src="pdf.min.js"></script>
+<!-- Para exportar la info de un grupo a un .xlsx con varias hojas (integrantes, gastos,
+     detalle de división, transferencias), generado enteramente en el navegador. -->
+<script src="xlsx.full.min.js"></script>
 <script>
 (() => {
   var __defProp = Object.defineProperty;
@@ -3871,15 +3876,23 @@
   }
   __name(renderMenuCuenta, "renderMenuCuenta");
   function buildChargeWhatsAppText(t) {
-    const pendientes = (t.porCobrar || []).filter((p) => p.tipo === "persona" && !p.pagado && p.direccion !== "debo");
+    const rows = (t.porCobrar || []).filter((p) => p.tipo === "persona" && p.direccion !== "debo");
+    const pendientes = rows.filter((p) => !p.pagado);
     if (pendientes.length === 0) return null;
+    const otrosSum = rows.reduce((s, p) => s + Math.round(p.monto || 0), 0);
+    const tuParte = Math.max(Math.round(t.monto || 0) - otrosSum, 0);
     const lines = ["Pendiente de pago"];
-    pendientes.forEach((p, i) => {
-      lines.push(i + 1 + ". " + (p.persona || "Sin nombre") + " " + fmt.format(Math.round(p.monto || 0)));
+    let n = 1;
+    if (tuParte > 0) {
+      lines.push(n + ". T\xFA " + fmt.format(tuParte));
+      n++;
+    }
+    pendientes.forEach((p) => {
+      lines.push(n + ". " + (p.persona || "Sin nombre") + " " + fmt.format(Math.round(p.monto || 0)));
+      n++;
     });
-    const total = pendientes.reduce((s, p) => s + Math.round(p.monto || 0), 0);
     lines.push("");
-    lines.push("Total: " + fmt.format(total));
+    lines.push("Total: " + fmt.format(Math.round(t.monto || 0)));
     const d = TRANSFER_INFO;
     const datosLines = [];
     if (d.nombre) datosLines.push(d.nombre);
@@ -5115,6 +5128,104 @@
   }
   __name(exitDemoMode, "exitDemoMode");
 
+  // src/group-export.ts
+  var SPLIT_TYPE_LABELS = { iguales: "Por partes", pct: "Por %", montos: "Monto fijo" };
+  function splitTypeLabel(tipo) {
+    return SPLIT_TYPE_LABELS[tipo] || tipo;
+  }
+  __name(splitTypeLabel, "splitTypeLabel");
+  function buildIntegrantesRows(groupId) {
+    return groupBalances(groupId).map((b) => ({
+      nombre: b.nombre,
+      saldoNeto: Math.round(b.balance),
+      totalPagado: Math.round(b.paid),
+      totalLeCorresponde: Math.round(b.owed)
+    }));
+  }
+  __name(buildIntegrantesRows, "buildIntegrantesRows");
+  function buildTransaccionesRows(groupId) {
+    const participantes = participantsOfGroup(groupId);
+    return expensesOfGroup(groupId).slice().sort((a, b) => a.fecha.localeCompare(b.fecha)).map((g) => {
+      const pagador = participantes.find((p) => p.id === g.pagado_por);
+      return {
+        fecha: g.fecha,
+        descripcion: g.descripcion,
+        categoria: g.categoria_origen || "",
+        montoTotal: Math.round(g.monto),
+        quienPago: pagador ? pagador.nombre : "?",
+        modoDivision: splitTypeLabel(g.division_tipo)
+      };
+    });
+  }
+  __name(buildTransaccionesRows, "buildTransaccionesRows");
+  function buildDetalleDivisionRows(groupId) {
+    const participantes = participantsOfGroup(groupId);
+    const rows = [];
+    expensesOfGroup(groupId).slice().sort((a, b) => a.fecha.localeCompare(b.fecha)).forEach((g) => {
+      (g.reparto || []).forEach((r) => {
+        const p = participantes.find((pp) => pp.id === r.participante_id);
+        rows.push({
+          transaccion: g.fecha + " \u2014 " + g.descripcion,
+          participante: p ? p.nombre : "?",
+          parte: Math.round(r.monto)
+        });
+      });
+    });
+    return rows;
+  }
+  __name(buildDetalleDivisionRows, "buildDetalleDivisionRows");
+  function buildTransferenciasRows(groupId) {
+    const participantes = participantsOfGroup(groupId);
+    const nombreDe = /* @__PURE__ */ __name((id) => {
+      const p = participantes.find((x) => x.id === id);
+      return p ? p.nombre : "?";
+    }, "nombreDe");
+    const saldadas = PAID_BALANCES.filter((s) => s.grupo_id === groupId).map((s) => ({
+      fecha: s.fecha,
+      de: nombreDe(s.de_participante),
+      a: nombreDe(s.a_participante),
+      monto: Math.round(s.monto),
+      estado: "saldado"
+    }));
+    const pendientes = suggestedTransfers(groupId).map((t) => ({
+      fecha: "",
+      de: nombreDe(t.from),
+      a: nombreDe(t.to),
+      monto: Math.round(t.monto),
+      estado: "pendiente"
+    }));
+    return saldadas.concat(pendientes);
+  }
+  __name(buildTransferenciasRows, "buildTransferenciasRows");
+  function groupExportSheets(groupId) {
+    return {
+      "Integrantes": [["Nombre", "Saldo neto", "Total pagado", "Total que le corresponde"]].concat(
+        buildIntegrantesRows(groupId).map((r) => [r.nombre, r.saldoNeto, r.totalPagado, r.totalLeCorresponde])
+      ),
+      "Transacciones": [["Fecha", "Descripci\xF3n", "Categor\xEDa", "Monto total", "Qui\xE9n pag\xF3", "Modo de divisi\xF3n"]].concat(
+        buildTransaccionesRows(groupId).map((r) => [r.fecha, r.descripcion, r.categoria, r.montoTotal, r.quienPago, r.modoDivision])
+      ),
+      "Detalle de divisi\xF3n": [["Transacci\xF3n", "Participante", "Parte que le toca"]].concat(
+        buildDetalleDivisionRows(groupId).map((r) => [r.transaccion, r.participante, r.parte])
+      ),
+      "Transferencias": [["Fecha", "De", "A", "Monto", "Estado"]].concat(
+        buildTransferenciasRows(groupId).map((r) => [r.fecha, r.de, r.a, r.monto, r.estado])
+      )
+    };
+  }
+  __name(groupExportSheets, "groupExportSheets");
+  function buildGroupExportWorkbookArrayBuffer(groupId) {
+    const XLSXLib = window.XLSX;
+    const sheets = groupExportSheets(groupId);
+    const wb = XLSXLib.utils.book_new();
+    Object.keys(sheets).forEach((name) => {
+      const ws = XLSXLib.utils.aoa_to_sheet(sheets[name]);
+      XLSXLib.utils.book_append_sheet(wb, ws, name);
+    });
+    return XLSXLib.write(wb, { bookType: "xlsx", type: "array" });
+  }
+  __name(buildGroupExportWorkbookArrayBuffer, "buildGroupExportWorkbookArrayBuffer");
+
   // src/views/transacciones.ts
   var PERSONAL_GROUP_ID = "__personal__";
   function applyCommonFilters(list) {
@@ -5209,8 +5320,11 @@
     else if (t.estado === "no_es_gasto") stateTag = '<span class="tx-state state-noesgasto">' + (isIncome ? "No es ingreso" : "No es gasto") + "</span>";
     const medio = paymentMethodInfo(t.medio);
     const reembolsoRows = !isIncome && !isNoGasto ? (t.porCobrar || []).filter((p) => p.tipo === "reembolso") : [];
-    const netoLine = reembolsoRows.length === 0 ? "" : '<div class="tx-right-sub tx-neto-reembolso">' + (reembolsoRows.every((p) => p.pagado) ? "Pagado real: " : "Neto estimado: ") + money(netExpenseTx(t)) + "</div>";
-    return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="' + categoryColorVars(primaryCat) + '">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name' + (isCobrado ? " tachado" : "") + '">' + t.comercio + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + leftLabel + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + '">' + amtDisplay + '</span><div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + medio.corto + "</div>" + netoLine + "</span></button>";
+    const personaRows = !isIncome && !isNoGasto ? (t.porCobrar || []).filter((p) => p.tipo !== "reembolso") : [];
+    const reembolsoRecibido = reembolsoRows.length > 0 && reembolsoRows.every((p) => p.pagado);
+    const nameTachado = isCobrado && personaRows.length > 0;
+    const montoRealInline = reembolsoRecibido ? '<span class="tx-amount-real tabular">' + money(netExpenseTx(t)) + "</span>" : "";
+    return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="' + categoryColorVars(primaryCat) + '">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name' + (nameTachado ? " tachado" : "") + '">' + t.comercio + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + leftLabel + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + (reembolsoRecibido ? " tachado" : "") + '">' + amtDisplay + "</span>" + montoRealInline + '<div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + medio.corto + "</div></span></button>";
   }
   __name(renderTxItem, "renderTxItem");
   function advFilterCount() {
@@ -7302,6 +7416,15 @@
       toast("Respaldo JSON descargado");
       return;
     }
+    const exportGroupBtn = e.target.closest("[data-export-group]");
+    if (exportGroupBtn) {
+      const groupId = exportGroupBtn.getAttribute("data-export-group");
+      const g = GROUPS.find((x) => x.id === groupId);
+      const buffer = buildGroupExportWorkbookArrayBuffer(groupId);
+      downloadFile("pitucas-sin-lucas-grupo-" + (g ? g.nombre.replace(/[^a-z0-9]+/gi, "-").toLowerCase() : groupId) + "-" + todayISO() + ".xlsx", buffer, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      toast("Info del grupo descargada");
+      return;
+    }
     const importAgainBtn = e.target.closest("[data-import-again]");
     if (importAgainBtn) {
       state.importSummary = null;
@@ -9171,7 +9294,8 @@
     const inviteBlock = '<div class="card" style="padding:14px 16px;margin-top:12px;"><div class="sheet-block-title" style="margin-bottom:8px;">C\xF3digo de invitaci\xF3n</div><p class="muted" style="margin-bottom:10px;font-size:12px;">Comp\xE1rtelo con quien quieras que se una a "' + g.nombre + '".</p><div style="display:flex;gap:8px;"><input class="draft-input" readonly value="' + g.invite_code + '" style="font-size:11.5px;"><button class="budget-edit-btn" data-copy-text="' + g.invite_code + '" aria-label="Copiar c\xF3digo de invitaci\xF3n">' + ICONS.copy + "</button></div></div>";
     const canDelete = !!(currentUser && g.creado_por === currentUser.id);
     const deleteBlock = !canDelete ? "" : state.confirmDeleteGroupId === groupId ? '<div class="sheet-block card" style="padding:16px;margin-top:14px;"><p class="muted" style="font-size:12.5px;margin:0 0 10px;">\xBFSeguro que quieres eliminar "' + g.nombre + '"? Se borran todos sus gastos y saldos, para todos los participantes. No se puede deshacer.</p><div style="display:flex;gap:8px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-group>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-group="' + groupId + '">S\xED, eliminar</button></div></div>' : '<button class="split-add" style="color:var(--expense-ink);margin-top:14px;" data-ask-delete-group="' + groupId + '">' + ICONS.trash + " Eliminar grupo</button>";
-    cont.innerHTML = groupScreenHead(g.nombre) + subtabsHtml + contentHtml + inviteBlock + deleteBlock;
+    const exportBlock = '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);width:100%;margin-top:12px;" data-export-group="' + groupId + '">Exportar info del grupo (.xlsx)</button>';
+    cont.innerHTML = groupScreenHead(g.nombre) + subtabsHtml + contentHtml + inviteBlock + exportBlock + deleteBlock;
   }
   __name(renderGroupDetail, "renderGroupDetail");
   function renderAddParticipantForm(groupId) {
@@ -10962,7 +11086,11 @@
     openReceiptFlow: openReceiptFlow,
     buildReconcileDiff: buildReconcileDiff, matchConfidence: matchConfidence, movementLineId: movementLineId,
     normalizeComercio: normalizeComercio, isAutomaticOrigin: isAutomaticOrigin, isProtectedOrigin: isProtectedOrigin,
-    statementPeriod: statementPeriod, regenerateInstallmentsFor: regenerateInstallmentsFor
+    statementPeriod: statementPeriod, regenerateInstallmentsFor: regenerateInstallmentsFor,
+    buildIntegrantesRows: buildIntegrantesRows, buildTransaccionesRows: buildTransaccionesRows,
+    buildDetalleDivisionRows: buildDetalleDivisionRows, buildTransferenciasRows: buildTransferenciasRows,
+    groupExportSheets: groupExportSheets, buildGroupExportWorkbookArrayBuffer: buildGroupExportWorkbookArrayBuffer,
+    splitTypeLabel: splitTypeLabel
   };
   render();
   initSupabaseAuth();
