@@ -485,6 +485,7 @@ export const state: AppState = {
   settleWithId:null,            // participantId being "Settled up" right now, or null
   // "Share with a group" inside a expense transaction's detail/creation:
   shareDraft:null,              // null, or {groupId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
+  confirmRemoveShareId:null,    // txId with a pending "quitar del grupo" ask (renderShareGroupSection), or null
   // Editing/deleting a CONTACTS entry from within "divide this expense" (no group) -- same
   // ask-before-delete shape as editingParticipantId/confirmDeleteParticipantId above, but keyed
   // by the contact's NAME (their id in that flow, see shareDraftParticipants in views/grupos.ts)

@@ -67,9 +67,25 @@ export function renderShareGroupSection(tx){
   if(tx.tipo!=='gasto' || tx.sharedByOthers) return '';
   if(tx.groupId){
     const g = GROUPS.find(x=>x.id===tx.groupId);
+    const d = (state.shareDraft && state.shareDraft.txId===tx.id && state.shareDraft.groupId) ? state.shareDraft : null;
+    if(d) return renderSplitDraftForm(tx, d);
+    if(state.confirmRemoveShareId===tx.id){
+      return '<div class="sheet-block card" style="padding:16px;">'+
+        '<div class="sheet-block-title">Compartido con un grupo</div>'+
+        '<p class="muted" style="font-size:12.5px;">¿Quitar este gasto de "'+(g?g.nombre:'el grupo')+'"? Deja de estar compartido -- no borra nada del historial del grupo.</p>'+
+        '<div style="display:flex;gap:10px;margin-top:10px;">'+
+          '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-remove-cancel>Cancelar</button>'+
+          '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-share-remove-confirm="'+tx.id+'">Sí, quitar</button>'+
+        '</div>'+
+      '</div>';
+    }
     return '<div class="sheet-block card" style="padding:16px;">'+
       '<div class="sheet-block-title">Compartido con un grupo</div>'+
-      '<p class="muted" style="font-size:12.5px;margin:0;">Este gasto ya se compartió con <b>'+(g?g.nombre:'un grupo')+'</b>. Para cambiar el reparto, hazlo desde la vista del grupo.</p>'+
+      '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Este gasto está compartido con <b>'+(g?g.nombre:'un grupo')+'</b>.</p>'+
+      '<div style="display:flex;gap:10px;">'+
+        '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-edit="'+tx.id+'">Editar</button>'+
+        '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-share-remove-ask="'+tx.id+'">Quitar del grupo</button>'+
+      '</div>'+
     '</div>';
   }
   if(!GROUPS.length) return '';
@@ -157,8 +173,9 @@ export function renderSplitDraftForm(tx, d){
       '<input type="text" class="draft-input" data-share-new-name placeholder="Agregar otra persona…" style="flex:1;">'+
       '<button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">'+ICONS.plus+'</button>'+
     '</div>';
+  const editandoExistente = !!(d.groupId && tx.sharedExpenseId);
   return '<div class="sheet-block card" style="padding:16px;">'+
-    '<div class="sheet-block-title">'+(d.groupId?'Compartir con un grupo':'Dividir este gasto')+'</div>'+
+    '<div class="sheet-block-title">'+(editandoExistente?'Editar reparto del grupo':d.groupId?'Compartir con un grupo':'Dividir este gasto')+'</div>'+
     groupSelectHtml+
     '<label class="draft-label" style="margin-top:12px;">¿Cómo se divide?</label>'+modalidadSeg+
     // Un segmented (fila de botones) se ve bien con 2-4 opciones, pero con un grupo grande (10+
@@ -171,7 +188,7 @@ export function renderSplitDraftForm(tx, d){
     '<div class="field-error" style="'+(ok?'display:none;':'')+'">'+(remaining>0?'Faltan '+money(remaining)+' por repartir':(remaining<0?'Sobran '+money(-remaining)+' por repartir':''))+'</div>'+
     '<div style="display:flex;gap:10px;margin-top:14px;">'+
       '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button>'+
-      '<button class="save-tx-btn" style="flex:1;" data-share-confirm="'+tx.id+'" '+(ok?'':'disabled')+'>'+(d.groupId?'Compartir':'Guardar reparto')+'</button>'+
+      '<button class="save-tx-btn" style="flex:1;" data-share-confirm="'+tx.id+'" '+(ok?'':'disabled')+'>'+(editandoExistente?'Guardar cambios':d.groupId?'Compartir':'Guardar reparto')+'</button>'+
     '</div>'+
   '</div>';
 }
@@ -390,7 +407,7 @@ export function renderGroupBalancesTab(groupId){
         avatarHtml(s.nombre, s.color)+
         '<span style="flex:1;margin-left:10px;">'+s.nombre+(isMe?' (tú)':'')+'</span>'+
         '<span class="tabular" style="color:'+(s.balance>0?'var(--income-ink)':s.balance<0?'var(--expense-ink)':'var(--text-secondary)')+';font-weight:600;">'+
-          (s.balance===0?'Al día':(s.balance>0?'Le deben ':'Debe ')+money(Math.abs(s.balance)))+
+          (s.balance===0?'Al día':(s.balance>0?(isMe?'Te deben ':'Le deben '):(isMe?'Debes ':'Debe '))+money(Math.abs(s.balance)))+
         '</span>'+
         (sinCuenta
           ? '<button class="rm-btn" data-open-edit-participant="'+s.participantId+'" aria-label="Editar a '+s.nombre+'">'+ICONS.edit+'</button>'+

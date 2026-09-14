@@ -2064,6 +2064,21 @@
     return { data, error: null };
   }
   __name(createGroup, "createGroup");
+  function preserveGroupTransactionsBeforeUnlink(groupId) {
+    TRANSACTIONS.forEach((t) => {
+      if (t.groupId !== groupId) return;
+      if (t.sharedByOthers) t.sharedByOthers = false;
+      t.groupId = void 0;
+      t.sharedExpenseId = void 0;
+      t.divisionTipo = void 0;
+      t.porCobrar.forEach((p) => {
+        p.groupId = void 0;
+        p.participantId = void 0;
+        p.sharedExpenseId = void 0;
+      });
+    });
+  }
+  __name(preserveGroupTransactionsBeforeUnlink, "preserveGroupTransactionsBeforeUnlink");
   async function deleteGroup(groupId) {
     if (!sb) return { ok: false, error: null };
     const { error } = await sb.from("grupos").delete().eq("id", groupId);
@@ -2081,6 +2096,7 @@
       console.error("Pitucas sin lucas \u2014 el DELETE no dio error pero el grupo sigue existiendo (bloqueado por RLS):", groupId);
       return { ok: false, error: fakeError };
     }
+    preserveGroupTransactionsBeforeUnlink(groupId);
     await loadSharedExpenses();
     return { ok: true, error: null };
   }
@@ -2257,6 +2273,83 @@
     return gasto;
   }
   __name(shareExistingTransaction, "shareExistingTransaction");
+  async function updateSharedTransaction(txId, groupId, pagadoPorId, divisionTipo, reparto) {
+    if (!sb || !currentUser) return false;
+    const tx = getTx(txId);
+    if (!tx || !tx.sharedExpenseId) return false;
+    const sharedExpenseId = tx.sharedExpenseId;
+    const miParticipanteId = participantIdForUser(groupId, currentUser.id);
+    const soyYoQuienPago = miParticipanteId != null && miParticipanteId === pagadoPorId;
+    const { error: eUpdate } = await sb.from("gastos_compartidos").update({
+      grupo_id: groupId,
+      pagado_por: pagadoPorId,
+      division_tipo: divisionTipo || "iguales"
+    }).eq("id", sharedExpenseId);
+    if (eUpdate) {
+      console.error("Pitucas sin lucas \u2014 error actualizando el gasto compartido:", eUpdate);
+      return false;
+    }
+    const { error: eDel } = await sb.from("gasto_reparto").delete().eq("gasto_compartido_id", sharedExpenseId);
+    if (eDel) {
+      console.error("Pitucas sin lucas \u2014 error limpiando el reparto anterior:", eDel);
+      return false;
+    }
+    const filas = Object.keys(reparto).map((pid) => ({ gasto_compartido_id: sharedExpenseId, participante_id: pid, monto: Math.round(reparto[pid]) }));
+    const { error: eIns } = await sb.from("gasto_reparto").insert(filas);
+    if (eIns) {
+      console.error("Pitucas sin lucas \u2014 error creando el nuevo reparto:", eIns);
+      return false;
+    }
+    const otrosSplits = Object.keys(reparto).filter((pid) => pid !== miParticipanteId).map((pid) => ({
+      persona: (GROUP_PARTICIPANTS.find((p) => p.id === pid) || {}).nombre || "",
+      monto: reparto[pid],
+      pagado: false,
+      tipo: "persona",
+      montoRecibido: null,
+      linkedTxId: null,
+      groupId,
+      participanteId: pid,
+      sharedExpenseId
+    }));
+    if (soyYoQuienPago) {
+      tx.porCobrar = otrosSplits;
+      tx.estado = otrosSplits.length ? "por_cobrar" : "confirmado";
+    } else {
+      tx.categorias = [];
+      tx.porCobrar = [];
+      tx.estado = "no_es_gasto";
+      if (!/lo pagó otra persona/.test(tx.nota || "")) {
+        tx.nota = (tx.nota ? tx.nota + " \u2014 " : "") + "Compartido con el grupo, pero lo pag\xF3 otra persona \u2014 no cuenta en tu presupuesto.";
+      }
+    }
+    tx.groupId = groupId;
+    tx.divisionTipo = divisionTipo;
+    await loadSharedExpenses();
+    return true;
+  }
+  __name(updateSharedTransaction, "updateSharedTransaction");
+  async function removeSharedTransaction(txId) {
+    if (!sb) return false;
+    const tx = getTx(txId);
+    if (!tx || !tx.sharedExpenseId) return false;
+    const { error } = await sb.from("gastos_compartidos").delete().eq("id", tx.sharedExpenseId);
+    if (error) {
+      console.error("Pitucas sin lucas \u2014 error quitando el gasto del grupo:", error);
+      return false;
+    }
+    tx.groupId = void 0;
+    tx.sharedExpenseId = void 0;
+    tx.divisionTipo = void 0;
+    tx.porCobrar.forEach((p) => {
+      p.groupId = void 0;
+      p.participantId = void 0;
+      p.sharedExpenseId = void 0;
+    });
+    if (tx.estado === "no_es_gasto") tx.estado = "confirmado";
+    await loadSharedExpenses();
+    return true;
+  }
+  __name(removeSharedTransaction, "removeSharedTransaction");
   async function registerPaidBalance(groupId, deParticipanteId, aParticipanteId, monto) {
     if (!sb) return false;
     const { error } = await sb.from("saldos_pagados").insert({ grupo_id: groupId, de_participante: deParticipanteId, a_participante: aParticipanteId, monto: Math.round(monto) });
@@ -5008,6 +5101,36 @@
       renderSheet();
       return;
     }
+    const shareEditBtn = e.target.closest("[data-share-edit]");
+    if (shareEditBtn) {
+      const t = getTx(shareEditBtn.getAttribute("data-share-edit"));
+      if (t) state.shareDraft = draftFromExistingGroupSplit(t);
+      renderSheet();
+      return;
+    }
+    const shareRemoveAskBtn = e.target.closest("[data-share-remove-ask]");
+    if (shareRemoveAskBtn) {
+      state.confirmRemoveShareId = shareRemoveAskBtn.getAttribute("data-share-remove-ask");
+      renderSheet();
+      return;
+    }
+    const shareRemoveCancelBtn = e.target.closest("[data-share-remove-cancel]");
+    if (shareRemoveCancelBtn) {
+      state.confirmRemoveShareId = null;
+      renderSheet();
+      return;
+    }
+    const shareRemoveConfirmBtn = e.target.closest("[data-share-remove-confirm]");
+    if (shareRemoveConfirmBtn) {
+      const txId = shareRemoveConfirmBtn.getAttribute("data-share-remove-confirm");
+      removeSharedTransaction(txId).then(function(ok) {
+        state.confirmRemoveShareId = null;
+        toast(ok ? "Gasto quitado del grupo" : "No se pudo quitar \u2014 revisa tu conexi\xF3n");
+        renderSheet();
+        renderIfListVisible();
+      });
+      return;
+    }
     const shareAddNameBtn = e.target.closest("[data-share-add-name]");
     if (shareAddNameBtn && state.shareDraft) {
       const row = shareAddNameBtn.closest(".split-row");
@@ -5107,7 +5230,13 @@
         const reparto = computeShareAmounts(t.monto, d);
         const suma = shareAmountsSum(reparto, d.participantesIncluidos);
         if (suma !== t.monto) return;
-        if (d.groupId) {
+        if (d.groupId && t.sharedExpenseId) {
+          updateSharedTransaction(txId, d.groupId, d.pagadoPorId, d.divisionTipo, reparto).then(function(ok) {
+            state.shareDraft = null;
+            toast(ok ? "Cambios guardados" : "No se pudo guardar \u2014 revisa tu conexi\xF3n");
+            render();
+          });
+        } else if (d.groupId) {
           shareExistingTransaction(txId, d.groupId, d.pagadoPorId, d.divisionTipo, reparto).then(function(gasto) {
             state.shareDraft = null;
             toast(gasto ? "Gasto compartido" : "No se pudo compartir \u2014 revisa tu conexi\xF3n");
@@ -6778,7 +6907,12 @@
     if (tx.tipo !== "gasto" || tx.sharedByOthers) return "";
     if (tx.groupId) {
       const g = GROUPS.find((x) => x.id === tx.groupId);
-      return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Compartido con un grupo</div><p class="muted" style="font-size:12.5px;margin:0;">Este gasto ya se comparti\xF3 con <b>' + (g ? g.nombre : "un grupo") + "</b>. Para cambiar el reparto, hazlo desde la vista del grupo.</p></div>";
+      const d2 = state.shareDraft && state.shareDraft.txId === tx.id && state.shareDraft.groupId ? state.shareDraft : null;
+      if (d2) return renderSplitDraftForm(tx, d2);
+      if (state.confirmRemoveShareId === tx.id) {
+        return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Compartido con un grupo</div><p class="muted" style="font-size:12.5px;">\xBFQuitar este gasto de "' + (g ? g.nombre : "el grupo") + '"? Deja de estar compartido -- no borra nada del historial del grupo.</p><div style="display:flex;gap:10px;margin-top:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-remove-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-share-remove-confirm="' + tx.id + '">S\xED, quitar</button></div></div>';
+      }
+      return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Compartido con un grupo</div><p class="muted" style="font-size:12.5px;margin:0 0 10px;">Este gasto est\xE1 compartido con <b>' + (g ? g.nombre : "un grupo") + '</b>.</p><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-edit="' + tx.id + '">Editar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-share-remove-ask="' + tx.id + '">Quitar del grupo</button></div></div>';
     }
     if (!GROUPS.length) return "";
     const d = state.shareDraft && state.shareDraft.txId === tx.id && state.shareDraft.groupId ? state.shareDraft : null;
@@ -6815,9 +6949,10 @@
       return '<div class="split-row" style="align-items:center;"><input type="checkbox" data-share-include="' + p.id + '" ' + (incluido ? "checked" : "") + ' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">' + avatarHtml(p.nombre, p.color, 24) + '<span style="flex:1;margin-left:8px;">' + p.nombre + "</span>" + valueField + (isContact ? '<button type="button" class="rm-btn" data-open-edit-contact="' + p.id + '" aria-label="Editar a ' + p.nombre + '">' + ICONS.edit + '</button><button type="button" class="rm-btn" data-ask-delete-contact="' + p.id + '" aria-label="Quitar a ' + p.nombre + '">' + ICONS.trash + "</button>" : "") + "</div>";
     }).join("");
     const addPersonRow = d.groupId ? "" : '<div class="split-row" style="align-items:center;"><input type="text" class="draft-input" data-share-new-name placeholder="Agregar otra persona\u2026" style="flex:1;"><button type="button" class="split-add" data-share-add-name style="margin-left:8px;width:auto;padding:0 14px;">' + ICONS.plus + "</button></div>";
-    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">' + (d.groupId ? "Compartir con un grupo" : "Dividir este gasto") + "</div>" + groupSelectHtml + '<label class="draft-label" style="margin-top:12px;">\xBFC\xF3mo se divide?</label>' + modalidadSeg + // Un segmented (fila de botones) se ve bien con 2-4 opciones, pero con un grupo grande (10+
+    const editandoExistente = !!(d.groupId && tx.sharedExpenseId);
+    return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">' + (editandoExistente ? "Editar reparto del grupo" : d.groupId ? "Compartir con un grupo" : "Dividir este gasto") + "</div>" + groupSelectHtml + '<label class="draft-label" style="margin-top:12px;">\xBFC\xF3mo se divide?</label>' + modalidadSeg + // Un segmented (fila de botones) se ve bien con 2-4 opciones, pero con un grupo grande (10+
     // personas) se desborda y queda ilegible -- un <select> escala a cualquier cantidad de gente.
-    '<label class="draft-label" style="margin-top:12px;">\xBFQui\xE9n pag\xF3?</label><select data-share-pagador>' + participantes.map((p) => '<option value="' + p.id + '" ' + (p.id === d.pagadoPorId ? "selected" : "") + ">" + p.nombre + "</option>").join("") + '</select><label class="draft-label" style="margin-top:12px;">\xBFEntre qui\xE9nes se divide?</label>' + rows + addPersonRow + '<div class="split-remaining"><span>Total repartido</span><span class="' + (ok ? "ok" : "bad") + ' tabular">' + money(suma) + " de " + money(tx.monto) + '</span></div><div class="field-error" style="' + (ok ? "display:none;" : "") + '">' + (remaining > 0 ? "Faltan " + money(remaining) + " por repartir" : remaining < 0 ? "Sobran " + money(-remaining) + " por repartir" : "") + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-share-confirm="' + tx.id + '" ' + (ok ? "" : "disabled") + ">" + (d.groupId ? "Compartir" : "Guardar reparto") + "</button></div></div>";
+    '<label class="draft-label" style="margin-top:12px;">\xBFQui\xE9n pag\xF3?</label><select data-share-pagador>' + participantes.map((p) => '<option value="' + p.id + '" ' + (p.id === d.pagadoPorId ? "selected" : "") + ">" + p.nombre + "</option>").join("") + '</select><label class="draft-label" style="margin-top:12px;">\xBFEntre qui\xE9nes se divide?</label>' + rows + addPersonRow + '<div class="split-remaining"><span>Total repartido</span><span class="' + (ok ? "ok" : "bad") + ' tabular">' + money(suma) + " de " + money(tx.monto) + '</span></div><div class="field-error" style="' + (ok ? "display:none;" : "") + '">' + (remaining > 0 ? "Faltan " + money(remaining) + " por repartir" : remaining < 0 ? "Sobran " + money(-remaining) + " por repartir" : "") + '</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-cancel>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-share-confirm="' + tx.id + '" ' + (ok ? "" : "disabled") + ">" + (editandoExistente ? "Guardar cambios" : d.groupId ? "Compartir" : "Guardar reparto") + "</button></div></div>";
   }
   __name(renderSplitDraftForm, "renderSplitDraftForm");
   function renderGroupsView() {
@@ -6930,7 +7065,7 @@
       if (state.confirmDeleteParticipantId === s.participantId) {
         return '<div class="split-row" style="align-items:center;flex-wrap:wrap;gap:6px;"><span style="flex:1 1 100%;font-size:12.5px;" class="muted">\xBFEliminar a <b>' + s.nombre + '</b> de este grupo?</span><button class="chip" data-cancel-delete-participant>Cancelar</button><button class="chip" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-participant="' + s.participantId + '">S\xED, eliminar</button></div>';
       }
-      return '<div class="split-row" style="align-items:center;">' + avatarHtml(s.nombre, s.color) + '<span style="flex:1;margin-left:10px;">' + s.nombre + (isMe ? " (t\xFA)" : "") + '</span><span class="tabular" style="color:' + (s.balance > 0 ? "var(--income-ink)" : s.balance < 0 ? "var(--expense-ink)" : "var(--text-secondary)") + ';font-weight:600;">' + (s.balance === 0 ? "Al d\xEDa" : (s.balance > 0 ? "Le deben " : "Debe ") + money(Math.abs(s.balance))) + "</span>" + (sinCuenta ? '<button class="rm-btn" data-open-edit-participant="' + s.participantId + '" aria-label="Editar a ' + s.nombre + '">' + ICONS.edit + '</button><button class="rm-btn" data-ask-delete-participant="' + s.participantId + '" aria-label="Eliminar a ' + s.nombre + '">' + ICONS.trash + "</button>" : "") + "</div>";
+      return '<div class="split-row" style="align-items:center;">' + avatarHtml(s.nombre, s.color) + '<span style="flex:1;margin-left:10px;">' + s.nombre + (isMe ? " (t\xFA)" : "") + '</span><span class="tabular" style="color:' + (s.balance > 0 ? "var(--income-ink)" : s.balance < 0 ? "var(--expense-ink)" : "var(--text-secondary)") + ';font-weight:600;">' + (s.balance === 0 ? "Al d\xEDa" : (s.balance > 0 ? isMe ? "Te deben " : "Le deben " : isMe ? "Debes " : "Debe ") + money(Math.abs(s.balance))) + "</span>" + (sinCuenta ? '<button class="rm-btn" data-open-edit-participant="' + s.participantId + '" aria-label="Editar a ' + s.nombre + '">' + ICONS.edit + '</button><button class="rm-btn" data-ask-delete-participant="' + s.participantId + '" aria-label="Eliminar a ' + s.nombre + '">' + ICONS.trash + "</button>" : "") + "</div>";
     }).join("") + '<button class="split-add" data-group-add-participant-open="' + groupId + '">' + ICONS.plus + " Agregar persona</button>" + (state.addingParticipant ? renderAddParticipantForm(groupId) : "") + "</div>";
     const transferSection = '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Reembolsos sugeridos</div>' + (transfers.length ? transfers.map((t) => {
       const from = balances.find((b) => b.participantId === t.from);
@@ -7774,6 +7909,49 @@
     };
   }
   __name(draftFromExistingSplit, "draftFromExistingSplit");
+  function draftFromExistingGroupSplit(t) {
+    const gasto = SHARED_EXPENSES.find((g) => g.id === t.sharedExpenseId);
+    if (!gasto) {
+      const participantes = participantsOfGroup(t.groupId);
+      return {
+        txId: t.id,
+        groupId: t.groupId,
+        divisionTipo: "iguales",
+        pagadoPorId: participantes[0] ? participantes[0].id : null,
+        participantesIncluidos: participantes.map((p) => p.id),
+        customValues: {},
+        extraParticipants: []
+      };
+    }
+    const divisionTipo = gasto.division_tipo || "iguales";
+    const total = gasto.monto;
+    const seed = /* @__PURE__ */ __name((monto) => {
+      if (divisionTipo === "iguales") return "";
+      if (divisionTipo === "pct") return String(total ? Math.round(monto / total * 1e3) / 10 : 0);
+      return String(monto);
+    }, "seed");
+    const reparto = gasto.reparto || [];
+    const participantesIncluidos = reparto.map((r) => r.participante_id);
+    if (!participantesIncluidos.includes(gasto.pagado_por)) participantesIncluidos.push(gasto.pagado_por);
+    const customValues = {};
+    reparto.forEach((r) => {
+      customValues[r.participante_id] = seed(r.monto);
+    });
+    if (customValues[gasto.pagado_por] == null) {
+      const sumaOtros = reparto.reduce((s, r) => s + r.monto, 0);
+      customValues[gasto.pagado_por] = seed(total - sumaOtros);
+    }
+    return {
+      txId: t.id,
+      groupId: t.groupId,
+      divisionTipo,
+      pagadoPorId: gasto.pagado_por,
+      participantesIncluidos,
+      customValues,
+      extraParticipants: []
+    };
+  }
+  __name(draftFromExistingGroupSplit, "draftFromExistingGroupSplit");
   function rawDivisionValor(draft, id) {
     const raw = draft.customValues[id];
     if (raw == null || raw === "") return void 0;
@@ -8467,6 +8645,8 @@
     // "Share with a group" inside a expense transaction's detail/creation:
     shareDraft: null,
     // null, or {groupId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
+    confirmRemoveShareId: null,
+    // txId with a pending "quitar del grupo" ask (renderShareGroupSection), or null
     // Editing/deleting a CONTACTS entry from within "divide this expense" (no group) -- same
     // ask-before-delete shape as editingParticipantId/confirmDeleteParticipantId above, but keyed
     // by the contact's NAME (their id in that flow, see shareDraftParticipants in views/grupos.ts)

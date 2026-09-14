@@ -109,6 +109,7 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  set BUDGET_ALERTS_SENT(v){ BUDGET_ALERTS_SENT = v; },
 """ + indent + """  catMonthExpense: catMonthExpense, txFromEmailImport: txFromEmailImport, groupedRules: groupedRules,
 """ + indent + """  buildDonut: buildDonut, sendTestPush: sendTestPush,
+""" + indent + """  preserveGroupTransactionsBeforeUnlink: preserveGroupTransactionsBeforeUnlink,
 """ + indent + """  categoriesCollidingWithHue: categoriesCollidingWithHue, nextCategoryHue: nextCategoryHue,
 """ + indent + """  categoryFillCss: categoryFillCss, categoryInkCss: categoryInkCss, categoryColorVars: categoryColorVars,
 """ + indent + """  DONUT_OTROS_THRESHOLD_PCT: DONUT_OTROS_THRESHOLD_PCT,

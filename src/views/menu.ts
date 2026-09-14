@@ -1398,6 +1398,25 @@ export async function createGroup(nombre, icono){
   return {data, error:null};
 }
 
+// Refinamiento F: eliminar un grupo borra solo su estructura compartida (la fila de grupos, y
+// gastos_compartidos/gasto_reparto con ella por ON DELETE CASCADE) -- nunca las transacciones ya
+// generadas a partir de él. Se llama justo después de un DELETE remoto exitoso y ANTES de
+// loadSharedExpenses(): si no, ese refetch (syncSharedExpenses) borraría sin dejar rastro
+// cualquier entrada "mi parte" derivada de este grupo -- sharedByOthers nunca se persiste, se
+// recalcula solo desde SHARED_EXPENSES cada vez (ver types.ts). Cada una se convierte en una
+// transacción normal, real y persistida en tu propio historial, desvinculada del grupo pero con
+// su monto/categoría/fecha intactos; las que ya eran tuyas (tú registraste/pagaste, con su
+// reparto ya congelado en porCobrar) solo se desvinculan del grupo, sin tocar ese reparto.
+export function preserveGroupTransactionsBeforeUnlink(groupId){
+  TRANSACTIONS.forEach(t=>{
+    if(t.groupId!==groupId) return;
+    if(t.sharedByOthers) t.sharedByOthers = false; // pasa de derivada/efímera a persistida de verdad
+    t.groupId = undefined;
+    t.sharedExpenseId = undefined;
+    t.divisionTipo = undefined;
+    t.porCobrar.forEach(p=>{ p.groupId = undefined; p.participantId = undefined; p.sharedExpenseId = undefined; });
+  });
+}
 export async function deleteGroup(groupId){
   if(!sb) return {ok:false, error:null};
   const { error } = await sb.from('grupos').delete().eq('id', groupId);
@@ -1423,6 +1442,7 @@ export async function deleteGroup(groupId){
     console.error('Pitucas sin lucas — el DELETE no dio error pero el grupo sigue existiendo (bloqueado por RLS):', groupId);
     return {ok:false, error: fakeError};
   }
+  preserveGroupTransactionsBeforeUnlink(groupId);
   await loadSharedExpenses();
   return {ok:true, error:null};
 }
@@ -1578,6 +1598,73 @@ export async function shareExistingTransaction(txId, groupId, pagadoPorId, divis
 
   await loadSharedExpenses();
   return gasto;
+}
+
+// "Editar" un gasto ya compartido (grupo/división/participantes) -- gemelo de
+// shareExistingTransaction de arriba, pero para UPDATE en vez de INSERT: reescribe la fila de
+// gastos_compartidos y reemplaza su reparto entero (borrar + insertar de nuevo, más simple y a
+// prueba de errores que tratar de diffear fila por fila cuando cambian tanto los montos como
+// quiénes participan). Nunca crea una segunda fila -- eso duplicaría el gasto en el grupo.
+export async function updateSharedTransaction(txId, groupId, pagadoPorId, divisionTipo, reparto){
+  if(!sb || !currentUser) return false;
+  const tx = getTx(txId);
+  if(!tx || !tx.sharedExpenseId) return false;
+  const sharedExpenseId = tx.sharedExpenseId;
+  const miParticipanteId = participantIdForUser(groupId, currentUser.id);
+  const soyYoQuienPago = miParticipanteId!=null && miParticipanteId===pagadoPorId;
+
+  const { error: eUpdate } = await sb.from('gastos_compartidos').update({
+    grupo_id: groupId, pagado_por: pagadoPorId, division_tipo: divisionTipo||'iguales'
+  }).eq('id', sharedExpenseId);
+  if(eUpdate){ console.error('Pitucas sin lucas — error actualizando el gasto compartido:', eUpdate); return false; }
+
+  const { error: eDel } = await sb.from('gasto_reparto').delete().eq('gasto_compartido_id', sharedExpenseId);
+  if(eDel){ console.error('Pitucas sin lucas — error limpiando el reparto anterior:', eDel); return false; }
+  const filas = Object.keys(reparto).map(pid=>({gasto_compartido_id:sharedExpenseId, participante_id:pid, monto:Math.round(reparto[pid])}));
+  const { error: eIns } = await sb.from('gasto_reparto').insert(filas);
+  if(eIns){ console.error('Pitucas sin lucas — error creando el nuevo reparto:', eIns); return false; }
+
+  const otrosSplits = Object.keys(reparto).filter(pid=>pid!==miParticipanteId).map(pid=>({
+    persona: (GROUP_PARTICIPANTS.find(p=>p.id===pid)||{}).nombre||'', monto: reparto[pid], pagado:false,
+    tipo:'persona' as const, montoRecibido:null, linkedTxId:null, groupId, participanteId:pid, sharedExpenseId
+  }));
+  if(soyYoQuienPago){
+    tx.porCobrar = otrosSplits;
+    tx.estado = otrosSplits.length ? 'por_cobrar' : 'confirmado';
+  } else {
+    tx.categorias = []; tx.porCobrar = []; tx.estado = 'no_es_gasto';
+    if(!/lo pagó otra persona/.test(tx.nota||'')){
+      tx.nota = (tx.nota?tx.nota+' — ':'')+'Compartido con el grupo, pero lo pagó otra persona — no cuenta en tu presupuesto.';
+    }
+  }
+  tx.groupId = groupId;
+  tx.divisionTipo = divisionTipo;
+  await loadSharedExpenses();
+  return true;
+}
+
+// "Quitar del grupo" -- deshace por completo la asignación de una transacción ya compartida.
+// Borra la fila de gastos_compartidos (gasto_reparto se va con ella por ON DELETE CASCADE en el
+// esquema); la transacción vuelve a ser tuya, normal y editable, desvinculada del grupo. Si era
+// "lo pagó otra persona" (categorias/porCobrar ya vacíos desde que se compartió, ver
+// shareExistingTransaction), esa categoría original no es recuperable -- queda para reclasificar
+// a mano, mismo trade-off que ya existía al compartir en primer lugar.
+export async function removeSharedTransaction(txId){
+  if(!sb) return false;
+  const tx = getTx(txId);
+  if(!tx || !tx.sharedExpenseId) return false;
+  const { error } = await sb.from('gastos_compartidos').delete().eq('id', tx.sharedExpenseId);
+  if(error){ console.error('Pitucas sin lucas — error quitando el gasto del grupo:', error); return false; }
+  tx.groupId = undefined;
+  tx.sharedExpenseId = undefined;
+  tx.divisionTipo = undefined;
+  // El reparto (quién te debe qué) queda -- se congela como un reparto ad-hoc normal (mismo
+  // mecanismo que "dividir con alguien" sin grupo), no se borra: quitar la asignación de grupo
+  // nunca debe perder plata ya repartida.
+  tx.porCobrar.forEach(p=>{ p.groupId = undefined; p.participantId = undefined; p.sharedExpenseId = undefined; });
+  if(tx.estado==='no_es_gasto') tx.estado = 'confirmado';
+  await loadSharedExpenses();
+  return true;
 }
 
 // Just an accounting record — it never creates a real transaction. The money that's

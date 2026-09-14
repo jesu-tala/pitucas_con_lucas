@@ -1,7 +1,7 @@
 import { allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { categoryFillCss, nextCategoryHue } from './category-colors';
 import { render } from './render';
-import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
+import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
 import { CATEGORIES, CONTACTS, GROUP_PARTICIPANTS, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
@@ -9,7 +9,7 @@ import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
 import { defaultShareDraft, renderGroupsView } from './views/grupos';
 import { activePlatformIds, bumpPlatformValueForContribution, generalCatIdFor, goalCapablePlatformIds, platformCurrentValue, platformIdForInvestmentCat, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
-import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, deleteGroupParticipant, editGroupParticipant, leerBoletaConOCR, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
+import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, updateSharedTransaction, removeSharedTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, deleteGroupParticipant, editGroupParticipant, leerBoletaConOCR, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
 import { renderBalanceView, renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
 import { buildReconcileDiff } from './reconcile';
@@ -1505,6 +1505,38 @@ phone.addEventListener('click', function(e: any){
     renderSheet();
     return;
   }
+  // "Editar" un gasto YA compartido con un grupo (renderShareGroupSection) -- reabre el mismo
+  // draft/formulario que compartirlo por primera vez, pero seedeado desde el reparto real ya
+  // guardado (draftFromExistingGroupSplit), para poder cambiar grupo/división/participantes.
+  const shareEditBtn = e.target.closest('[data-share-edit]');
+  if(shareEditBtn){
+    const t = getTx(shareEditBtn.getAttribute('data-share-edit'));
+    if(t) state.shareDraft = draftFromExistingGroupSplit(t);
+    renderSheet();
+    return;
+  }
+  const shareRemoveAskBtn = e.target.closest('[data-share-remove-ask]');
+  if(shareRemoveAskBtn){
+    state.confirmRemoveShareId = shareRemoveAskBtn.getAttribute('data-share-remove-ask');
+    renderSheet();
+    return;
+  }
+  const shareRemoveCancelBtn = e.target.closest('[data-share-remove-cancel]');
+  if(shareRemoveCancelBtn){
+    state.confirmRemoveShareId = null;
+    renderSheet();
+    return;
+  }
+  const shareRemoveConfirmBtn = e.target.closest('[data-share-remove-confirm]');
+  if(shareRemoveConfirmBtn){
+    const txId = shareRemoveConfirmBtn.getAttribute('data-share-remove-confirm');
+    removeSharedTransaction(txId).then(function(ok){
+      state.confirmRemoveShareId = null;
+      toast(ok ? 'Gasto quitado del grupo' : 'No se pudo quitar — revisa tu conexión');
+      renderSheet(); renderIfListVisible();
+    });
+    return;
+  }
   // "+ agregar persona" inside the split draft (no-group only — see shareDraftParticipants):
   // adds a brand new ad-hoc name to the pool AND checks it in, ready for the live preview.
   // Bug real: este handler vivía por error adentro del listener de 'change' (más abajo en este
@@ -1619,7 +1651,15 @@ phone.addEventListener('click', function(e: any){
       const reparto = computeShareAmounts(t.monto, d);
       const suma = shareAmountsSum(reparto, d.participantesIncluidos);
       if(suma!==t.monto) return; // hard guard -- the confirm button should already be disabled
-      if(d.groupId){
+      if(d.groupId && t.sharedExpenseId){
+        // Editar un gasto YA compartido (grupo/reparto/participantes cambiados desde "Editar") --
+        // UPDATE de la fila existente, nunca un INSERT nuevo (eso duplicaría el gasto).
+        updateSharedTransaction(txId, d.groupId, d.pagadoPorId, d.divisionTipo, reparto).then(function(ok){
+          state.shareDraft = null;
+          toast(ok ? 'Cambios guardados' : 'No se pudo guardar — revisa tu conexión');
+          render();
+        });
+      } else if(d.groupId){
         shareExistingTransaction(txId, d.groupId, d.pagadoPorId, d.divisionTipo, reparto).then(function(gasto){
           state.shareDraft = null;
           toast(gasto ? 'Gasto compartido' : 'No se pudo compartir — revisa tu conexión');

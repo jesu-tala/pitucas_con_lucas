@@ -124,8 +124,10 @@ const { openApp, check, finish } = require('./lib/test_kit');
   });
   check('(Balances) es ahora la pestaña activa', balancesTab.activeLabel === 'Balances', balancesTab);
   check('   los saldos netos suman $0', balancesTab.sumaSaldos === 0, balancesTab);
-  check('   muestra el saldo de las 4 personas (verde si le deben, durazno si debe)',
-    balancesTab.contenido.includes('Le deben $70.000') && balancesTab.contenido.includes('Debe $40.000') && balancesTab.contenido.includes('Le deben $10.000'),
+  // Refinamiento D (perspectiva): mi propia fila (Yo, +70.000) usa segunda persona ("Te deben"),
+  // las de los demás (Fran/Caro) tercera persona por nombre ("Debe"/"Le deben") -- nunca "yo".
+  check('   muestra el saldo de las 4 personas (verde si le deben, durazno si debe) en la perspectiva correcta',
+    balancesTab.contenido.includes('Te deben $70.000') && balancesTab.contenido.includes('Debe $40.000') && balancesTab.contenido.includes('Le deben $10.000'),
     balancesTab.contenido);
   check('   sugiere el conjunto mínimo de transferencias (3) -- TODOS los reembolsos del grupo, no solo los míos',
     balancesTab.cantidadSugeridas === 3, balancesTab);
