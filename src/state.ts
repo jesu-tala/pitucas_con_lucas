@@ -1,5 +1,5 @@
 import { monthLabelFor } from './shared-expenses';
-import { AppState, Category, SharedExpense, Group, GroupParticipant, CategoryMapping, PaymentMethod, PaidBalance, Transaction, InvestmentGoal, PlatformData } from './types';
+import { AppState, Category, SharedExpense, Group, GroupParticipant, CategoryMapping, GroupCategoryRule, PaymentMethod, PaidBalance, Transaction, InvestmentGoal, PlatformData } from './types';
 import { monthTotals } from './views/evolucion';
 import { round1 } from './views/inversiones';
 /* ===================== DATA MODEL ===================== */
@@ -327,6 +327,11 @@ export let GROUP_PARTICIPANTS: GroupParticipant[] = [];
 export let SHARED_EXPENSES: SharedExpense[] = [];
 export let PAID_BALANCES: PaidBalance[] = [];
 export let CATEGORY_MAPPINGS: CategoryMapping[] = [];
+// Refinamiento C: reglas "categoría -> grupo + división por defecto", keyed por categoryId --
+// preferencia TUYA (vive en tu app_state, no en las tablas compartidas de grupos). Ver
+// GroupCategoryRule en types.ts.
+export let GROUP_CATEGORY_RULES: Record<string, GroupCategoryRule> = {};
+export function setGroupCategoryRules(v: Record<string, GroupCategoryRule>){ GROUP_CATEGORY_RULES = v; }
 
 export const MONTHS = ['2026-04','2026-05','2026-06','2026-07','2026-08'];
 export const MONTH_LABEL = {'2026-04':'Abril 2026','2026-05':'Mayo 2026','2026-06':'Junio 2026','2026-07':'Julio 2026','2026-08':'Agosto 2026'};
@@ -441,6 +446,7 @@ export const state: AppState = {
   confirmDeletePaymentMethodId:null, // medioId showing "are you sure?" before actually deleting it
   medioDraft:{nombre:'', corto:'', icon:'card'},
   confirmDeleteRuleComercio:null, // comercio (rule key) showing "are you sure?" before actually deleting it
+  confirmDeleteGroupRuleCatId:null, // categoryId with a pending "are you sure?" before deleting its group rule (refinamiento C)
   demoMode:false,
   importSummary:null,          // result of the last CSV imported, to show on screen
   reconciliar:{
@@ -475,7 +481,11 @@ export const state: AppState = {
   creatingGroup:false,          // true while the "Create group" form is shown
   groupDraft:{nombre:'', icono:'👥'},
   joiningGroup:false,           // true while the "Join with a code" form is shown
-  joinDraft:{inviteCode:'', nombre:''},
+  // roster: null (still entering the code) | {grupoId, grupoNombre, grupoIcono, participantes:
+  // [{id, nombre, reclamado}]} once fetched -- lets you pick "cuál eres tú" (reclamar un
+  // participante existente) or "no estoy en la lista" (addingNew, nombre = tu nombre nuevo)
+  // before actually joining (ver fetchGroupRoster/claimParticipant/joinGroup en views/menu.ts).
+  joinDraft:{inviteCode:'', nombre:'', roster:null, loadingRoster:false, errorRoster:null, selectedParticipantId:null, addingNew:false},
   addingParticipant:false,      // true while "Add person" (no account) inside a group is shown
   participantDraft:{nombre:''},
   editingParticipantId:null,    // participantId being renamed right now (no-account only), or null
@@ -484,6 +494,8 @@ export const state: AppState = {
   settleWithId:null,            // participantId being "Settled up" right now, or null
   // "Share with a group" inside a expense transaction's detail/creation:
   shareDraft:null,              // null, or {groupId, pagadoPorId, divisionTipo, participantesIncluidos:[], montosManuales:{}}
+  shareDraftSaveAsRule:false,   // checkbox "guardar como regla" dentro del draft (refinamiento C) -- solo tiene efecto si la tx tiene 1 sola categoría
+  confirmRemoveShareId:null,    // txId with a pending "quitar del grupo" ask (renderShareGroupSection), or null
   // Editing/deleting a CONTACTS entry from within "divide this expense" (no group) -- same
   // ask-before-delete shape as editingParticipantId/confirmDeleteParticipantId above, but keyed
   // by the contact's NAME (their id in that flow, see shareDraftParticipants in views/grupos.ts)

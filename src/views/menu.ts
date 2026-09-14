@@ -5,7 +5,7 @@ import { render } from '../render';
 import { buildReconcileDiff, movementLineId } from '../reconcile';
 import { ensureMonthExists, participantHasHistory, participantIdForUser } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
-import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO } from '../state';
+import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO } from '../state';
 import { OCR_WORKER_URL, PUSH_WORKER_URL, VAPID_PUBLIC_KEY, boletaWorkerConfigured, buildFullStateBlob, currentHouseholdId, currentUser, saveTimer, sb, translateAuthError, writeStateToSupabase } from '../supabase';
 import { CategoryMapping, Transaction } from '../types';
 import { toast } from '../ui/toasts';
@@ -324,7 +324,42 @@ export function renderMenuReglas(){
             : '')+
         '</div>';
       }).join('')
-    );
+    )+
+    renderGroupCategoryRulesSection();
+}
+
+// Refinamiento C: reglas "categoría -> grupo + división por defecto" -- solo vista + eliminar
+// (crearlas/editarlas se hace desde el checkbox "Usar siempre esta división para <categoría>"
+// dentro del formulario real de compartir con un grupo, ver renderSplitDraftForm), mismo
+// alcance que la sección de arriba (reglas de clasificación por comercio).
+function renderGroupCategoryRulesSection(){
+  const catIds = Object.keys(GROUP_CATEGORY_RULES);
+  if(!catIds.length) return '';
+  return '<h3 style="font-size:14px;margin:22px 0 10px;">Reglas de grupo por categoría</h3>'+
+    catIds.map(catId=>{
+      const regla = GROUP_CATEGORY_RULES[catId];
+      const cat = catInfo(catId);
+      const grupo = GROUPS.find(g=>g.id===regla.groupId);
+      const confirmando = state.confirmDeleteGroupRuleCatId===catId;
+      return '<div class="card rule-card">'+
+        '<div class="rule-card-head">'+
+          '<span class="rule-card-comercio">'+cat.nombre+'</span>'+
+          (confirmando ? '' : '<button class="budget-edit-btn" data-ask-delete-group-rule="'+catId+'" aria-label="Eliminar regla de grupo para '+cat.nombre+'">'+ICONS.trash+'</button>')+
+        '</div>'+
+        '<div class="rule-card-detail">'+
+          '<span class="rule-card-catchip" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+' '+cat.nombre+'</span>'+
+          '<span>→ '+(grupo?grupo.icono+' '+grupo.nombre:'grupo eliminado')+'</span>'+
+          '<span>·</span><span>'+(regla.divisionTipo==='iguales'?'Por partes':regla.divisionTipo==='pct'?'Por %':'Monto fijo')+'</span>'+
+        '</div>'+
+        (confirmando
+          ? '<div class="file-format-hint" style="margin:10px 0 8px;">¿Eliminar la regla de "'+cat.nombre+'" → '+(grupo?grupo.nombre:'ese grupo')+'? Las transacciones ya compartidas no cambian -- solo deja de sugerirse la próxima vez.</div>'+
+            '<div style="display:flex;gap:10px;">'+
+              '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-group-rule>Cancelar</button>'+
+              '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-group-rule="'+catId+'">Sí, eliminar</button>'+
+            '</div>'
+          : '')+
+      '</div>';
+    }).join('');
 }
 
 /* ---------- export / backup / import ---------- */
@@ -1401,6 +1436,25 @@ export async function createGroup(nombre, icono){
   return {data, error:null};
 }
 
+// Refinamiento F: eliminar un grupo borra solo su estructura compartida (la fila de grupos, y
+// gastos_compartidos/gasto_reparto con ella por ON DELETE CASCADE) -- nunca las transacciones ya
+// generadas a partir de él. Se llama justo después de un DELETE remoto exitoso y ANTES de
+// loadSharedExpenses(): si no, ese refetch (syncSharedExpenses) borraría sin dejar rastro
+// cualquier entrada "mi parte" derivada de este grupo -- sharedByOthers nunca se persiste, se
+// recalcula solo desde SHARED_EXPENSES cada vez (ver types.ts). Cada una se convierte en una
+// transacción normal, real y persistida en tu propio historial, desvinculada del grupo pero con
+// su monto/categoría/fecha intactos; las que ya eran tuyas (tú registraste/pagaste, con su
+// reparto ya congelado en porCobrar) solo se desvinculan del grupo, sin tocar ese reparto.
+export function preserveGroupTransactionsBeforeUnlink(groupId){
+  TRANSACTIONS.forEach(t=>{
+    if(t.groupId!==groupId) return;
+    if(t.sharedByOthers) t.sharedByOthers = false; // pasa de derivada/efímera a persistida de verdad
+    t.groupId = undefined;
+    t.sharedExpenseId = undefined;
+    t.divisionTipo = undefined;
+    t.porCobrar.forEach(p=>{ p.groupId = undefined; p.participantId = undefined; p.sharedExpenseId = undefined; });
+  });
+}
 export async function deleteGroup(groupId){
   if(!sb) return {ok:false, error:null};
   const { error } = await sb.from('grupos').delete().eq('id', groupId);
@@ -1426,6 +1480,7 @@ export async function deleteGroup(groupId){
     console.error('Pitucas sin lucas — el DELETE no dio error pero el grupo sigue existiendo (bloqueado por RLS):', groupId);
     return {ok:false, error: fakeError};
   }
+  preserveGroupTransactionsBeforeUnlink(groupId);
   await loadSharedExpenses();
   return {ok:true, error:null};
 }
@@ -1436,6 +1491,36 @@ export async function joinGroup(inviteCode, nombre){
   // no mostrar siempre el mismo "revisa el código" genérico sin importar la causa real.
   const { error } = await sb.rpc('unirse_a_grupo', {p_invite_code:inviteCode, p_nombre:nombre});
   if(error){ console.error('Pitucas sin lucas — error uniéndose al grupo:', error); return {ok:false, error}; }
+  await loadSharedExpenses();
+  return {ok:true, error:null};
+}
+
+// Refinamiento A: antes de unirse, se muestra el roster completo del grupo (quiénes ya están,
+// cuáles ya tienen cuenta vinculada) para poder reclamar un participante YA EXISTENTE en vez de
+// siempre crear uno nuevo -- ver backend/supabase/schema_grupos_identidad.sql (roster_de_grupo,
+// security definer: quien llama todavía no es miembro, no puede pasar por la política normal de
+// select de grupo_participantes).
+export async function fetchGroupRoster(inviteCode){
+  if(!sb) return {ok:false, error:{message:'No hay conexión con el servidor todavía.'}};
+  const { data, error } = await sb.rpc('roster_de_grupo', {p_invite_code:inviteCode});
+  if(error){ console.error('Pitucas sin lucas — error buscando el grupo:', error); return {ok:false, error}; }
+  if(!data || !data.length) return {ok:false, error:{message:'No encontré ningún grupo con ese código.'}};
+  return {
+    ok:true, error:null,
+    roster:{
+      grupoId: data[0].grupo_id, grupoNombre: data[0].grupo_nombre, grupoIcono: data[0].grupo_icono,
+      participantes: data.map(row=>({id: row.participante_id, nombre: row.participante_nombre, reclamado: !!row.reclamado}))
+    }
+  };
+}
+// Vincula tu cuenta a un participante YA EXISTENTE sin reclamar (en vez de crear uno nuevo) --
+// reclamar_participante en el backend ya rechaza un participante ya reclamado por otra persona,
+// o si ya eres miembro de ese grupo con otro participante (ver el archivo SQL de arriba);
+// deshacer esa doble validación acá sería redundante, no más seguro.
+export async function claimParticipant(participantId, inviteCode){
+  if(!sb) return {ok:false, error:null};
+  const { error } = await sb.rpc('reclamar_participante', {p_participante_id:participantId, p_invite_code:inviteCode});
+  if(error){ console.error('Pitucas sin lucas — error reclamando participante:', error); return {ok:false, error}; }
   await loadSharedExpenses();
   return {ok:true, error:null};
 }
@@ -1581,6 +1666,73 @@ export async function shareExistingTransaction(txId, groupId, pagadoPorId, divis
 
   await loadSharedExpenses();
   return gasto;
+}
+
+// "Editar" un gasto ya compartido (grupo/división/participantes) -- gemelo de
+// shareExistingTransaction de arriba, pero para UPDATE en vez de INSERT: reescribe la fila de
+// gastos_compartidos y reemplaza su reparto entero (borrar + insertar de nuevo, más simple y a
+// prueba de errores que tratar de diffear fila por fila cuando cambian tanto los montos como
+// quiénes participan). Nunca crea una segunda fila -- eso duplicaría el gasto en el grupo.
+export async function updateSharedTransaction(txId, groupId, pagadoPorId, divisionTipo, reparto){
+  if(!sb || !currentUser) return false;
+  const tx = getTx(txId);
+  if(!tx || !tx.sharedExpenseId) return false;
+  const sharedExpenseId = tx.sharedExpenseId;
+  const miParticipanteId = participantIdForUser(groupId, currentUser.id);
+  const soyYoQuienPago = miParticipanteId!=null && miParticipanteId===pagadoPorId;
+
+  const { error: eUpdate } = await sb.from('gastos_compartidos').update({
+    grupo_id: groupId, pagado_por: pagadoPorId, division_tipo: divisionTipo||'iguales'
+  }).eq('id', sharedExpenseId);
+  if(eUpdate){ console.error('Pitucas sin lucas — error actualizando el gasto compartido:', eUpdate); return false; }
+
+  const { error: eDel } = await sb.from('gasto_reparto').delete().eq('gasto_compartido_id', sharedExpenseId);
+  if(eDel){ console.error('Pitucas sin lucas — error limpiando el reparto anterior:', eDel); return false; }
+  const filas = Object.keys(reparto).map(pid=>({gasto_compartido_id:sharedExpenseId, participante_id:pid, monto:Math.round(reparto[pid])}));
+  const { error: eIns } = await sb.from('gasto_reparto').insert(filas);
+  if(eIns){ console.error('Pitucas sin lucas — error creando el nuevo reparto:', eIns); return false; }
+
+  const otrosSplits = Object.keys(reparto).filter(pid=>pid!==miParticipanteId).map(pid=>({
+    persona: (GROUP_PARTICIPANTS.find(p=>p.id===pid)||{}).nombre||'', monto: reparto[pid], pagado:false,
+    tipo:'persona' as const, montoRecibido:null, linkedTxId:null, groupId, participanteId:pid, sharedExpenseId
+  }));
+  if(soyYoQuienPago){
+    tx.porCobrar = otrosSplits;
+    tx.estado = otrosSplits.length ? 'por_cobrar' : 'confirmado';
+  } else {
+    tx.categorias = []; tx.porCobrar = []; tx.estado = 'no_es_gasto';
+    if(!/lo pagó otra persona/.test(tx.nota||'')){
+      tx.nota = (tx.nota?tx.nota+' — ':'')+'Compartido con el grupo, pero lo pagó otra persona — no cuenta en tu presupuesto.';
+    }
+  }
+  tx.groupId = groupId;
+  tx.divisionTipo = divisionTipo;
+  await loadSharedExpenses();
+  return true;
+}
+
+// "Quitar del grupo" -- deshace por completo la asignación de una transacción ya compartida.
+// Borra la fila de gastos_compartidos (gasto_reparto se va con ella por ON DELETE CASCADE en el
+// esquema); la transacción vuelve a ser tuya, normal y editable, desvinculada del grupo. Si era
+// "lo pagó otra persona" (categorias/porCobrar ya vacíos desde que se compartió, ver
+// shareExistingTransaction), esa categoría original no es recuperable -- queda para reclasificar
+// a mano, mismo trade-off que ya existía al compartir en primer lugar.
+export async function removeSharedTransaction(txId){
+  if(!sb) return false;
+  const tx = getTx(txId);
+  if(!tx || !tx.sharedExpenseId) return false;
+  const { error } = await sb.from('gastos_compartidos').delete().eq('id', tx.sharedExpenseId);
+  if(error){ console.error('Pitucas sin lucas — error quitando el gasto del grupo:', error); return false; }
+  tx.groupId = undefined;
+  tx.sharedExpenseId = undefined;
+  tx.divisionTipo = undefined;
+  // El reparto (quién te debe qué) queda -- se congela como un reparto ad-hoc normal (mismo
+  // mecanismo que "dividir con alguien" sin grupo), no se borra: quitar la asignación de grupo
+  // nunca debe perder plata ya repartida.
+  tx.porCobrar.forEach(p=>{ p.groupId = undefined; p.participantId = undefined; p.sharedExpenseId = undefined; });
+  if(tx.estado==='no_es_gasto') tx.estado = 'confirmado';
+  await loadSharedExpenses();
+  return true;
 }
 
 // Just an accounting record — it never creates a real transaction. The money that's

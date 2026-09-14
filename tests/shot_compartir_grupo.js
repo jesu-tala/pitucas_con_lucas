@@ -107,7 +107,10 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(150);
 
   // (g) A transaction ALREADY shared (groupId set by hand, simulating that shareExistingTransaction
-  // already ran) shows the read-only "already shared" card, without the choose-group button.
+  // already ran) shows the card naming the group, with "Editar"/"Quitar del grupo" (refinamiento
+  // B: la asignación de grupo ahora SÍ se puede editar después de creada -- ver
+  // shot_grupo_editar_asignacion.js para el flujo de edición completo), never the choose-group
+  // button (no se puede volver a "compartir de cero" algo que ya se compartió).
   await page.evaluate(() => {
     const D = window.__debug;
     const t3 = D.TRANSACTIONS.find(t => t.id === 't3');
@@ -119,12 +122,15 @@ const { openApp, check, finish } = require('./lib/test_kit');
   const yaCompartido = await page.evaluate(() => {
     const content = document.getElementById('sheet-content');
     return {
-      tieneTexto: content.textContent.includes('ya se compartió con') && content.textContent.includes('Casa'),
+      tieneTexto: content.textContent.includes('compartido con') && content.textContent.includes('Casa'),
       tieneBotonAbrir: !!document.querySelector('[data-share-open="t3"]'),
+      tieneBotonEditar: !!document.querySelector('[data-share-edit="t3"]'),
+      tieneBotonQuitar: !!document.querySelector('[data-share-remove-ask="t3"]'),
     };
   });
-  check('(g) Una tx ya compartida (groupId puesto) muestra la tarjeta de solo lectura con el nombre del grupo', yaCompartido.tieneTexto === true, yaCompartido);
+  check('(g) Una tx ya compartida (groupId puesto) muestra la tarjeta nombrando el grupo', yaCompartido.tieneTexto === true, yaCompartido);
   check('   y ya no ofrece el botón de "Elegir un grupo" (no se puede volver a compartir desde acá)', yaCompartido.tieneBotonAbrir === false, yaCompartido);
+  check('   en cambio ofrece "Editar" y "Quitar del grupo" (refinamiento B)', yaCompartido.tieneBotonEditar && yaCompartido.tieneBotonQuitar, yaCompartido);
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
 

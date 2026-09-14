@@ -179,6 +179,22 @@ export interface Transaction {
    group brings together participants from any account, or even people with no account. */
 export type SplitType = 'iguales' | 'montos' | 'pct';
 
+// Refinamiento C: "categoría siempre es de este grupo" (ej. Arriendo -> siempre grupo Hogar, con
+// una división por defecto). A diferencia de una regla de clasificación (reglaAuto, derivada de
+// transacciones pasadas y que SÍ las reescribe retroactivamente -- ver applyLockRule en
+// helpers.ts), esta SOLO pre-llena el draft de una transacción NUEVA al compartirla (nunca
+// toca transacciones ya guardadas) -- cada una guarda su propio snapshot al confirmar, como
+// cualquier otro reparto (ver commitPersonaSplit/shareExistingTransaction). Vive en tu propio
+// app_state (es una preferencia tuya, no algo compartido con el grupo), a diferencia de
+// grupos/gastos_compartidos. customValues usa el mismo formato que ShareDraft.customValues
+// (participantId -> el input crudo en la unidad de divisionTipo).
+export interface GroupCategoryRule {
+  groupId: string;
+  divisionTipo: SplitType;
+  pagadoPorId: string;
+  customValues: Record<string, string>;
+}
+
 // This interface mirrors the `grupos` table row-for-row -- supabase-js returns rows as plain
 // objects keyed by column name, so these field names ARE the actual over-the-wire column names
 // (see backend/supabase/schema_gastos_compartidos.sql) and stay Spanish/snake_case on purpose,

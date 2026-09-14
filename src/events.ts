@@ -2,15 +2,15 @@ import { allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursem
 import { categoryFillCss, nextCategoryHue } from './category-colors';
 import { enterDemoMode, exitDemoMode } from './demo';
 import { render } from './render';
-import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
+import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
-import { CATEGORIES, CONTACTS, GROUP_PARTICIPANTS, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
+import { CATEGORIES, CONTACTS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
 import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
-import { defaultShareDraft, renderGroupsView } from './views/grupos';
+import { defaultShareDraft, shareDraftForTx, renderGroupsView } from './views/grupos';
 import { activePlatformIds, bumpPlatformValueForContribution, generalCatIdFor, goalCapablePlatformIds, platformCurrentValue, platformIdForInvestmentCat, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
-import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, deleteGroupParticipant, editGroupParticipant, leerBoletaConOCR, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, useImportedStatement } from './views/menu';
+import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, updateSharedTransaction, removeSharedTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, deleteGroupParticipant, editGroupParticipant, leerBoletaConOCR, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, fetchGroupRoster, claimParticipant, useImportedStatement } from './views/menu';
 import { renderBalanceView, renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
 import { buildReconcileDiff } from './reconcile';
@@ -1309,7 +1309,8 @@ phone.addEventListener('click', function(e: any){
   }
   const groupJoinOpenBtn = e.target.closest('[data-group-join-open]');
   if(groupJoinOpenBtn){
-    state.joiningGroup = true; state.joinDraft = {inviteCode:'', nombre:''};
+    state.joiningGroup = true;
+    state.joinDraft = {inviteCode:'', nombre:'', roster:null, loadingRoster:false, errorRoster:null, selectedParticipantId:null, addingNew:false};
     renderGroupsView();
     return;
   }
@@ -1319,10 +1320,50 @@ phone.addEventListener('click', function(e: any){
     renderGroupsView();
     return;
   }
+  // Paso 1 -> 2: busca el roster del grupo por su código, antes de decidir quién eres.
+  const groupJoinBuscarBtn = e.target.closest('[data-group-join-buscar]');
+  if(groupJoinBuscarBtn){
+    const d = state.joinDraft;
+    if(d.inviteCode.trim()){
+      d.loadingRoster = true; d.errorRoster = null;
+      renderGroupsView();
+      fetchGroupRoster(d.inviteCode.trim()).then(function(res){
+        d.loadingRoster = false;
+        if(res.ok) d.roster = res.roster;
+        else d.errorRoster = res.error ? res.error.message : 'No se pudo buscar el grupo.';
+        renderGroupsView();
+      });
+    }
+    return;
+  }
+  const joinSelectParticipantEl = e.target.closest('[data-join-select-participant]');
+  if(joinSelectParticipantEl){
+    const d = state.joinDraft;
+    d.selectedParticipantId = joinSelectParticipantEl.getAttribute('data-join-select-participant');
+    d.addingNew = false;
+    renderGroupsView();
+    return;
+  }
+  const joinSelectNuevoEl = e.target.closest('[data-join-select-nuevo]');
+  if(joinSelectNuevoEl){
+    const d = state.joinDraft;
+    d.addingNew = true;
+    d.selectedParticipantId = null;
+    renderGroupsView();
+    return;
+  }
   const groupJoinConfirmBtn = e.target.closest('[data-group-join-confirm]');
   if(groupJoinConfirmBtn){
     const d = state.joinDraft;
-    if(d.inviteCode.trim() && d.nombre.trim()){
+    if(d.selectedParticipantId){
+      // Reclamar un participante YA EXISTENTE -- nunca uno ya reclamado por otra persona (los
+      // radios de los ya reclamados están deshabilitados, y el backend lo revisa igual).
+      claimParticipant(d.selectedParticipantId, d.roster.grupoId).then(function(res){
+        state.joiningGroup = false;
+        toast(res.ok ? 'Te uniste al grupo' : 'No se pudo unir — ' + (res.error ? res.error.message : 'revisa el código'));
+        renderGroupsView();
+      });
+    } else if(d.addingNew && d.nombre.trim()){
       joinGroup(d.inviteCode.trim(), d.nombre.trim()).then(function(res){
         state.joiningGroup = false;
         toast(res.ok ? 'Te uniste al grupo' : 'No se pudo unir — ' + (res.error ? res.error.message : 'revisa el código'));
@@ -1496,7 +1537,11 @@ phone.addEventListener('click', function(e: any){
   const shareOpenBtn = e.target.closest('[data-share-open]');
   if(shareOpenBtn){
     const txId = shareOpenBtn.getAttribute('data-share-open');
-    state.shareDraft = defaultShareDraft(txId);
+    const t = getTx(txId);
+    // Refinamiento C: si la categoría de esta transacción tiene una regla de grupo guardada,
+    // arranca desde ahí (grupo/división/participantes) en vez del default genérico.
+    state.shareDraft = t ? shareDraftForTx(t) : defaultShareDraft(txId);
+    state.shareDraftSaveAsRule = false;
     renderSheet();
     return;
   }
@@ -1504,6 +1549,39 @@ phone.addEventListener('click', function(e: any){
   if(shareCancelBtn){
     state.shareDraft = null;
     renderSheet();
+    return;
+  }
+  // "Editar" un gasto YA compartido con un grupo (renderShareGroupSection) -- reabre el mismo
+  // draft/formulario que compartirlo por primera vez, pero seedeado desde el reparto real ya
+  // guardado (draftFromExistingGroupSplit), para poder cambiar grupo/división/participantes.
+  const shareEditBtn = e.target.closest('[data-share-edit]');
+  if(shareEditBtn){
+    const t = getTx(shareEditBtn.getAttribute('data-share-edit'));
+    if(t) state.shareDraft = draftFromExistingGroupSplit(t);
+    state.shareDraftSaveAsRule = false;
+    renderSheet();
+    return;
+  }
+  const shareRemoveAskBtn = e.target.closest('[data-share-remove-ask]');
+  if(shareRemoveAskBtn){
+    state.confirmRemoveShareId = shareRemoveAskBtn.getAttribute('data-share-remove-ask');
+    renderSheet();
+    return;
+  }
+  const shareRemoveCancelBtn = e.target.closest('[data-share-remove-cancel]');
+  if(shareRemoveCancelBtn){
+    state.confirmRemoveShareId = null;
+    renderSheet();
+    return;
+  }
+  const shareRemoveConfirmBtn = e.target.closest('[data-share-remove-confirm]');
+  if(shareRemoveConfirmBtn){
+    const txId = shareRemoveConfirmBtn.getAttribute('data-share-remove-confirm');
+    removeSharedTransaction(txId).then(function(ok){
+      state.confirmRemoveShareId = null;
+      toast(ok ? 'Gasto quitado del grupo' : 'No se pudo quitar — revisa tu conexión');
+      renderSheet(); renderIfListVisible();
+    });
     return;
   }
   // "+ agregar persona" inside the split draft (no-group only — see shareDraftParticipants):
@@ -1620,7 +1698,24 @@ phone.addEventListener('click', function(e: any){
       const reparto = computeShareAmounts(t.monto, d);
       const suma = shareAmountsSum(reparto, d.participantesIncluidos);
       if(suma!==t.monto) return; // hard guard -- the confirm button should already be disabled
-      if(d.groupId){
+      // Refinamiento C: "usar siempre esta división para <categoría>" -- guarda/actualiza la
+      // regla ANTES de compartir/editar, nunca reescribe ninguna transacción ya guardada (ni
+      // siquiera esta: la regla es solo la plantilla para la PRÓXIMA vez que se abra el draft).
+      if(d.groupId && state.shareDraftSaveAsRule && t.categorias.length===1){
+        GROUP_CATEGORY_RULES[t.categorias[0].cat] = {
+          groupId: d.groupId, divisionTipo: d.divisionTipo, pagadoPorId: d.pagadoPorId,
+          customValues: Object.assign({}, d.customValues)
+        };
+      }
+      if(d.groupId && t.sharedExpenseId){
+        // Editar un gasto YA compartido (grupo/reparto/participantes cambiados desde "Editar") --
+        // UPDATE de la fila existente, nunca un INSERT nuevo (eso duplicaría el gasto).
+        updateSharedTransaction(txId, d.groupId, d.pagadoPorId, d.divisionTipo, reparto).then(function(ok){
+          state.shareDraft = null;
+          toast(ok ? 'Cambios guardados' : 'No se pudo guardar — revisa tu conexión');
+          render();
+        });
+      } else if(d.groupId){
         shareExistingTransaction(txId, d.groupId, d.pagadoPorId, d.divisionTipo, reparto).then(function(gasto){
           state.shareDraft = null;
           toast(gasto ? 'Gasto compartido' : 'No se pudo compartir — revisa tu conexión');
@@ -1757,6 +1852,22 @@ phone.addEventListener('click', function(e: any){
     TRANSACTIONS.forEach(t=>{ if(t.comercio===comercio) t.reglaAuto = false; });
     state.confirmDeleteRuleComercio = null;
     toast('Regla eliminada para '+comercio);
+    renderMenuView();
+    return;
+  }
+  // Refinamiento C: eliminar una regla de grupo por categoría -- nunca toca ninguna transacción
+  // ya compartida (esas ya tienen su propio snapshot congelado), solo deja de sugerirse la
+  // próxima vez que se comparta algo con esa categoría.
+  const askDeleteGroupRuleBtn = e.target.closest('[data-ask-delete-group-rule]');
+  if(askDeleteGroupRuleBtn){ state.confirmDeleteGroupRuleCatId = askDeleteGroupRuleBtn.getAttribute('data-ask-delete-group-rule'); renderMenuView(); return; }
+  const cancelDeleteGroupRuleBtn = e.target.closest('[data-cancel-delete-group-rule]');
+  if(cancelDeleteGroupRuleBtn){ state.confirmDeleteGroupRuleCatId = null; renderMenuView(); return; }
+  const deleteGroupRuleBtn = e.target.closest('[data-confirm-delete-group-rule]');
+  if(deleteGroupRuleBtn){
+    const catId = deleteGroupRuleBtn.getAttribute('data-confirm-delete-group-rule');
+    delete GROUP_CATEGORY_RULES[catId];
+    state.confirmDeleteGroupRuleCatId = null;
+    toast('Regla de grupo eliminada');
     renderMenuView();
     return;
   }
@@ -1990,6 +2101,11 @@ phone.addEventListener('change', function(e: any){
     state.shareDraft.pagadoPorId = sharePagadorSelect.value;
     renderSheet();
     return;
+  }
+  const shareSaveAsRuleBox = e.target.closest('[data-share-save-as-rule]');
+  if(shareSaveAsRuleBox){
+    state.shareDraftSaveAsRule = shareSaveAsRuleBox.checked;
+    return; // checkbox propio -- no necesita renderSheet(), su estado ya vive en el checkbox mismo
   }
   const compartirIncluirBox = e.target.closest('[data-share-include]');
   if(compartirIncluirBox && state.shareDraft){
