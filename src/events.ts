@@ -1,5 +1,6 @@
 import { allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, pendingLinkedTo, receivableTotal, resolvePending, hasReceivableType } from './helpers';
 import { categoryFillCss, nextCategoryHue } from './category-colors';
+import { enterDemoMode, exitDemoMode } from './demo';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
@@ -1903,8 +1904,7 @@ phone.addEventListener('click', function(e: any){
 
   const toggleDemoBtn = e.target.closest('[data-toggle-demo]');
   if(toggleDemoBtn){
-    state.demoMode = !state.demoMode;
-    render();
+    if(state.demoMode) exitDemoMode(); else enterDemoMode();
     toast(state.demoMode ? 'Modo demo activado' : 'Modo demo desactivado');
     return;
   }

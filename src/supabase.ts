@@ -36,6 +36,11 @@ export function boletaWorkerConfigured(){
 // first render()). app.ts calls initSupabaseAuth() by hand, after that first render(),
 // to preserve the same order.
 export let sb: any = null;
+// Only real callers of this are demo.ts (nulling it out for the duration of demo mode is the
+// single choke point that makes every "if(!sb) return" guard across the app -- writes, group
+// mutations, OCR, email import -- a safe no-op without touching each one by hand) and its own
+// restore afterwards.
+export function setSb(v: any){ sb = v; }
 
 export let currentUser = null;          // Supabase Auth user object, or null if there's no session
 export let currentHouseholdId = null;   // uuid of the household whose data is currently loaded

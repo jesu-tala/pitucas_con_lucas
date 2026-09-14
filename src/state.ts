@@ -343,15 +343,14 @@ export function currentMonthIndex(){
 }
 
 export const fmt = new Intl.NumberFormat('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0});
-// In Demo mode, any displayed (non-editable) amount is masked right here — a single point of
-// change that covers the whole app without touching each view one by one.
-export function money(n){ return state.demoMode ? '$••••••' : fmt.format(Math.round(n)); }
+// Demo mode used to mask every amount here ("$••••••") -- replaced by a full swap to synthetic
+// data instead (see demo.ts): the numbers shown in demo are fake, not hidden, so they display
+// normally through the same formatting every other mode uses.
+export function money(n){ return fmt.format(Math.round(n)); }
 export function moneyPlain(n){ return new Intl.NumberFormat('es-CL',{maximumFractionDigits:0}).format(Math.round(n)); }
-// moneyPlain() by itself is NOT masked (it's also used by editable inputs, which must keep
-// showing the real number while being filled in) — for read-only text that should use the
-// "plain" format (no "$"), like the donut's center or a chart's labels, you need to go through
-// here instead of moneyPlain() directly.
-export function moneyPlainMasked(n){ return state.demoMode ? '••••••' : moneyPlain(n); }
+// For read-only text that should use the "plain" format (no "$"), like the donut's center or a
+// chart's labels, use this instead of moneyPlain() directly.
+export function moneyPlainMasked(n){ return moneyPlain(n); }
 // Abbreviated format ("$1,2M", "$45K") for the Y-axis labels of the investments chart -- these
 // are "approx" values on purpose, not each exact peso, so showing the full amount there doesn't
 // make sense. Comma as the decimal separator, like the rest of the app's Chilean formatting.

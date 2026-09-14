@@ -187,25 +187,11 @@ function parseMoney(txt){
       { ui: reembolsoText, esperado: setup.reembolsoAnioEsperado.total });
   }
 
-  // ---------- Demo mode masks every amount in year mode ----------
-  await page.evaluate(() => { window.__debug.state.demoMode = true; window.__debug.render(); });
-  await page.waitForTimeout(150);
-  const demoState = await page.evaluate(() => {
-    const digitsIn = sel => { const el = document.querySelector(sel); return el ? /\d/.test(el.textContent) : null; };
-    return {
-      statIngresosMasked: !digitsIn('.stat-ingresos .stat-value'),
-      statBalanceMasked: !digitsIn('.stat-balance .stat-value'),
-      donutTotalMasked: !digitsIn('.dc-total'),
-      legendMasked: [...document.querySelectorAll('.legend-value')].every(el => !/\d/.test(el.textContent)),
-      metaAmtMasked: [...document.querySelectorAll('.meta-row-amt')].every(el => !/\d/.test(el.textContent)),
-    };
-  });
-  check('Modo demo (año): stat tiles enmascarados', demoState.statIngresosMasked && demoState.statBalanceMasked, demoState);
-  check('Modo demo (año): total del donut enmascarado', demoState.donutTotalMasked, demoState);
-  check('Modo demo (año): leyenda del donut enmascarada', demoState.legendMasked, demoState);
-  check('Modo demo (año): montos de la card Fijo/Variable/Inversión enmascarados', demoState.metaAmtMasked, demoState);
-  await page.evaluate(() => { window.__debug.state.demoMode = false; window.__debug.render(); });
-  await page.waitForTimeout(150);
+  // Nota: este archivo antes tenía una sección "modo demo enmascara los montos" acá -- ese
+  // comportamiento (money()/moneyPlainMasked() masking amounts based on state.demoMode) fue
+  // reemplazado por el modo demo de datos sintéticos (ver src/demo.ts y
+  // tests/shot_modo_demo_datos_sinteticos.js, que ya cubre que Balance en modo Año muestra el
+  // set sintético completo, sin nada enmascarado).
 
   // ---------- Bridge from Evolución: "Ver desglose del año" lands on Balance in year mode ----------
   // First flip Balance back to month mode, so the bridge link is what puts it back into year

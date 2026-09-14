@@ -124,6 +124,7 @@ export function parseStatementCSV(text){
   return {rows, errors};
 }
 export function importStatementRows(rows){
+  if(state.demoMode){ toast('No disponible en modo demo'); return {creadas:0, conRegla:0, pendientes:0}; }
   const reglaByComercio = {};
   groupedRules().forEach(r=>{ reglaByComercio[r.comercio] = r; });
   let conRegla = 0, pendientes = 0;
@@ -637,6 +638,7 @@ export async function loadAvailableStatements(){
 }
 
 export async function useImportedStatement(id, password){
+  if(state.demoMode){ toast('No disponible en modo demo'); return; }
   const item = state.reconciliar.disponibles.find(function(d){ return d.id===id; });
   if(!item) return;
   state.reconciliar.cargando = true;
@@ -679,6 +681,7 @@ export async function useImportedStatement(id, password){
 // its ArrayBuffer is kept in memory (never the password) while the same kind of field used
 // for email statements is shown, and reading is retried when the user presses "Abrir".
 export async function tryOpenStatementFile(buffer, nombre, password){
+  if(state.demoMode){ toast('No disponible en modo demo'); return; }
   state.reconciliar.cargando = true;
   state.reconciliar.error = null;
   state.reconciliar.errorPassword = null;
@@ -977,10 +980,10 @@ export function renderMenuDemo(){
     '<div class="card" style="padding:16px;">'+
       '<div class="menu-item-card" style="padding:0;">'+
         '<span class="menu-item-card-icon" style="--fill:var(--cat-butter-fill);--ink:var(--cat-butter-ink)">'+ICONS.lock+'</span>'+
-        '<div class="menu-item-card-body"><div class="menu-item-card-name">Ocultar montos reales</div><div class="menu-item-card-sub">Útil para mostrar la app en público sin revelar tus números</div></div>'+
+        '<div class="menu-item-card-body"><div class="menu-item-card-name">Mostrar datos de ejemplo</div><div class="menu-item-card-sub">Útil para mostrar la app en público sin revelar tus números reales</div></div>'+
         '<button class="switch '+(state.demoMode?'on':'')+'" data-toggle-demo aria-label="Activar modo demo" aria-pressed="'+(state.demoMode?'true':'false')+'"></button>'+
       '</div>'+
-      '<div class="platform-hint muted" style="margin-top:14px;">Cuando está activado, los montos se reemplazan por "$••••••" en pantallas, tarjetas y gráficos. Los formularios donde tú editas un monto siguen mostrando el número real mientras los completas.</div>'+
+      '<div class="platform-hint muted" style="margin-top:14px;">Cuando está activado, TODA tu data real (transacciones, categorías, grupos, inversiones) se reemplaza por un set de ejemplo con números inventados -- se ve completo, no enmascarado. Tu data real queda intacta y no se guarda nada de lo que hagas mientras el demo está activo; al desactivarlo vuelves exactamente donde estabas. No se puede importar por correo, leer boletas, reconciliar cartolas ni enviar notificaciones push mientras el demo está activo.</div>'+
     '</div>';
 }
 
@@ -1635,6 +1638,7 @@ export async function loadNotifStatus(){
   renderMenuView();
 }
 export async function enableNotifications(){
+  if(state.demoMode){ toast('No disponible en modo demo'); return; }
   if(state.notifBusy) return;
   state.notifBusy = true; state.notifError = null; renderMenuView();
   try{
@@ -1665,6 +1669,7 @@ export async function enableNotifications(){
   renderMenuView();
 }
 export async function disableNotifications(){
+  if(state.demoMode){ toast('No disponible en modo demo'); return; }
   if(state.notifBusy) return;
   state.notifBusy = true; state.notifError = null; renderMenuView();
   try{
@@ -1710,6 +1715,7 @@ export function enviarPushHogar(title, message?, url?){
 // user -- built for the "Enviar aviso de prueba" (send test alert) button in Menu >
 // Notificaciones, so problems can be diagnosed without guessing when something doesn't arrive.
 export async function sendTestPush(){
+  if(state.demoMode){ toast('No disponible en modo demo'); return; }
   if(state.notifTestBusy) return;
   state.notifTestBusy = true; state.notifTestResult = null; renderMenuView();
   try{

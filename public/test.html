@@ -1571,8 +1571,8 @@
     return { total, count };
   }
   __name(reimbursementTotalForMonths, "reimbursementTotalForMonths");
-  function monthlyReimbursementTotal(monthKey) {
-    return reimbursementTotalForMonths([monthKey]);
+  function monthlyReimbursementTotal(monthKey2) {
+    return reimbursementTotalForMonths([monthKey2]);
   }
   __name(monthlyReimbursementTotal, "monthlyReimbursementTotal");
   function dayLabel(fecha) {
@@ -1721,167 +1721,6 @@
     ).join("");
   }
   __name(renderTabbar, "renderTabbar");
-
-  // src/ui/toasts.ts
-  function toast(msg) {
-    const stack = document.getElementById("toast-stack");
-    const el = document.createElement("div");
-    el.className = "toast";
-    el.innerHTML = icon("check") + "<span>" + msg + "</span>";
-    stack.appendChild(el);
-    requestAnimationFrame(() => el.classList.add("show"));
-    setTimeout(() => {
-      el.classList.remove("show");
-      setTimeout(() => el.remove(), 250);
-    }, 2400);
-  }
-  __name(toast, "toast");
-
-  // src/ui/donut.ts
-  function buildDonut(segments, size, strokeW) {
-    const total = segments.reduce((s, x) => s + x.value, 0);
-    const r = size / 2 - strokeW / 2 - 2;
-    const cx = size / 2, cy = size / 2;
-    const gapDeg = segments.length > 1 ? 6 : 0;
-    let startAngle = -90;
-    let paths = "";
-    if (total <= 0) {
-      paths = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="var(--border)" stroke-width="' + strokeW + '"/>';
-    } else if (segments.length === 1) {
-      paths = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + segments[0].color + '" stroke-width="' + strokeW + '"/>';
-    } else {
-      const MIN_VISIBLE_SWEEP_DEG = 3;
-      segments.forEach((seg) => {
-        const frac = seg.value / total;
-        if (frac <= 0) return;
-        const sweep = Math.max(frac * 360 - gapDeg, MIN_VISIBLE_SWEEP_DEG);
-        const a0 = startAngle;
-        const a1 = startAngle + sweep;
-        const large = sweep > 180 ? 1 : 0;
-        const p0 = polar(cx, cy, r, a0);
-        const p1 = polar(cx, cy, r, a1);
-        paths += '<path class="arc-seg" data-cat="' + seg.id + '"' + (seg.extraAttrs || "") + ' d="M ' + p0.x + " " + p0.y + " A " + r + " " + r + " 0 " + large + " 1 " + p1.x + " " + p1.y + '" fill="none" stroke="' + seg.color + '" stroke-width="' + strokeW + '" stroke-linecap="round"/>';
-        startAngle += frac * 360;
-      });
-    }
-    return '<svg viewBox="0 0 ' + size + " " + size + '" width="' + size + '" height="' + size + '">' + paths + "</svg>";
-  }
-  __name(buildDonut, "buildDonut");
-  function polar(cx, cy, r, angleDeg) {
-    const a = angleDeg * Math.PI / 180;
-    return { x: (cx + r * Math.cos(a)).toFixed(2), y: (cy + r * Math.sin(a)).toFixed(2) };
-  }
-  __name(polar, "polar");
-  var DONUT_OTROS_THRESHOLD_PCT = 3;
-  function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro) {
-    const byCat = {};
-    monthTx.filter((t) => t.tipo === tipo && t.estado !== "no_es_gasto").forEach((t) => {
-      t.categorias.forEach((c) => {
-        const v = tipo === "gasto" ? catNetAmount(t, c) : tipo === "ingreso" ? c.monto * netIncomeFactor(t) : c.monto;
-        byCat[c.cat] = (byCat[c.cat] || 0) + v;
-      });
-    });
-    const entries = Object.keys(byCat).map((id) => ({ id, value: byCat[id], info: catInfo(id) })).sort((a, b) => b.value - a.value);
-    const total = entries.reduce((s, e) => s + e.value, 0);
-    const smallIds = total > 0 ? entries.filter((e) => e.value / total * 100 < DONUT_OTROS_THRESHOLD_PCT).map((e) => e.id) : [];
-    const grouped = smallIds.length > 1;
-    const otrosIds = grouped ? smallIds : [];
-    const ringEntries = !grouped ? entries : (function() {
-      const big = entries.filter((e) => !otrosIds.includes(e.id));
-      const otrosValue = entries.filter((e) => otrosIds.includes(e.id)).reduce((s, e) => s + e.value, 0);
-      return big.concat([{ id: "otros", value: otrosValue, info: { nombre: "Otros", icon: "more", colorHue: 0, tipo }, isOtros: true }]);
-    })();
-    const segs = ringEntries.map((e) => ({
-      value: e.value,
-      color: e.isOtros ? "var(--text-tertiary)" : categoryFillCss(e.info.colorHue),
-      id: e.id,
-      nombre: e.info.nombre,
-      extraAttrs: e.isOtros ? ' data-otros-ids="' + otrosIds.join(",") + '"' : ""
-    }));
-    const donutSvg = buildDonut(segs, 172, 24);
-    const legend = entries.length === 0 ? '<div class="empty-state" style="padding:14px 4px;">' + icon("inbox") + "<div>Sin movimientos este mes.</div></div>" : entries.map((e) => {
-      const pct = total > 0 ? Math.round(e.value / total * 100) : 0;
-      const enOtros = otrosIds.includes(e.id);
-      return '<button class="legend-row' + (enOtros ? " legend-row-otros" : "") + '" data-cat="' + e.id + '"><span class="legend-dot" style="--fill:' + categoryFillCss(e.info.colorHue) + '"></span><span class="legend-icon">' + catIconMarkup(e.info.icon) + '</span><span class="legend-name">' + e.info.nombre + (enOtros ? ' <span class="legend-otros-badge">Otros</span>' : "") + '</span><span class="legend-pct">' + pct + '%</span><span class="legend-value tabular">' + money(e.value) + "</span></button>";
-    }).join("");
-    return '<div class="card donut-card" ' + (periodoFiltro ? 'data-periodo="' + periodoFiltro + '"' : "") + '><div class="donut-card-title">' + titulo + '</div><div class="donut-card-sub">' + subtitulo + '</div><div class="donut-row"><div class="donut-svg-wrap">' + donutSvg + '<div class="donut-center"><span class="dc-total tabular">' + (total > 0 ? moneyPlainMasked(total) : "$0") + '</span><span class="dc-label">total</span></div></div><div class="donut-legend">' + legend + "</div></div></div>";
-  }
-  __name(renderDonutBlock, "renderDonutBlock");
-  function monthlyInvestmentGoalCLP() {
-    return INVESTMENT_GOALS.reduce((s, m) => s + (m.aporteMensualMeta || 0), 0);
-  }
-  __name(monthlyInvestmentGoalCLP, "monthlyInvestmentGoalCLP");
-  function referenceMonthlyIncome() {
-    const monthIncome = monthTotals(todayISO().slice(0, 7)).ingresos;
-    if (monthIncome > 0) return monthIncome;
-    const last = lastSalaryTx();
-    return last ? last.monto : 0;
-  }
-  __name(referenceMonthlyIncome, "referenceMonthlyIncome");
-  function investmentGoalPct() {
-    const ref = referenceMonthlyIncome();
-    return ref > 0 ? monthlyInvestmentGoalCLP() / ref * 100 : 0;
-  }
-  __name(investmentGoalPct, "investmentGoalPct");
-  function sumSpendingGoalPct() {
-    return SPENDING_GOAL_PCT.fijo + SPENDING_GOAL_PCT.variable + investmentGoalPct();
-  }
-  __name(sumSpendingGoalPct, "sumSpendingGoalPct");
-  function goalZones(metaPct, masEsMejor) {
-    if (masEsMejor) return [{ hasta: metaPct * 0.6, tono: "bad" }, { hasta: metaPct, tono: "ok" }, { hasta: 100, tono: "good" }];
-    return [{ hasta: metaPct, tono: "good" }, { hasta: metaPct * 1.3, tono: "ok" }, { hasta: 100, tono: "bad" }];
-  }
-  __name(goalZones, "goalZones");
-  function goalZoneRow(nombre, pct, monto, zones, sinIngresos, metaPct) {
-    let gradient = "linear-gradient(to right";
-    let prev = 0;
-    zones.forEach((z) => {
-      const color = "var(--" + (z.tono === "good" ? "income" : z.tono === "ok" ? "cat-butter" : "expense") + "-fill)";
-      gradient += ", " + color + " " + prev + "%, " + color + " " + z.hasta + "%";
-      prev = z.hasta;
-    });
-    gradient += ")";
-    const pctText = sinIngresos ? "\u2014" : Math.round(pct) + "%";
-    const marker = sinIngresos ? "" : '<div class="meta-marker" style="left:' + Math.max(0, Math.min(100, pct)) + '%"></div>';
-    const goalMarker = sinIngresos || metaPct == null ? "" : '<div class="meta-goal-marker" style="left:' + Math.max(0, Math.min(100, metaPct)) + '%">' + Math.round(metaPct) + "%</div>";
-    let statusHtml;
-    if (sinIngresos) {
-      statusHtml = '<span class="meta-status" style="background:var(--surface-sunken);color:var(--text-secondary);">Sin ingresos este mes</span>';
-    } else {
-      const zoneAt = zones.find((z) => pct <= z.hasta) || zones[zones.length - 1];
-      const statusLabel = { good: "En buen rango", ok: "Un poco fuera de meta", bad: "Lejos de tu meta" }[zoneAt.tono];
-      statusHtml = '<span class="meta-status ' + zoneAt.tono + '">' + statusLabel + "</span>";
-    }
-    return '<div class="meta-row"><div class="meta-row-head"><span class="meta-row-name">' + nombre + '</span><span class="meta-row-figs"><span class="meta-row-pct tabular">' + pctText + '</span><span class="meta-row-amt tabular">' + money(monto) + '</span></span></div><div class="meta-track-wrap">' + goalMarker + '<div class="meta-track" style="background:' + gradient + '">' + marker + "</div></div>" + statusHtml + "</div>";
-  }
-  __name(goalZoneRow, "goalZoneRow");
-  function renderGoalSummaryCard(periodTx, ingresos, metaInvPct) {
-    let fijo = 0, variable = 0, inversion = 0;
-    periodTx.forEach((t) => {
-      if (t.estado === "no_es_gasto") return;
-      if (t.tipo === "gasto") {
-        if (t.recurrencia === "variable") variable += netExpenseTx(t);
-        else fijo += netExpenseTx(t);
-      } else if (t.tipo === "inversion") {
-        inversion += catTotalAmount(t);
-      }
-    });
-    const sinIngresos = ingresos <= 0;
-    const pctFijo = sinIngresos ? 0 : fijo / ingresos * 100, pctVar = sinIngresos ? 0 : variable / ingresos * 100, pctInv = sinIngresos ? 0 : inversion / ingresos * 100;
-    const sumaMetas = SPENDING_GOAL_PCT.fijo + SPENDING_GOAL_PCT.variable + metaInvPct;
-    const avisoSuma = sumaMetas > 100 ? '<div class="meta-caption warn">Ojo: tus 3 metas suman ' + Math.round(sumaMetas) + "% de tus ingresos \u2014 eso es m\xE1s del 100%, no calzan entre ellas. Ajusta Fijo/Variable en Presupuesto.</div>" : "";
-    return '<div class="card meta-card"><div class="donut-card-title">Fijo \xB7 Variable \xB7 Inversi\xF3n</div><div class="donut-card-sub">Como porcentaje de tus ingresos del mes, contra tus propias metas</div>' + goalZoneRow("Gasto fijo", pctFijo, fijo, goalZones(SPENDING_GOAL_PCT.fijo, false), sinIngresos, SPENDING_GOAL_PCT.fijo) + goalZoneRow("Gasto variable", pctVar, variable, goalZones(SPENDING_GOAL_PCT.variable, false), sinIngresos, SPENDING_GOAL_PCT.variable) + goalZoneRow("Inversi\xF3n", pctInv, inversion, goalZones(metaInvPct, true), sinIngresos, metaInvPct) + '<div class="meta-caption">"Fijo" = tus gastos con recurrencia mensual o anual \xB7 "Variable" = el resto \xB7 tu meta de Inversi\xF3n (' + Math.round(metaInvPct) + "%) sale sola de lo que ya definiste en Inversiones. Edita Fijo/Variable en Presupuesto.</div>" + avisoSuma + "</div>";
-  }
-  __name(renderGoalSummaryCard, "renderGoalSummaryCard");
-  function monthSwitcherHtml() {
-    const month = MONTHS[state.monthIndex];
-    return '<div class="month-switcher"><button data-month-nav="-1" ' + (state.monthIndex <= 0 ? "disabled" : "") + ' aria-label="Mes anterior">' + ICONS.chevL + '</button><span class="m-label">' + MONTH_LABEL[month] + '</span><button data-month-nav="1" ' + (state.monthIndex >= MONTHS.length - 1 ? "disabled" : "") + ' aria-label="Mes siguiente">' + ICONS.chevR + "</button></div>";
-  }
-  __name(monthSwitcherHtml, "monthSwitcherHtml");
-  function yearSwitcherHtml(year) {
-    return '<div class="month-switcher"><span class="m-label">A\xF1o ' + year + "</span></div>";
-  }
-  __name(yearSwitcherHtml, "yearSwitcherHtml");
 
   // src/reconcile.ts
   function isAutomaticOrigin(t) {
@@ -2050,6 +1889,481 @@
   }
   __name(buildReconcileDiff, "buildReconcileDiff");
 
+  // src/ui/toasts.ts
+  function toast(msg) {
+    const stack = document.getElementById("toast-stack");
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.innerHTML = icon("check") + "<span>" + msg + "</span>";
+    stack.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("show"));
+    setTimeout(() => {
+      el.classList.remove("show");
+      setTimeout(() => el.remove(), 250);
+    }, 2400);
+  }
+  __name(toast, "toast");
+
+  // src/views/evolucion.ts
+  function monthTotals(monthKey2) {
+    const monthTx = txsOfMonth(monthKey2);
+    let ingresos = 0, entradas = 0, gastos = 0, inversiones = 0, cobros = 0, movimientoCapital = 0, porClasificar = 0;
+    monthTx.forEach((t) => {
+      if (t.estado === "no_es_gasto") return;
+      if (t.tipo === "ingreso") {
+        const bruto = t.monto;
+        entradas += bruto;
+        const nature = incomeNatureOf(t);
+        if (nature === "ingreso") ingresos += bruto;
+        else if (nature === "reembolso") ingresos += incomeNatureAmount(t);
+        else if (nature === "cobro") cobros += bruto;
+        else if (nature === "movimiento_capital") movimientoCapital += bruto;
+        else porClasificar += bruto;
+      } else if (t.tipo === "gasto") {
+        gastos += aggregatedTxAmount(t);
+      } else if (t.tipo === "inversion") {
+        inversiones += aggregatedTxAmount(t);
+      }
+    });
+    return {
+      ingresos,
+      entradas,
+      gastos,
+      inversiones,
+      cobros,
+      movimientoCapital,
+      porClasificar,
+      // Flujo de caja del mes: TODAS las entradas (no solo el ingreso real), para cuadrar con el
+      // banco -- ver la nota de arriba.
+      balance: entradas - gastos - inversiones,
+      // Tasa de ahorro = cuánto de lo que ganaste realmente destinaste a invertir (no "lo que
+      // sobró" -- eso puede incluir plata sin invertir todavía, sentada en la cuenta corriente,
+      // que no es ahorro real en el sentido de construir patrimonio). Siempre sobre ingreso REAL,
+      // nunca sobre el total de entradas.
+      tasaAhorro: ingresos > 0 ? inversiones / ingresos * 100 : 0,
+      tasaGastos: ingresos > 0 ? gastos / ingresos * 100 : 0
+    };
+  }
+  __name(monthTotals, "monthTotals");
+  function yearTotals(year) {
+    const months = fullYearMonths(year);
+    let ingresos = 0, entradas = 0, gastos = 0, inversiones = 0, cobros = 0, movimientoCapital = 0, porClasificar = 0;
+    months.forEach((m) => {
+      const t = monthTotals(m);
+      ingresos += t.ingresos;
+      entradas += t.entradas;
+      gastos += t.gastos;
+      inversiones += t.inversiones;
+      cobros += t.cobros;
+      movimientoCapital += t.movimientoCapital;
+      porClasificar += t.porClasificar;
+    });
+    return {
+      year,
+      months,
+      ingresos,
+      entradas,
+      gastos,
+      inversiones,
+      cobros,
+      movimientoCapital,
+      porClasificar,
+      // Mismo motivo que en monthTotals: flujo de caja del año completo, no solo el ingreso real.
+      balance: entradas - gastos - inversiones,
+      // Tasa de ahorro = cuánto de lo que ganaste realmente destinaste a invertir (no "lo que
+      // sobró" -- eso puede incluir plata sin invertir todavía, sentada en la cuenta corriente,
+      // que no es ahorro real en el sentido de construir patrimonio). Siempre sobre ingreso REAL.
+      tasaAhorro: ingresos > 0 ? inversiones / ingresos * 100 : 0,
+      tasaGastos: ingresos > 0 ? gastos / ingresos * 100 : 0
+    };
+  }
+  __name(yearTotals, "yearTotals");
+  var PROJECTION_ASSUMPTIONS = { retornoAnual: 6 };
+  function projectedContributions(mesesPromedio, aniosProyeccion) {
+    const mesActual = todayISO().slice(0, 7);
+    const mesesConDatos = MONTHS.filter((m) => m <= mesActual).slice(-mesesPromedio);
+    const promedioMensual = mesesConDatos.length ? mesesConDatos.reduce((s, m) => s + monthTotals(m).inversiones, 0) / mesesConDatos.length : 0;
+    const aporteMensualUsado = state.simulatedContribution != null ? state.simulatedContribution : promedioMensual;
+    const totalActual = activePlatformIds().reduce((s, id) => s + platformCurrentValue(id), 0);
+    const aporteAnual = aporteMensualUsado * 12;
+    const proyectadoSinRetorno = totalActual + aporteAnual * aniosProyeccion;
+    const retornoAnual = PROJECTION_ASSUMPTIONS.retornoAnual;
+    const r = retornoAnual / 100;
+    const factor = Math.pow(1 + r, aniosProyeccion);
+    const valorFuturoActual = totalActual * factor;
+    const valorFuturoAportes = Math.abs(r) < 1e-4 ? aporteAnual * aniosProyeccion : aporteAnual * ((factor - 1) / r);
+    const proyectadoConRetorno = valorFuturoActual + valorFuturoAportes;
+    return { promedioMensual, aporteMensualUsado, totalActual, proyectadoSinRetorno, proyectadoConRetorno, retornoAnual, meses: mesesConDatos, anios: aniosProyeccion };
+  }
+  __name(projectedContributions, "projectedContributions");
+  function buildSparkline(values, w, h, color) {
+    if (values.length < 2) return "";
+    const maxV = Math.max(...values), minV = Math.min(...values);
+    const range = maxV - minV || 1;
+    const stepX = w / (values.length - 1);
+    const pad = 3;
+    const pts = values.map((v, i) => [i * stepX, pad + (1 - (v - minV) / range) * (h - pad * 2)]);
+    const d = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+    const last = pts[pts.length - 1];
+    return '<svg viewBox="0 0 ' + w + " " + h + '" width="' + w + '" height="' + h + '" style="display:block;overflow:visible;"><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="3" fill="' + color + '"/></svg>';
+  }
+  __name(buildSparkline, "buildSparkline");
+  function buildEvolutionBars(months, selMonth) {
+    const totals = months.map(monthTotals);
+    const maxVal = Math.max(1, ...totals.flatMap((t) => [t.ingresos, t.gastos, t.inversiones]));
+    const W = 320, chartH = 128, padTop = 6, padBottom = 20, H = chartH + padTop + padBottom;
+    const groupW = W / months.length;
+    const barGap = 3, groupPad = 8;
+    let out = "";
+    months.forEach((m, i) => {
+      const t = totals[i];
+      const gx = i * groupW;
+      const isSelected = m === selMonth;
+      const vals = [t.ingresos, t.gastos, t.inversiones];
+      const colors = ["var(--income-fill)", "var(--expense-fill)", "var(--invest-fill)"];
+      const innerX = gx + groupPad / 2;
+      const innerW = groupW - groupPad;
+      const barW = (innerW - barGap * 2) / 3;
+      let bars = "";
+      vals.forEach((v, vi) => {
+        const h = maxVal > 0 ? Math.max(2, v / maxVal * chartH) : 2;
+        const bx = innerX + vi * (barW + barGap);
+        const by = padTop + (chartH - h);
+        bars += '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" width="' + Math.max(0, barW).toFixed(1) + '" height="' + h.toFixed(1) + '" rx="2.5" fill="' + colors[vi] + '" opacity="' + (isSelected ? 1 : 0.4) + '"/>';
+      });
+      const short = MONTH_LABEL[m].split(" ")[0].slice(0, 3);
+      out += '<g data-evo-month="' + m + '" style="cursor:pointer;"><rect x="' + gx.toFixed(1) + '" y="0" width="' + groupW.toFixed(1) + '" height="' + (padTop + chartH + 4).toFixed(1) + '" rx="8" fill="' + (isSelected ? "var(--surface-sunken)" : "transparent") + '"/>' + bars + '<text x="' + (gx + groupW / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="9.5" fill="' + (isSelected ? "var(--text)" : "var(--text-tertiary)") + '" font-weight="' + (isSelected ? "700" : "400") + '">' + short + "</text></g>";
+    });
+    return '<svg viewBox="0 0 ' + W + " " + H + '" width="100%" style="display:block;overflow:visible;">' + out + "</svg>";
+  }
+  __name(buildEvolutionBars, "buildEvolutionBars");
+  function metaContribTxs(meta) {
+    return TRANSACTIONS.filter((t) => t.tipo === "inversion" && t.categorias.some((c) => c.cat === meta.id));
+  }
+  __name(metaContribTxs, "metaContribTxs");
+  function metaContribAmount(t, metaId) {
+    return t.categorias.filter((c) => c.cat === metaId).reduce((s, c) => s + c.monto, 0);
+  }
+  __name(metaContribAmount, "metaContribAmount");
+  function metaAportadoNeto(meta) {
+    const contribs = metaContribTxs(meta).reduce((s, t) => s + metaContribAmount(t, meta.id), 0);
+    return (meta.startingAmount || 0) + contribs;
+  }
+  __name(metaAportadoNeto, "metaAportadoNeto");
+  function metaHistorialAt(meta, monthKey2) {
+    const start = meta.startMonth || monthKey2;
+    if (monthKey2 < start) return null;
+    const contribs = metaContribTxs(meta).filter((t) => t.fecha.slice(0, 7) <= monthKey2).reduce((s, t) => s + metaContribAmount(t, meta.id), 0);
+    return (meta.startingAmount || 0) + contribs;
+  }
+  __name(metaHistorialAt, "metaHistorialAt");
+  function metaMonths(meta) {
+    const start = meta.startMonth || todayISO().slice(0, 7);
+    const end = MONTHS[MONTHS.length - 1] || start;
+    const out = [];
+    let y = parseInt(start.slice(0, 4), 10), m = parseInt(start.slice(5, 7), 10);
+    const ey = parseInt(end.slice(0, 4), 10), em = parseInt(end.slice(5, 7), 10);
+    while (y < ey || y === ey && m <= em) {
+      out.push(y + "-" + String(m).padStart(2, "0"));
+      m++;
+      if (m > 12) {
+        m = 1;
+        y++;
+      }
+    }
+    return out;
+  }
+  __name(metaMonths, "metaMonths");
+  function metaAcumuladoActual(meta) {
+    return metaAportadoNeto(meta);
+  }
+  __name(metaAcumuladoActual, "metaAcumuladoActual");
+  function metaGananciaEstimada(meta) {
+    const aportadoPlataforma = platformAportadoNeto(meta.plataformaId);
+    if (aportadoPlataforma <= 0) return 0;
+    const gananciaPlataforma = Math.max(0, platformCurrentValue(meta.plataformaId) - aportadoPlataforma);
+    const share = metaAportadoNeto(meta) / aportadoPlataforma;
+    return gananciaPlataforma * share;
+  }
+  __name(metaGananciaEstimada, "metaGananciaEstimada");
+  function metaRacha(meta) {
+    const months = metaMonths(meta);
+    let racha = 0;
+    for (let i = months.length - 1; i >= 0; i--) {
+      if (meta.checks[months[i]]) racha++;
+      else break;
+    }
+    return racha;
+  }
+  __name(metaRacha, "metaRacha");
+  function goalsForPlatform(id) {
+    return INVESTMENT_GOALS.filter((m) => m.plataformaId === id);
+  }
+  __name(goalsForPlatform, "goalsForPlatform");
+  function platformGoalsSummary(id) {
+    const metas = goalsForPlatform(id);
+    const totalObjetivo = metas.reduce((s, m) => s + (m.montoObjetivo || 0), 0);
+    const totalAcumulado = metas.reduce((s, m) => s + metaAcumuladoActual(m), 0);
+    const rachas = metas.map(metaRacha);
+    const rachaCombinada = metas.length > 0 && rachas.every((r) => r > 0) ? Math.min(...rachas) : 0;
+    return { metas, totalObjetivo, totalAcumulado, rachaCombinada };
+  }
+  __name(platformGoalsSummary, "platformGoalsSummary");
+  function annualInvestmentGoalProgress(year) {
+    const fixedGoals = INVESTMENT_GOALS.filter((m) => m.aporteMensualMeta != null);
+    const fixedGoalIds = new Set(fixedGoals.map((m) => m.id));
+    const objetivoAnual = fixedGoals.reduce((s, m) => s + (m.aporteMensualMeta || 0), 0) * 12;
+    const aporteAnio = fixedGoals.reduce(
+      (s, m) => s + metaContribTxs(m).filter((t) => t.fecha.slice(0, 4) === year && t.estado !== "no_es_gasto").reduce((s2, t) => s2 + metaContribAmount(t, m.id), 0),
+      0
+    );
+    let otrosAporteAnio = 0;
+    TRANSACTIONS.forEach((t) => {
+      if (t.tipo !== "inversion" || t.estado === "no_es_gasto" || t.fecha.slice(0, 4) !== year) return;
+      t.categorias.forEach((c) => {
+        if (!fixedGoalIds.has(c.cat)) otrosAporteAnio += c.monto;
+      });
+    });
+    return { objetivoAnual, aporteAnio, otrosAporteAnio };
+  }
+  __name(annualInvestmentGoalProgress, "annualInvestmentGoalProgress");
+  function metaTotalRacha() {
+    const year = todayISO().slice(0, 4);
+    const mesActual = todayISO().slice(0, 7);
+    const months = fullYearMonths(year).filter((m) => m <= mesActual);
+    let racha = 0;
+    for (let i = months.length - 1; i >= 0; i--) {
+      if (TOTAL_GOAL_CHECKS[months[i]]) racha++;
+      else break;
+    }
+    return racha;
+  }
+  __name(metaTotalRacha, "metaTotalRacha");
+  function renderTotalChecksGrid() {
+    const year = todayISO().slice(0, 4);
+    const months = fullYearMonths(year);
+    const racha = metaTotalRacha();
+    const cells = months.map((m) => {
+      const checked = !!TOTAL_GOAL_CHECKS[m];
+      const monthIdx = parseInt(m.slice(5, 7), 10) - 1;
+      const short = MONTHS_LONG[monthIdx].slice(0, 3);
+      const label = short.charAt(0).toUpperCase() + short.slice(1);
+      return '<button class="meta-total-check-cell' + (checked ? " done" : "") + '" data-toggle-goal-total-check="' + m + '" aria-pressed="' + (checked ? "true" : "false") + '" aria-label="' + label + " " + year + (checked ? ": objetivo total cumplido" : ": no marcado") + '"><span class="mcc-icon">' + (checked ? ICONS.check : ICONS.close) + '</span><span class="mcc-label">' + label + "</span></button>";
+    }).join("");
+    return '<div class="meta-total-checks-label muted" style="display:flex;align-items:center;gap:6px;justify-content:space-between;"><span>\xBFCumpliste tu objetivo total cada mes?</span>' + (racha > 0 ? '<span class="meta-racha-badge">' + racha + " \u{1F525}</span>" : "") + '</div><div class="meta-total-checks-grid">' + cells + '</div><div class="meta-racha">' + (racha > 0 ? "Racha activa \u2014 cumpliste tu objetivo total " + racha + " " + (racha === 1 ? "mes" : "meses") + " seguidos hasta hoy" : "Sin racha activa \u2014 marca los meses en que cumpliste tu objetivo total") + "</div>";
+  }
+  __name(renderTotalChecksGrid, "renderTotalChecksGrid");
+  function renderGoalEditForm(meta, plataformaId) {
+    const d = state.goalDraft;
+    const ctxId = meta ? meta.plataformaId : plataformaId || state.addGoalPlatformId;
+    const ctxNombre = ctxId ? catInfo(ctxId).nombre : "";
+    return '<div class="card meta-goal-card editing">' + (ctxNombre ? '<div class="meta-goal-ctx muted">' + (meta ? "Meta en " : "Nueva meta en ") + ctxNombre + "</div>" : "") + '<label class="draft-label">Nombre de la meta</label><input type="text" class="draft-input" data-goal-field="nombre" value="' + d.nombre.replace(/"/g, "&quot;") + '" placeholder="Ej: Fondo de emergencia"><label class="draft-label" style="margin-top:12px;">Monto objetivo (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="' + d.montoObjetivo + '" placeholder="D\xE9jalo vac\xEDo si no juntas un total"><div class="platform-hint muted">Ponlo solo si esta meta es juntar un total (ej. el pie de un depto) \u2014 muestra una barra de progreso hacia ese monto. Si es una meta de aporte mensual sin un total fijo, d\xE9jalo vac\xEDo.</div><label class="draft-label" style="margin-top:12px;">Aporte mensual meta (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aporteMensualMeta" value="' + d.aporteMensualMeta + '" placeholder="D\xE9jalo vac\xEDo si aportas lo que puedas"><div class="platform-hint muted">Si tienes un monto fijo que aportas cada mes, ponlo ac\xE1 \u2014 suma al objetivo de inversi\xF3n del a\xF1o y a tu meta de Inversi\xF3n en Balance. Si prefieres aportar "lo que m\xE1s puedas" sin comprometerte a un monto, d\xE9jalo vac\xEDo: igual cuenta como inversi\xF3n real cuando aportes.</div><label class="draft-label" style="margin-top:12px;">\xBFCu\xE1nto tienes ahorrado hasta ahora?</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aportadoInicial" value="' + d.aportadoInicial + '" placeholder="0"><div class="platform-hint muted">Lo que ya ten\xEDas guardado para esta meta antes de empezar a registrarla ac\xE1. Se suma a lo que categorices desde el mes de inicio de abajo.</div><label class="draft-label" style="margin-top:12px;">\xBFDesde qu\xE9 mes partiste con esta meta?</label><input type="month" class="draft-input" data-goal-field="mesInicio" value="' + d.mesInicio + '"><div class="platform-hint muted">Si empezaste antes de usar la app, hazla partir en ese mes \u2014 as\xED tus transacciones antiguas de ese per\xEDodo tambi\xE9n cuentan para el progreso.</div><label class="draft-label" style="margin-top:12px;">Plazo</label>' + segmentedHtml("meta-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<label class="draft-label" style="margin-top:12px;">Comisi\xF3n anual / TAC (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="comision" value="' + d.comision + '" placeholder="Ej: 1.1"><div class="platform-hint muted">El % que te cobra el fondo espec\xEDfico de esta meta \u2014 ponlo t\xFA, la app no te sugiere ning\xFAn n\xFAmero. Se calcula sobre tu ganancia, no sobre el total ahorrado.</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-goal-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-goal="' + (meta ? meta.id : "nueva") + '">Guardar</button></div>' + (meta ? state.confirmDeleteGoalId === meta.id ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar la meta "' + meta.nombre + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-goal>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-goal="' + meta.id + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-goal="' + meta.id + '">Eliminar meta</button>' : "") + "</div>";
+  }
+  __name(renderGoalEditForm, "renderGoalEditForm");
+  function metaChecksMonths(meta) {
+    const year = todayISO().slice(0, 4);
+    const tracked = metaMonths(meta);
+    const start = tracked.length ? tracked[0] : todayISO().slice(0, 7);
+    return fullYearMonths(year).filter((m) => m >= start);
+  }
+  __name(metaChecksMonths, "metaChecksMonths");
+  function renderGoalCard(meta) {
+    if (state.editingGoalId === meta.id) return renderGoalEditForm(meta);
+    const trackedMonths = metaMonths(meta);
+    const acumulado = metaAcumuladoActual(meta);
+    const objetivoEsEstimado = meta.montoObjetivo == null && meta.aporteMensualMeta != null;
+    const objetivoEfectivo = meta.montoObjetivo != null ? meta.montoObjetivo : objetivoEsEstimado ? meta.aporteMensualMeta * 12 : null;
+    const tieneObjetivo = objetivoEfectivo != null;
+    const pct = tieneObjetivo && objetivoEfectivo > 0 ? acumulado / objetivoEfectivo * 100 : 0;
+    const racha = metaRacha(meta);
+    const comision = meta.comision;
+    const gananciaMeta = metaGananciaEstimada(meta);
+    const comisionRow = comision != null ? '<div class="platform-comision-row"><span>Comisi\xF3n anual: <b class="tabular">' + comision + '%</b></span><span class="muted tabular">\u2248 ' + money(gananciaMeta * comision / 100) + "/a\xF1o sobre tu ganancia</span></div>" : "";
+    const historialVals = trackedMonths.map((m) => metaHistorialAt(meta, m));
+    const checksRow = metaChecksMonths(meta).map((m) => {
+      const short = MONTH_LABEL[m].split(" ")[0].slice(0, 3);
+      const done = !!meta.checks[m];
+      return '<button class="meta-check-chip' + (done ? " done" : "") + '" data-toggle-goal-check="' + meta.id + '" data-toggle-goal-month="' + m + '"><span class="mcc-icon">' + (done ? ICONS.check : ICONS.close) + '</span><span class="mcc-label">' + short + "</span></button>";
+    }).join("");
+    const stockBlock = tieneObjetivo ? '<div class="meta-goal-figs"><span class="tabular gastado">' + money(acumulado) + '</span><span class="of-text"> de ' + money(objetivoEfectivo) + (objetivoEsEstimado ? " (estimado)" : "") + '</span><span class="budget-pct tabular">' + Math.round(pct) + '%</span></div><div class="budget-track"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, pct)) + '%;background:var(--accent);"></div></div>' : '<div class="meta-goal-figs"><span class="tabular gastado">' + money(acumulado) + '</span><span class="of-text"> aportado hasta ahora</span></div>';
+    const aporteBlock = meta.aporteMensualMeta != null ? '<div class="meta-goal-aporte muted">Meta de aporte<br><span class="tabular" style="color:var(--text);font-weight:600;">' + money(meta.aporteMensualMeta) + "</span>/mes</div>" : "";
+    return '<div class="card meta-goal-card"><div class="meta-goal-head"><span class="meta-goal-name">' + meta.nombre + "</span>" + termChip(meta.plazo) + (racha > 0 ? '<span class="meta-racha-badge">' + racha + " \u{1F525}</span>" : "") + '<button class="budget-edit-btn" data-edit-goal="' + meta.id + '" aria-label="Editar ' + meta.nombre + '">' + ICONS.edit + "</button></div>" + stockBlock + comisionRow + '<div class="meta-goal-spark-row"><div class="meta-goal-spark">' + buildSparkline(historialVals, 120, 32, "var(--accent)") + "</div>" + aporteBlock + '</div><div class="meta-check-row">' + checksRow + '</div><div class="meta-racha">' + (racha > 0 ? "Racha activa \u2014 cumpliste tu aporte " + racha + " " + (racha === 1 ? "mes" : "meses") + " seguidos hasta hoy" : "Sin racha activa \u2014 marca los meses en que cumpliste tu aporte") + "</div></div>";
+  }
+  __name(renderGoalCard, "renderGoalCard");
+  function fullYearMonths(year) {
+    const out = [];
+    for (let m = 1; m <= 12; m++) {
+      const key = year + "-" + String(m).padStart(2, "0");
+      if (!MONTH_LABEL[key]) MONTH_LABEL[key] = monthLabelFor(key);
+      out.push(key);
+    }
+    return out;
+  }
+  __name(fullYearMonths, "fullYearMonths");
+  function renderEvolutionView() {
+    const year = todayISO().slice(0, 4);
+    const months = fullYearMonths(year);
+    const mesActual = todayISO().slice(0, 7);
+    const selMonth = state.evolutionSelectedMonth && months.includes(state.evolutionSelectedMonth) ? state.evolutionSelectedMonth : mesActual;
+    const sel = monthTotals(selMonth);
+    const legendRow = '<div class="evo-legend-row"><span class="evo-legend-item"><span class="evo-dot" style="background:var(--income-fill)"></span>Ingresos</span><span class="evo-legend-item"><span class="evo-dot" style="background:var(--expense-fill)"></span>Gastos</span><span class="evo-legend-item"><span class="evo-dot" style="background:var(--invest-fill)"></span>Inversiones</span></div>';
+    const detailRow = '<div class="evo-detail-row"><div class="evo-detail-item"><span class="evo-detail-label">Ingresos</span><span class="evo-detail-value tabular">' + money(sel.ingresos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Gastos</span><span class="evo-detail-value tabular">' + money(sel.gastos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Inversiones</span><span class="evo-detail-value tabular">' + money(sel.inversiones) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de ahorro</span><span class="evo-detail-value tabular">' + Math.round(sel.tasaAhorro) + '%</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de gastos</span><span class="evo-detail-value tabular">' + Math.round(sel.tasaGastos) + "%</span></div></div>";
+    const yr = yearTotals(selMonth.slice(0, 4));
+    const yearRow = '<div class="evo-detail-row"><div class="evo-detail-item"><span class="evo-detail-label">Ingresos</span><span class="evo-detail-value tabular">' + money(yr.ingresos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Gastos</span><span class="evo-detail-value tabular">' + money(yr.gastos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Inversiones</span><span class="evo-detail-value tabular">' + money(yr.inversiones) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de ahorro</span><span class="evo-detail-value tabular">' + Math.round(yr.tasaAhorro) + '%</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de gastos</span><span class="evo-detail-value tabular">' + Math.round(yr.tasaGastos) + "%</span></div></div>";
+    const html = '<div class="section-title" style="margin-top:4px;">Ingresos, gastos e inversiones por mes</div><div class="card evo-card">' + legendRow + buildEvolutionBars(months, selMonth) + '<div class="evo-caption muted">Toca un mes para ver el detalle</div><div class="evo-detail-month">' + MONTH_LABEL[selMonth] + "</div>" + detailRow + '</div><div class="section-title">Total del a\xF1o ' + yr.year + '</div><div class="card evo-card"><div class="evo-detail-month">Enero \u2013 Diciembre ' + yr.year + "</div>" + yearRow + // Composition (donut by category, Fijo/Variable/Inversión) lives in Balance, not here --
+    // this is just a text link out, never a duplicated chart (Evolución stays "how things
+    // change over time", Balance stays "composition").
+    '<button class="budget-ver-mas" data-goto-balance-anual>Ver desglose del a\xF1o \u2192</button></div><div class="evo-caption muted" style="padding:0 4px;">\xBFBuscas tus metas de inversi\xF3n y tus plataformas? Ahora viven juntas en <b>Inversiones</b>.</div><div style="height:12px;"></div>';
+    document.getElementById("resumen-content").innerHTML = html;
+  }
+  __name(renderEvolutionView, "renderEvolutionView");
+
+  // src/ui/donut.ts
+  function buildDonut(segments, size, strokeW) {
+    const total = segments.reduce((s, x) => s + x.value, 0);
+    const r = size / 2 - strokeW / 2 - 2;
+    const cx = size / 2, cy = size / 2;
+    const gapDeg = segments.length > 1 ? 6 : 0;
+    let startAngle = -90;
+    let paths = "";
+    if (total <= 0) {
+      paths = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="var(--border)" stroke-width="' + strokeW + '"/>';
+    } else if (segments.length === 1) {
+      paths = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + segments[0].color + '" stroke-width="' + strokeW + '"/>';
+    } else {
+      const MIN_VISIBLE_SWEEP_DEG = 3;
+      segments.forEach((seg) => {
+        const frac = seg.value / total;
+        if (frac <= 0) return;
+        const sweep = Math.max(frac * 360 - gapDeg, MIN_VISIBLE_SWEEP_DEG);
+        const a0 = startAngle;
+        const a1 = startAngle + sweep;
+        const large = sweep > 180 ? 1 : 0;
+        const p0 = polar(cx, cy, r, a0);
+        const p1 = polar(cx, cy, r, a1);
+        paths += '<path class="arc-seg" data-cat="' + seg.id + '"' + (seg.extraAttrs || "") + ' d="M ' + p0.x + " " + p0.y + " A " + r + " " + r + " 0 " + large + " 1 " + p1.x + " " + p1.y + '" fill="none" stroke="' + seg.color + '" stroke-width="' + strokeW + '" stroke-linecap="round"/>';
+        startAngle += frac * 360;
+      });
+    }
+    return '<svg viewBox="0 0 ' + size + " " + size + '" width="' + size + '" height="' + size + '">' + paths + "</svg>";
+  }
+  __name(buildDonut, "buildDonut");
+  function polar(cx, cy, r, angleDeg) {
+    const a = angleDeg * Math.PI / 180;
+    return { x: (cx + r * Math.cos(a)).toFixed(2), y: (cy + r * Math.sin(a)).toFixed(2) };
+  }
+  __name(polar, "polar");
+  var DONUT_OTROS_THRESHOLD_PCT = 3;
+  function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro) {
+    const byCat = {};
+    monthTx.filter((t) => t.tipo === tipo && t.estado !== "no_es_gasto").forEach((t) => {
+      t.categorias.forEach((c) => {
+        const v = tipo === "gasto" ? catNetAmount(t, c) : tipo === "ingreso" ? c.monto * netIncomeFactor(t) : c.monto;
+        byCat[c.cat] = (byCat[c.cat] || 0) + v;
+      });
+    });
+    const entries = Object.keys(byCat).map((id) => ({ id, value: byCat[id], info: catInfo(id) })).sort((a, b) => b.value - a.value);
+    const total = entries.reduce((s, e) => s + e.value, 0);
+    const smallIds = total > 0 ? entries.filter((e) => e.value / total * 100 < DONUT_OTROS_THRESHOLD_PCT).map((e) => e.id) : [];
+    const grouped = smallIds.length > 1;
+    const otrosIds = grouped ? smallIds : [];
+    const ringEntries = !grouped ? entries : (function() {
+      const big = entries.filter((e) => !otrosIds.includes(e.id));
+      const otrosValue = entries.filter((e) => otrosIds.includes(e.id)).reduce((s, e) => s + e.value, 0);
+      return big.concat([{ id: "otros", value: otrosValue, info: { nombre: "Otros", icon: "more", colorHue: 0, tipo }, isOtros: true }]);
+    })();
+    const segs = ringEntries.map((e) => ({
+      value: e.value,
+      color: e.isOtros ? "var(--text-tertiary)" : categoryFillCss(e.info.colorHue),
+      id: e.id,
+      nombre: e.info.nombre,
+      extraAttrs: e.isOtros ? ' data-otros-ids="' + otrosIds.join(",") + '"' : ""
+    }));
+    const donutSvg = buildDonut(segs, 172, 24);
+    const legend = entries.length === 0 ? '<div class="empty-state" style="padding:14px 4px;">' + icon("inbox") + "<div>Sin movimientos este mes.</div></div>" : entries.map((e) => {
+      const pct = total > 0 ? Math.round(e.value / total * 100) : 0;
+      const enOtros = otrosIds.includes(e.id);
+      return '<button class="legend-row' + (enOtros ? " legend-row-otros" : "") + '" data-cat="' + e.id + '"><span class="legend-dot" style="--fill:' + categoryFillCss(e.info.colorHue) + '"></span><span class="legend-icon">' + catIconMarkup(e.info.icon) + '</span><span class="legend-name">' + e.info.nombre + (enOtros ? ' <span class="legend-otros-badge">Otros</span>' : "") + '</span><span class="legend-pct">' + pct + '%</span><span class="legend-value tabular">' + money(e.value) + "</span></button>";
+    }).join("");
+    return '<div class="card donut-card" ' + (periodoFiltro ? 'data-periodo="' + periodoFiltro + '"' : "") + '><div class="donut-card-title">' + titulo + '</div><div class="donut-card-sub">' + subtitulo + '</div><div class="donut-row"><div class="donut-svg-wrap">' + donutSvg + '<div class="donut-center"><span class="dc-total tabular">' + (total > 0 ? moneyPlainMasked(total) : "$0") + '</span><span class="dc-label">total</span></div></div><div class="donut-legend">' + legend + "</div></div></div>";
+  }
+  __name(renderDonutBlock, "renderDonutBlock");
+  function monthlyInvestmentGoalCLP() {
+    return INVESTMENT_GOALS.reduce((s, m) => s + (m.aporteMensualMeta || 0), 0);
+  }
+  __name(monthlyInvestmentGoalCLP, "monthlyInvestmentGoalCLP");
+  function referenceMonthlyIncome() {
+    const monthIncome = monthTotals(todayISO().slice(0, 7)).ingresos;
+    if (monthIncome > 0) return monthIncome;
+    const last = lastSalaryTx();
+    return last ? last.monto : 0;
+  }
+  __name(referenceMonthlyIncome, "referenceMonthlyIncome");
+  function investmentGoalPct() {
+    const ref = referenceMonthlyIncome();
+    return ref > 0 ? monthlyInvestmentGoalCLP() / ref * 100 : 0;
+  }
+  __name(investmentGoalPct, "investmentGoalPct");
+  function sumSpendingGoalPct() {
+    return SPENDING_GOAL_PCT.fijo + SPENDING_GOAL_PCT.variable + investmentGoalPct();
+  }
+  __name(sumSpendingGoalPct, "sumSpendingGoalPct");
+  function goalZones(metaPct, masEsMejor) {
+    if (masEsMejor) return [{ hasta: metaPct * 0.6, tono: "bad" }, { hasta: metaPct, tono: "ok" }, { hasta: 100, tono: "good" }];
+    return [{ hasta: metaPct, tono: "good" }, { hasta: metaPct * 1.3, tono: "ok" }, { hasta: 100, tono: "bad" }];
+  }
+  __name(goalZones, "goalZones");
+  function goalZoneRow(nombre, pct, monto, zones, sinIngresos, metaPct) {
+    let gradient = "linear-gradient(to right";
+    let prev = 0;
+    zones.forEach((z) => {
+      const color = "var(--" + (z.tono === "good" ? "income" : z.tono === "ok" ? "cat-butter" : "expense") + "-fill)";
+      gradient += ", " + color + " " + prev + "%, " + color + " " + z.hasta + "%";
+      prev = z.hasta;
+    });
+    gradient += ")";
+    const pctText = sinIngresos ? "\u2014" : Math.round(pct) + "%";
+    const marker = sinIngresos ? "" : '<div class="meta-marker" style="left:' + Math.max(0, Math.min(100, pct)) + '%"></div>';
+    const goalMarker = sinIngresos || metaPct == null ? "" : '<div class="meta-goal-marker" style="left:' + Math.max(0, Math.min(100, metaPct)) + '%">' + Math.round(metaPct) + "%</div>";
+    let statusHtml;
+    if (sinIngresos) {
+      statusHtml = '<span class="meta-status" style="background:var(--surface-sunken);color:var(--text-secondary);">Sin ingresos este mes</span>';
+    } else {
+      const zoneAt = zones.find((z) => pct <= z.hasta) || zones[zones.length - 1];
+      const statusLabel = { good: "En buen rango", ok: "Un poco fuera de meta", bad: "Lejos de tu meta" }[zoneAt.tono];
+      statusHtml = '<span class="meta-status ' + zoneAt.tono + '">' + statusLabel + "</span>";
+    }
+    return '<div class="meta-row"><div class="meta-row-head"><span class="meta-row-name">' + nombre + '</span><span class="meta-row-figs"><span class="meta-row-pct tabular">' + pctText + '</span><span class="meta-row-amt tabular">' + money(monto) + '</span></span></div><div class="meta-track-wrap">' + goalMarker + '<div class="meta-track" style="background:' + gradient + '">' + marker + "</div></div>" + statusHtml + "</div>";
+  }
+  __name(goalZoneRow, "goalZoneRow");
+  function renderGoalSummaryCard(periodTx, ingresos, metaInvPct) {
+    let fijo = 0, variable = 0, inversion = 0;
+    periodTx.forEach((t) => {
+      if (t.estado === "no_es_gasto") return;
+      if (t.tipo === "gasto") {
+        if (t.recurrencia === "variable") variable += netExpenseTx(t);
+        else fijo += netExpenseTx(t);
+      } else if (t.tipo === "inversion") {
+        inversion += catTotalAmount(t);
+      }
+    });
+    const sinIngresos = ingresos <= 0;
+    const pctFijo = sinIngresos ? 0 : fijo / ingresos * 100, pctVar = sinIngresos ? 0 : variable / ingresos * 100, pctInv = sinIngresos ? 0 : inversion / ingresos * 100;
+    const sumaMetas = SPENDING_GOAL_PCT.fijo + SPENDING_GOAL_PCT.variable + metaInvPct;
+    const avisoSuma = sumaMetas > 100 ? '<div class="meta-caption warn">Ojo: tus 3 metas suman ' + Math.round(sumaMetas) + "% de tus ingresos \u2014 eso es m\xE1s del 100%, no calzan entre ellas. Ajusta Fijo/Variable en Presupuesto.</div>" : "";
+    return '<div class="card meta-card"><div class="donut-card-title">Fijo \xB7 Variable \xB7 Inversi\xF3n</div><div class="donut-card-sub">Como porcentaje de tus ingresos del mes, contra tus propias metas</div>' + goalZoneRow("Gasto fijo", pctFijo, fijo, goalZones(SPENDING_GOAL_PCT.fijo, false), sinIngresos, SPENDING_GOAL_PCT.fijo) + goalZoneRow("Gasto variable", pctVar, variable, goalZones(SPENDING_GOAL_PCT.variable, false), sinIngresos, SPENDING_GOAL_PCT.variable) + goalZoneRow("Inversi\xF3n", pctInv, inversion, goalZones(metaInvPct, true), sinIngresos, metaInvPct) + '<div class="meta-caption">"Fijo" = tus gastos con recurrencia mensual o anual \xB7 "Variable" = el resto \xB7 tu meta de Inversi\xF3n (' + Math.round(metaInvPct) + "%) sale sola de lo que ya definiste en Inversiones. Edita Fijo/Variable en Presupuesto.</div>" + avisoSuma + "</div>";
+  }
+  __name(renderGoalSummaryCard, "renderGoalSummaryCard");
+  function monthSwitcherHtml() {
+    const month = MONTHS[state.monthIndex];
+    return '<div class="month-switcher"><button data-month-nav="-1" ' + (state.monthIndex <= 0 ? "disabled" : "") + ' aria-label="Mes anterior">' + ICONS.chevL + '</button><span class="m-label">' + MONTH_LABEL[month] + '</span><button data-month-nav="1" ' + (state.monthIndex >= MONTHS.length - 1 ? "disabled" : "") + ' aria-label="Mes siguiente">' + ICONS.chevR + "</button></div>";
+  }
+  __name(monthSwitcherHtml, "monthSwitcherHtml");
+  function yearSwitcherHtml(year) {
+    return '<div class="month-switcher"><span class="m-label">A\xF1o ' + year + "</span></div>";
+  }
+  __name(yearSwitcherHtml, "yearSwitcherHtml");
+
   // src/views/presupuesto.ts
   function renderOtrasEntradasCards(t) {
     let html = "";
@@ -2059,12 +2373,12 @@
     return html;
   }
   __name(renderOtrasEntradasCards, "renderOtrasEntradasCards");
-  function catMonthExpense(catId, monthKey) {
-    return txsOfMonth(monthKey).filter((t) => t.tipo === "gasto" && t.estado !== "no_es_gasto").reduce((sum, t) => sum + t.categorias.filter((c) => c.cat === catId).reduce((s, c) => s + catNetAmount(t, c), 0), 0);
+  function catMonthExpense(catId, monthKey2) {
+    return txsOfMonth(monthKey2).filter((t) => t.tipo === "gasto" && t.estado !== "no_es_gasto").reduce((sum, t) => sum + t.categorias.filter((c) => c.cat === catId).reduce((s, c) => s + catNetAmount(t, c), 0), 0);
   }
   __name(catMonthExpense, "catMonthExpense");
-  function priorMonths(monthKey, n) {
-    const idx = MONTHS.indexOf(monthKey);
+  function priorMonths(monthKey2, n) {
+    const idx = MONTHS.indexOf(monthKey2);
     const result = [];
     for (let i = idx - 1; i >= 0 && result.length < n; i--) {
       result.push(MONTHS[i]);
@@ -2072,15 +2386,15 @@
     return result;
   }
   __name(priorMonths, "priorMonths");
-  function catPromedio3Meses(catId, monthKey) {
-    const prior = priorMonths(monthKey, 3);
+  function catPromedio3Meses(catId, monthKey2) {
+    const prior = priorMonths(monthKey2, 3);
     if (prior.length === 0) return null;
     const total = prior.reduce((s, m) => s + catMonthExpense(catId, m), 0);
     return total / prior.length;
   }
   __name(catPromedio3Meses, "catPromedio3Meses");
-  function catGastoMesAnterior(catId, monthKey) {
-    const prior = priorMonths(monthKey, 1);
+  function catGastoMesAnterior(catId, monthKey2) {
+    const prior = priorMonths(monthKey2, 1);
     if (prior.length === 0) return null;
     return catMonthExpense(catId, prior[0]);
   }
@@ -2217,6 +2531,447 @@
     document.getElementById("resumen-content").innerHTML = '<div class="card placeholder-card">' + ICONS.sparkle + "<h3>Pr\xF3ximamente</h3><p>Esta secci\xF3n todav\xEDa no est\xE1 lista.</p></div>";
   }
   __name(renderComingSoon, "renderComingSoon");
+
+  // src/views/inversiones.ts
+  function platformIds() {
+    return Object.keys(CATEGORIES).filter((k) => CATEGORIES[k].tipo === "inversion");
+  }
+  __name(platformIds, "platformIds");
+  function isPlatformArchived(id) {
+    return !!(PLATFORM_DATA[id] && PLATFORM_DATA[id].archivada);
+  }
+  __name(isPlatformArchived, "isPlatformArchived");
+  function activePlatformIds() {
+    return platformIds().filter((id) => !isPlatformArchived(id));
+  }
+  __name(activePlatformIds, "activePlatformIds");
+  function archivedPlatformIds() {
+    return platformIds().filter((id) => isPlatformArchived(id));
+  }
+  __name(archivedPlatformIds, "archivedPlatformIds");
+  function goalCapablePlatformIds() {
+    return activePlatformIds().filter((id) => !PLATFORM_DATA[id].sinValuacion);
+  }
+  __name(goalCapablePlatformIds, "goalCapablePlatformIds");
+  function generalCatIdFor(platformId) {
+    return platformId + "__general";
+  }
+  __name(generalCatIdFor, "generalCatIdFor");
+  function platformGeneralAmount(platformId) {
+    const generalId = generalCatIdFor(platformId);
+    let total = 0;
+    TRANSACTIONS.forEach((t) => {
+      if (t.tipo !== "inversion") return;
+      t.categorias.forEach((c) => {
+        if (c.cat === generalId) total += c.monto;
+      });
+    });
+    return total;
+  }
+  __name(platformGeneralAmount, "platformGeneralAmount");
+  function platformAportadoNeto(id) {
+    return goalsForPlatform(id).reduce((s, m) => s + metaAportadoNeto(m), 0) + platformGeneralAmount(id);
+  }
+  __name(platformAportadoNeto, "platformAportadoNeto");
+  function investmentCatOptions(selectedId) {
+    const out = [];
+    platformIds().forEach((platId) => {
+      const plat = CATEGORIES[platId];
+      const generalId = generalCatIdFor(platId);
+      const goals = goalsForPlatform(platId);
+      const belongsHere = selectedId === generalId || goals.some((g) => g.id === selectedId);
+      if (isPlatformArchived(platId) && !belongsHere) return;
+      goals.forEach((g) => out.push({ value: g.id, label: plat.nombre + " \xB7 " + g.nombre, plataformaId: platId, icon: plat.icon }));
+      const generalLabel = goals.length === 0 && PLATFORM_DATA[platId].sinValuacion ? plat.nombre : plat.nombre + " \xB7 General";
+      out.push({ value: generalId, label: generalLabel, plataformaId: platId, icon: plat.icon });
+    });
+    return out;
+  }
+  __name(investmentCatOptions, "investmentCatOptions");
+  function platformValorMonths(id) {
+    return MONTHS.filter((m) => PLATFORM_DATA[id].valorHistorial[m] != null);
+  }
+  __name(platformValorMonths, "platformValorMonths");
+  function platformCurrentValue(id) {
+    if (PLATFORM_DATA[id].sinValuacion) return platformAportadoNeto(id);
+    const months = platformValorMonths(id);
+    return months.length ? PLATFORM_DATA[id].valorHistorial[months[months.length - 1]] : 0;
+  }
+  __name(platformCurrentValue, "platformCurrentValue");
+  function platformIdForInvestmentCat(catId) {
+    if (!catId) return null;
+    const goal = INVESTMENT_GOALS.find((g) => g.id === catId);
+    if (goal) return goal.plataformaId;
+    const GENERAL_SUFFIX = "__general";
+    return catId.slice(-GENERAL_SUFFIX.length) === GENERAL_SUFFIX ? catId.slice(0, -GENERAL_SUFFIX.length) : null;
+  }
+  __name(platformIdForInvestmentCat, "platformIdForInvestmentCat");
+  function bumpPlatformValueForContribution(platformId, deltaMonto) {
+    if (!platformId || !deltaMonto) return;
+    const plat = PLATFORM_DATA[platformId];
+    if (!plat || plat.sinValuacion) return;
+    const mesActual = todayISO().slice(0, 7);
+    ensureMonthExists(mesActual);
+    const base = plat.valorHistorial[mesActual] != null ? plat.valorHistorial[mesActual] : platformCurrentValue(platformId);
+    plat.valorHistorial[mesActual] = base + deltaMonto;
+  }
+  __name(bumpPlatformValueForContribution, "bumpPlatformValueForContribution");
+  function platformDiasDesdeActualizacion(id) {
+    const hoy = /* @__PURE__ */ new Date(todayISO() + "T00:00:00");
+    const fecha = /* @__PURE__ */ new Date(PLATFORM_DATA[id].fechaActualizacion + "T00:00:00");
+    return Math.max(0, Math.round((hoy.getTime() - fecha.getTime()) / 864e5));
+  }
+  __name(platformDiasDesdeActualizacion, "platformDiasDesdeActualizacion");
+  function inversionesMonthsCalendarYear() {
+    const year = todayISO().slice(0, 4);
+    const out = [];
+    for (let m = 1; m <= 12; m++) out.push(year + "-" + String(m).padStart(2, "0"));
+    return out;
+  }
+  __name(inversionesMonthsCalendarYear, "inversionesMonthsCalendarYear");
+  function mesTieneValorParaTodas(monthKey2) {
+    const ids = activePlatformIds();
+    return ids.length > 0 && ids.every((id) => PLATFORM_DATA[id].sinValuacion || PLATFORM_DATA[id].valorHistorial[monthKey2] != null);
+  }
+  __name(mesTieneValorParaTodas, "mesTieneValorParaTodas");
+  function aportadoAcumuladoHastaMesONull(monthKey2) {
+    if (!mesTieneValorParaTodas(monthKey2)) return null;
+    let total = 0;
+    TRANSACTIONS.forEach((t) => {
+      if (t.tipo !== "inversion" || t.estado === "no_es_gasto") return;
+      if (t.fecha.slice(0, 7) <= monthKey2) total += aggregatedTxAmount(t);
+    });
+    return total;
+  }
+  __name(aportadoAcumuladoHastaMesONull, "aportadoAcumuladoHastaMesONull");
+  function platformGeneralAmountHastaMes(platformId, monthKey2) {
+    const generalId = generalCatIdFor(platformId);
+    let total = 0;
+    TRANSACTIONS.forEach((t) => {
+      if (t.tipo !== "inversion") return;
+      if (t.fecha.slice(0, 7) > monthKey2) return;
+      t.categorias.forEach((c) => {
+        if (c.cat === generalId) total += c.monto;
+      });
+    });
+    return total;
+  }
+  __name(platformGeneralAmountHastaMes, "platformGeneralAmountHastaMes");
+  function platformAportadoNetoHastaMes(id, monthKey2) {
+    return goalsForPlatform(id).reduce((s, m) => s + (metaHistorialAt(m, monthKey2) || 0), 0) + platformGeneralAmountHastaMes(id, monthKey2);
+  }
+  __name(platformAportadoNetoHastaMes, "platformAportadoNetoHastaMes");
+  function valorTotalEnMesONull(monthKey2) {
+    if (!mesTieneValorParaTodas(monthKey2)) return null;
+    return activePlatformIds().reduce(
+      (s, id) => s + (PLATFORM_DATA[id].sinValuacion ? platformAportadoNetoHastaMes(id, monthKey2) : PLATFORM_DATA[id].valorHistorial[monthKey2] || 0),
+      0
+    );
+  }
+  __name(valorTotalEnMesONull, "valorTotalEnMesONull");
+  function buildDualLineChart(months, seriesA, seriesB, colorA, colorB) {
+    const W = 320, H = 180, padL = 38, padR = 8, padTop = 16, padBottom = 24;
+    const plotW = W - padL - padR, plotH = H - padTop - padBottom;
+    const valoresReales = seriesA.concat(seriesB).filter((v) => v != null);
+    const maxV = valoresReales.length ? Math.max(...valoresReales, 0) : 1;
+    const minV = valoresReales.length ? Math.min(...valoresReales, 0) : 0;
+    const range = maxV - minV || 1;
+    const stepX = plotW / (months.length - 1 || 1);
+    function xAt(i) {
+      return padL + i * stepX;
+    }
+    __name(xAt, "xAt");
+    function yAt(v) {
+      return padTop + (1 - (v - minV) / range) * plotH;
+    }
+    __name(yAt, "yAt");
+    function segmentos(vals) {
+      const segs = [];
+      let actual = [];
+      vals.forEach((v, i) => {
+        if (v == null) {
+          if (actual.length) segs.push(actual);
+          actual = [];
+          return;
+        }
+        actual.push([xAt(i), yAt(v)]);
+      });
+      if (actual.length) segs.push(actual);
+      return segs;
+    }
+    __name(segmentos, "segmentos");
+    function pathsFor(segs, extraAttrs) {
+      return segs.map(
+        (seg) => '<path d="' + seg.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ") + '" ' + extraAttrs + "/>"
+      ).join("");
+    }
+    __name(pathsFor, "pathsFor");
+    const segsA = segmentos(seriesA), segsB = segmentos(seriesB);
+    const linesA = pathsFor(segsA, 'fill="none" stroke="' + colorA + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"');
+    const linesB = pathsFor(segsB, 'fill="none" stroke="' + colorB + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 4"');
+    const dotsA = segsA.flat().map((p) => '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3" fill="' + colorA + '"/>').join("");
+    const dotsB = segsB.flat().map((p) => '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3" fill="' + colorB + '" stroke="var(--surface)" stroke-width="1"/>').join("");
+    const labelsX = months.map(
+      (m, i) => '<text x="' + xAt(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="9" fill="var(--text-tertiary)">' + monthAbbr(parseInt(m.slice(5, 7), 10)) + "</text>"
+    ).join("");
+    const yTicks = [maxV, (maxV + minV) / 2, minV];
+    const gridY = yTicks.map((v) => {
+      const y = yAt(v);
+      return '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 3"/><text x="' + (padL - 6) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" font-size="9" fill="var(--text-tertiary)">' + moneyShort(v) + "</text>";
+    }).join("");
+    function ultimoPunto(vals) {
+      for (let i = vals.length - 1; i >= 0; i--) {
+        if (vals[i] != null) return [xAt(i), yAt(vals[i]), vals[i]];
+      }
+      return null;
+    }
+    __name(ultimoPunto, "ultimoPunto");
+    const lastA = ultimoPunto(seriesA), lastB = ultimoPunto(seriesB);
+    let labelsFin = "";
+    if (lastA && lastB) {
+      let yA = lastA[1] - 8, yB = lastB[1] - 8;
+      const minGap = 13;
+      if (Math.abs(yA - yB) < minGap) {
+        const mid = (yA + yB) / 2;
+        if (yA <= yB) {
+          yA = mid - minGap / 2;
+          yB = mid + minGap / 2;
+        } else {
+          yA = mid + minGap / 2;
+          yB = mid - minGap / 2;
+        }
+      }
+      labelsFin = '<text x="' + lastA[0].toFixed(1) + '" y="' + Math.max(10, yA).toFixed(1) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + colorA + '">' + moneyPlainMasked(lastA[2]) + '</text><text x="' + lastB[0].toFixed(1) + '" y="' + Math.max(10, yB).toFixed(1) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + colorB + '">' + moneyPlainMasked(lastB[2]) + "</text>";
+    } else if (lastA) {
+      labelsFin = '<text x="' + lastA[0].toFixed(1) + '" y="' + Math.max(10, lastA[1] - 8).toFixed(1) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + colorA + '">' + moneyPlainMasked(lastA[2]) + "</text>";
+    } else if (lastB) {
+      labelsFin = '<text x="' + lastB[0].toFixed(1) + '" y="' + Math.max(10, lastB[1] - 8).toFixed(1) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + colorB + '">' + moneyPlainMasked(lastB[2]) + "</text>";
+    }
+    return '<svg viewBox="0 0 ' + W + " " + H + '" width="100%" style="display:block;overflow:visible;">' + gridY + linesA + linesB + dotsA + dotsB + labelsX + labelsFin + "</svg>";
+  }
+  __name(buildDualLineChart, "buildDualLineChart");
+  function renderPlatformEditForm(id) {
+    const cat = catInfo(id);
+    const d = state.platformDraft;
+    return '<div class="card platform-card editing"><div class="platform-head"><span class="platform-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="platform-name">' + cat.nombre + '</span></div><label class="draft-label">Valor actual aproximado</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="valor" value="' + d.valor + '" placeholder="0"><label class="draft-label" style="margin-top:12px;">Crecimiento anual estimado (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="tasaAnual" value="' + d.tasaAnual + '" placeholder="Sin estimar, ej: 6"><div class="platform-hint muted">Escr\xEDbelo solo si quieres que el valor "crezca" solo entre actualizaciones \u2014 la app no te sugiere ning\xFAn n\xFAmero. D\xE9jalo vac\xEDo para que se mueva solo con tus aportes y retiros.</div>' + // comision now lives on each goal (it depends on the specific fund/investment) — here
+    // it's only offered when the platform doesn't yet have any goal of its own.
+    (goalsForPlatform(id).length === 0 ? '<label class="draft-label" style="margin-top:12px;">Comisi\xF3n anual / TAC (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="comision" value="' + d.comision + '" placeholder="Ej: 1.1"><div class="platform-hint muted">El % que te cobra esta plataforma al a\xF1o (TAC, comisi\xF3n de administraci\xF3n, etc.) \u2014 ponlo t\xFA, la app no te sugiere ning\xFAn n\xFAmero. Se calcula sobre tu ganancia, no sobre el total de la cuenta. Si m\xE1s adelante le agregas metas, la comisi\xF3n se define por cada una, ya que puede variar por fondo.</div>' : "") + '<label class="draft-label" style="margin-top:12px;">Plazo de esta plataforma (opcional)</label>' + segmentedHtml("platform-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<div class="platform-hint muted">Solo si esta plataforma no tiene metas propias con su plazo ya definido.</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-platform-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-platform="' + id + '">Guardar</button></div>' + platformDeleteBlock(id) + "</div>";
+  }
+  __name(renderPlatformEditForm, "renderPlatformEditForm");
+  function platformDeleteBlock(id) {
+    const enUso = isCategoryInUse(id) || isCategoryInUse(generalCatIdFor(id));
+    const tieneMetas = goalsForPlatform(id).length > 0;
+    if (tieneMetas) {
+      return '<div class="file-format-hint">No se puede cerrar ni eliminar: tiene metas asociadas. Elim\xEDnalas primero.</div>';
+    }
+    if (!enUso) {
+      if (state.confirmDeletePlatformId === id) {
+        return '<div class="file-format-hint" style="margin-bottom:8px;">\xBFEliminar esta plataforma? No se puede deshacer, y tambi\xE9n desaparece de Men\xFA &gt; Categor\xEDas.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-platform>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--expense-ink);" data-confirm-delete-platform="' + id + '">S\xED, eliminar</button></div>';
+      }
+      return '<button class="budget-delete-link" style="margin-top:10px;" data-delete-platform="' + id + '">Eliminar plataforma</button>';
+    }
+    if (state.confirmArchivePlatformId === id) {
+      return '<div class="file-format-hint" style="margin-bottom:8px;">\xBFCerrar esta plataforma? Deja de contar en "Mis plataformas", en el total invertido y en Men\xFA &gt; Categor\xEDas \u2014 tus transacciones pasadas no se tocan, y puedes reabrirla cuando quieras.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-archive-platform>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-confirm-archive-platform="' + id + '">S\xED, cerrar</button></div>';
+    }
+    return '<button class="budget-delete-link" style="margin-top:10px;" data-archive-platform="' + id + '">Cerrar plataforma</button><div class="platform-hint muted">Deja de contar en "Mis plataformas" y en el total invertido \u2014 tus transacciones pasadas no se tocan.</div>';
+  }
+  __name(platformDeleteBlock, "platformDeleteBlock");
+  function renderNewPlatformForm() {
+    const d = state.newPlatformDraft;
+    return '<div class="card platform-card editing"><div class="platform-head"><span class="platform-name">Nueva plataforma</span></div><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-newplatform-field="nombre" value="' + d.nombre + '" placeholder="Ej: Banco Santander"><label class="draft-label" style="margin-top:12px;">\xCDcono</label><div class="icon-picker">' + CATEGORY_ICON_CHOICES.map((ic) => '<button type="button" data-newplatform-icon="' + ic + '" class="' + (d.icon === ic ? "active" : "") + '">' + ICONS[ic] + "</button>").join("") + '</div><label class="draft-label" style="margin-top:12px;">Color</label><div class="hue-picker-row"><span class="hue-swatch" style="background:' + categoryFillCss(d.colorHue) + ";color:" + categoryFillCss(d.colorHue) + ";border-color:" + categoryFillCss(d.colorHue) + '"></span><input type="range" min="0" max="359" value="' + d.colorHue + '" data-newplatform-hue class="hue-slider"></div>' + (function() {
+      const colision = categoriesCollidingWithHue(CATEGORIES, "inversion", d.colorHue, null);
+      return colision.length ? '<div class="file-format-hint" style="color:var(--expense-ink);">Ese color queda muy parecido al de "' + colision.join('", "') + '" -- en los gr\xE1ficos de torta se pueden ver como un solo bloque. Prueba otro tono.</div>' : "";
+    })() + '<label class="draft-label" style="margin-top:12px;">Valor actual aproximado</label><input type="text" inputmode="decimal" class="draft-input tabular" data-newplatform-field="valor" value="' + d.valor + '" placeholder="0"><div class="platform-hint muted">Si ya tienes plata en esta plataforma, pon cu\xE1nto vale hoy \u2014 si acabas de abrirla, d\xE9jalo en 0.</div><label class="draft-label" style="margin-top:12px;">Plazo (opcional)</label>' + segmentedHtml("newplatform-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-newplatform>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-newplatform>Guardar</button></div></div>';
+  }
+  __name(renderNewPlatformForm, "renderNewPlatformForm");
+  function renderPlatformGroup(id) {
+    if (state.editingPlatformId === id) return '<div class="platform-group">' + renderPlatformEditForm(id) + "</div>";
+    const cat = catInfo(id);
+    const sinValuacion = !!PLATFORM_DATA[id].sinValuacion;
+    const valorActual = platformCurrentValue(id);
+    const aportado = platformAportadoNeto(id);
+    const diff = valorActual - aportado;
+    const dias = sinValuacion ? 0 : platformDiasDesdeActualizacion(id);
+    const stale = !sinValuacion && dias > UPDATE_THRESHOLD_DAYS;
+    const tieneMetas = goalsForPlatform(id).length > 0;
+    const comision = PLATFORM_DATA[id].comision;
+    const ganancia = Math.max(0, diff);
+    const comisionRow = comision != null && !tieneMetas && !sinValuacion ? '<div class="platform-comision-row"><span>Comisi\xF3n anual: <b class="tabular">' + comision + '%</b></span><span class="muted tabular">\u2248 ' + money(ganancia * comision / 100) + "/a\xF1o sobre tu ganancia</span></div>" : "";
+    const open = state.openPlatformId === id;
+    const header = '<button class="platform-head-toggle" data-toggle-platform="' + id + '" aria-expanded="' + (open ? "true" : "false") + '"><span class="platform-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="platform-head-body"><span class="platform-name">' + cat.nombre + "</span>" + (sinValuacion ? "" : '<span class="platform-update-tag' + (stale ? " stale" : "") + '">Actualizado hace ' + dias + " " + (dias === 1 ? "d\xEDa" : "d\xEDas") + "</span>") + '</span><span class="platform-head-value tabular">' + money(valorActual) + '</span><span class="platform-chev' + (open ? " open" : "") + '">' + ICONS.chevR + "</span></button>";
+    if (!open) return '<div class="card platform-group">' + header + "</div>";
+    const { metas, totalObjetivo, totalAcumulado, rachaCombinada } = platformGoalsSummary(id);
+    const addingHere = state.editingGoalId === "nueva" && state.addGoalPlatformId === id;
+    const combinedPct = totalObjetivo > 0 ? totalAcumulado / totalObjetivo * 100 : 0;
+    const combinedSummary = metas.length > 0 && totalObjetivo > 0 ? '<div class="platform-meta-summary"><div class="platform-meta-summary-head"><span>Tus metas en ' + cat.nombre + "</span>" + (rachaCombinada > 0 ? '<span class="meta-racha-badge">' + rachaCombinada + " \u{1F525}</span>" : "") + '</div><div class="platform-meta-summary-figs tabular">' + money(totalAcumulado) + '<span class="of-text"> de ' + money(totalObjetivo) + '</span><span class="budget-pct tabular">' + Math.round(combinedPct) + '%</span></div><div class="budget-track"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, combinedPct)) + '%;background:var(--accent);"></div></div></div>' : "";
+    const metasBody = sinValuacion ? "" : combinedSummary + metas.map(renderGoalCard).join("") + (addingHere ? renderGoalEditForm(null, id) : '<button class="budget-add-link platform-add-meta-link" data-add-goal="' + id + '">+ Agregar meta a ' + cat.nombre + "</button>");
+    const body = '<div class="platform-body"><div class="platform-figs"><div class="platform-fig"><span class="platform-fig-label">' + (sinValuacion ? "Aportado" : "Total en esta plataforma") + '</span><span class="platform-fig-value tabular">' + money(valorActual) + '</span></div><div class="platform-fig"><span class="platform-fig-label">Aportado neto</span><span class="platform-fig-value tabular muted">' + money(aportado) + "</span></div></div>" + // The plazo chip is only shown if it doesn't have its own goals yet — as soon as
+    // you add a goal, its plazo takes over and this one becomes redundant.
+    (!tieneMetas && !sinValuacion ? '<div class="platform-diff-row">' + termChip(PLATFORM_DATA[id].plazo) + "</div>" : "") + comisionRow + '<div class="platform-actions-row"><button class="budget-ver-mas" data-platform-see-more="' + id + '">Ver transacciones \u2192</button>' + // Nothing to update on a sinValuacion platform (no valuation, no comision of its own) --
+    // no pencil button.
+    (sinValuacion ? "" : '<button class="budget-edit-btn" data-edit-platform="' + id + '" aria-label="Actualizar valor de ' + cat.nombre + '">' + ICONS.edit + "</button>") + '</div><div class="platform-goal-nest">' + metasBody + "</div></div>";
+    return '<div class="card platform-group open">' + header + body + "</div>";
+  }
+  __name(renderPlatformGroup, "renderPlatformGroup");
+  function renderArchivedPlatformsBlock() {
+    const ids = archivedPlatformIds();
+    if (!ids.length) return "";
+    return '<div class="section-title" style="margin-top:18px;">Plataformas cerradas</div>' + ids.map((id) => {
+      const cat = catInfo(id);
+      return '<div class="card platform-card archived-card"><div class="platform-head"><span class="platform-icon" style="--fill:var(--surface-sunken);--ink:var(--text-tertiary)">' + catIconMarkup(cat.icon) + '</span><span class="platform-name muted">' + cat.nombre + '</span><button class="budget-edit-btn" data-reopen-platform="' + id + '" aria-label="Reabrir ' + cat.nombre + '">' + ICONS.repeat + '</button></div><button class="budget-ver-mas" data-platform-see-more="' + id + '">Ver transacciones \u2192</button></div>';
+    }).join("");
+  }
+  __name(renderArchivedPlatformsBlock, "renderArchivedPlatformsBlock");
+  function round1(n) {
+    return Math.round(n * 10) / 10;
+  }
+  __name(round1, "round1");
+  function metasPorPlazo(plazo) {
+    return INVESTMENT_GOALS.filter((m) => (m.plazo || null) === plazo);
+  }
+  __name(metasPorPlazo, "metasPorPlazo");
+  function planMetaRowHtml(meta) {
+    const pct = PLANNER.metaPcts[meta.id] || 0;
+    return '<div class="plan-row"><div class="plan-name">' + meta.nombre + "<small>Meta de aporte: " + money(meta.aporteMensualMeta) + '/mes</small></div><div class="plan-pctbox"><input type="text" inputmode="decimal" data-plan-goal-pct data-plan-goal-id="' + meta.id + '" value="' + pct + '"><span>%</span></div><div class="plan-amt tabular" data-plan-goal-amt="' + meta.id + '"></div></div>';
+  }
+  __name(planMetaRowHtml, "planMetaRowHtml");
+  function planGroupBlock(plazoKey) {
+    const info = GOAL_TERM[plazoKey];
+    const metas = metasPorPlazo(plazoKey);
+    const rows = metas.length ? metas.map(planMetaRowHtml).join("") : '<div class="plan-empty-hint muted">Sin metas de plazo ' + info.label.toLowerCase() + " todav\xEDa \u2014 agr\xE9galas en Inversiones.</div>";
+    return '<div class="card plan-block"><div class="plan-block-head" style="color:var(--cat-' + info.color + '-ink);"><span class="tag" style="background:var(--cat-' + info.color + '-fill);"></span>' + info.label + " plazo</div>" + rows + (metas.length ? '<div class="plan-subtotal" style="color:var(--cat-' + info.color + '-ink);"><span>Subtotal ' + info.label.toLowerCase() + ' \xB7 <span data-plan-group-pct="' + plazoKey + '"></span>%</span><span class="plan-subtotal-amt tabular" data-plan-group-amt="' + plazoKey + '"></span></div>' : "") + "</div>";
+  }
+  __name(planGroupBlock, "planGroupBlock");
+  function renderPlanificadorSection() {
+    const P = PLANNER;
+    const defaultBase = computeDefaultPlanBase();
+    const mesActualLabel = MONTH_LABEL[todayISO().slice(0, 7)] || "";
+    return '<div class="section-title">Planificador de sueldo</div><div class="card plan-base-card"><div class="plan-base-input-row"><div class="plan-base-field"><label class="draft-label">Total mensual a repartir</label><div class="plan-base-input"><span>$</span><input type="text" inputmode="numeric" data-plan-base-input value="' + moneyPlain(P.base) + '"></div></div><div style="flex-shrink:0;"><span class="plan-total-pill" data-plan-total-pill><span class="dot"></span><span data-plan-total-txt></span></span><div class="plan-unassigned" data-plan-unassigned></div></div></div><div class="plan-base-hint muted">Sugerido: ingresos \u2212 gastos de ' + mesActualLabel + " = " + money(defaultBase) + '. Ed\xEDtalo si tu excedente real es otro.</div></div><div class="plan-bar" data-plan-bar></div><div class="plan-legend" data-plan-legend></div><div class="plan-cols">' + planGroupBlock("corto") + planGroupBlock("medio") + planGroupBlock("largo") + "</div>";
+  }
+  __name(renderPlanificadorSection, "renderPlanificadorSection");
+  function updateProyeccionCompute() {
+    const proy = projectedContributions(3, 20);
+    const totalEl = document.querySelector("[data-proj-total]");
+    if (totalEl) totalEl.textContent = money(proy.proyectadoConRetorno);
+  }
+  __name(updateProyeccionCompute, "updateProyeccionCompute");
+  function updatePlanCompute() {
+    const P = PLANNER;
+    const base = P.base;
+    const groupPct = { corto: 0, medio: 0, largo: 0 };
+    ["corto", "medio", "largo"].forEach((plazoKey) => {
+      metasPorPlazo(plazoKey).forEach((meta) => {
+        const pct = P.metaPcts[meta.id] || 0;
+        groupPct[plazoKey] += pct;
+        const el = document.querySelector('[data-plan-goal-amt="' + meta.id + '"]');
+        if (el) el.textContent = money(base * pct / 100);
+      });
+      const pctEl = document.querySelector('[data-plan-group-pct="' + plazoKey + '"]');
+      if (pctEl) pctEl.textContent = String(round1(groupPct[plazoKey]));
+      const amtEl = document.querySelector('[data-plan-group-amt="' + plazoKey + '"]');
+      if (amtEl) amtEl.textContent = money(base * groupPct[plazoKey] / 100);
+    });
+    const total = groupPct.corto + groupPct.medio + groupPct.largo;
+    const pillEl = document.querySelector("[data-plan-total-pill]");
+    const txtEl = document.querySelector("[data-plan-total-txt]");
+    const unEl = document.querySelector("[data-plan-unassigned]");
+    const diff = 100 - total;
+    if (pillEl && txtEl && unEl) {
+      if (Math.abs(diff) < 0.05) {
+        pillEl.classList.remove("warn");
+        txtEl.textContent = "100% asignado";
+        unEl.textContent = "";
+      } else if (diff > 0) {
+        pillEl.classList.remove("warn");
+        txtEl.textContent = round1(total) + "% asignado";
+        unEl.textContent = "Sin asignar: " + money(base * diff / 100) + " (" + round1(diff) + "%)";
+      } else {
+        pillEl.classList.add("warn");
+        txtEl.textContent = round1(total) + "% \u2014 te pasaste";
+        unEl.textContent = "Asignaste " + money(base * -diff / 100) + " (" + round1(-diff) + "%) m\xE1s de tu excedente";
+      }
+    }
+    const barEl = document.querySelector("[data-plan-bar]");
+    const legEl = document.querySelector("[data-plan-legend]");
+    if (barEl && legEl) {
+      barEl.innerHTML = "";
+      legEl.innerHTML = "";
+      const segs = [
+        { pct: groupPct.corto, color: "var(--cat-sky-fill)" },
+        { pct: groupPct.medio, color: "var(--cat-sage-fill)" },
+        { pct: groupPct.largo, color: "var(--cat-lavender-fill)" }
+      ];
+      const denom = Math.max(total, 100);
+      segs.forEach((s) => {
+        if (s.pct <= 0) return;
+        const d = document.createElement("span");
+        d.style.width = s.pct / denom * 100 + "%";
+        d.style.background = s.color;
+        barEl.appendChild(d);
+      });
+      [["var(--cat-sky-fill)", "Corto"], ["var(--cat-sage-fill)", "Medio"], ["var(--cat-lavender-fill)", "Largo"]].forEach(([c, l]) => {
+        const s = document.createElement("span");
+        s.innerHTML = '<i style="background:' + c + '"></i>' + l;
+        legEl.appendChild(s);
+      });
+    }
+  }
+  __name(updatePlanCompute, "updatePlanCompute");
+  function renderInvestmentsView() {
+    const ids = activePlatformIds();
+    const totalValor = ids.reduce((s, id) => s + platformCurrentValue(id), 0);
+    const totalAportado = ids.reduce((s, id) => s + platformAportadoNeto(id), 0);
+    const invMonths = inversionesMonthsCalendarYear();
+    const aportadoSerie = invMonths.map(aportadoAcumuladoHastaMesONull);
+    const valorSerie = invMonths.map(valorTotalEnMesONull);
+    const anio = todayISO().slice(0, 4);
+    const { objetivoAnual, aporteAnio, otrosAporteAnio } = annualInvestmentGoalProgress(anio);
+    const anualPct = objetivoAnual > 0 ? aporteAnio / objetivoAnual * 100 : 0;
+    const otrosAporteLine = otrosAporteAnio > 0 ? '<div class="platform-total-sub" style="margin-top:2px;">+ ' + money(otrosAporteAnio) + " en aportes sin objetivo fijo este a\xF1o</div>" : "";
+    const goalBlock = !INVESTMENT_GOALS.length ? "" : objetivoAnual > 0 ? '<div class="platform-total-goal-block"><div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversi\xF3n ' + anio + ' (aporte fijo mensual \xD7 12)</div><div class="platform-total-value tabular" style="font-size:20px;">' + money(aporteAnio) + '<span class="of-text"> de ' + money(objetivoAnual) + '</span></div><div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, anualPct)) + '%;background:var(--accent);"></div></div><div class="platform-total-sub"><span>' + Math.round(anualPct) + "% completado este a\xF1o</span></div>" + otrosAporteLine + // Small detail: how much "all your fixed-aporte goals" add up to per month, in money — and
+    // along the way makes clear that this same number is what defines your Investment goal %
+    // in Balance.
+    '<div class="platform-total-sub" style="margin-top:2px;color:var(--text-tertiary);font-size:11.5px;">Aporte mensual objetivo: <b class="tabular">' + money(monthlyInvestmentGoalCLP()) + "</b> \xB7 " + Math.round(investmentGoalPct()) + "% de tus ingresos</div>" + renderTotalChecksGrid() + "</div>" : (
+      // Every goal is flow-only (no fixed aporteMensualMeta at all) -- a 0/$0 bar would just look
+      // broken, so this shows an honest message instead of a meaningless progress bar. The racha/
+      // checks grid stays untouched either way (it's driven by TOTAL_GOAL_CHECKS, unrelated to
+      // this calculation).
+      '<div class="platform-total-goal-block"><div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversi\xF3n ' + anio + '</div><p class="muted" style="font-size:12.5px;margin:4px 0 0;">Ninguna de tus metas tiene un aporte mensual fijo todav\xEDa, as\xED que no hay un objetivo anual que medir.' + (otrosAporteAnio > 0 ? " Aun as\xED, llevas " + money(otrosAporteAnio) + " invertidos este a\xF1o." : "") + "</p>" + renderTotalChecksGrid() + "</div>"
+    );
+    const proy = projectedContributions(3, 20);
+    const proyeccionCard = proy.meses.length >= 2 ? '<div class="card proyeccion-card"><div class="proyeccion-head"><span class="proyeccion-icon">' + ICONS.sparkle + '</span><span class="proyeccion-title">Simulador</span></div><div class="proyeccion-value tabular" data-proj-total>' + money(proy.proyectadoConRetorno) + '</div><div class="proyeccion-sub">en ' + proy.anios + ' a\xF1os \xB7 pesos nominales (sin descontar inflaci\xF3n)</div><div class="proyeccion-text">Aportando <input type="text" inputmode="numeric" class="proy-inline-input proy-aporte-input" data-proj-contribution-input placeholder="' + moneyPlain(Math.round(proy.promedioMensual)) + '" value="' + (state.simulatedContribution != null ? moneyPlain(state.simulatedContribution) : "") + '">/mes al <input type="text" inputmode="decimal" class="proy-inline-input" data-proj-return-input value="' + proy.retornoAnual + '">% anual.</div><div class="proyeccion-caption">Promedio de tus \xFAltimas 3 inversiones mensuales: <b class="tabular">' + money(proy.promedioMensual) + "</b></div></div>" : "";
+    const html = '<div class="card platform-total-card"><div class="platform-total-label">Total invertido</div><div class="platform-total-value tabular">' + money(totalValor) + '</div><div class="stat-grid stat-grid-compact" style="margin-top:14px;margin-bottom:0;"><div class="stat-tile stat-inversiones"><div class="stat-label">Aportado neto</div><div class="stat-value tabular">' + money(totalAportado) + "</div></div></div>" + goalBlock + '</div><div class="section-title" style="margin-top:4px;">Mis plataformas</div>' + ids.map(renderPlatformGroup).join("") + (state.creatingPlatform ? renderNewPlatformForm() : '<button class="budget-add-link" data-add-platform style="margin:4px 0 2px;margin-bottom:16px;">+ Agregar nueva plataforma</button>') + renderArchivedPlatformsBlock() + '<div class="section-title">Aportado vs. valor mes a mes</div><div class="card evo-card"><div class="evo-legend-row"><span class="evo-legend-item"><span class="evo-line-sample" style="background:var(--invest-ink);"></span>Aportado</span><span class="evo-legend-item"><span class="evo-line-sample dashed" style="border-color:var(--accent);"></span>Valor estimado</span></div>' + buildDualLineChart(invMonths, aportadoSerie, valorSerie, "var(--invest-ink)", "var(--accent)") + '<div class="evo-caption muted">El valor es una aproximaci\xF3n manual: sube y baja solo cuando t\xFA lo actualizas, o con tus aportes y retiros.</div></div>' + renderPlanificadorSection() + proyeccionCard + '<div class="plan-disclaimer">Herramienta de orden personal, no asesor\xEDa financiera formal. Para decisiones grandes, val\xEDdalo con una persona profesional licenciada.</div><div style="height:12px;"></div>';
+    document.getElementById("resumen-content").innerHTML = html;
+    updatePlanCompute();
+  }
+  __name(renderInvestmentsView, "renderInvestmentsView");
+  function renderSummarySubContent() {
+    if (state.summarySub === "balance") renderBalanceView();
+    else if (state.summarySub === "presupuesto") renderBudgetView();
+    else if (state.summarySub === "evolucion") renderEvolutionView();
+    else if (state.summarySub === "inversiones") renderInvestmentsView();
+    else renderComingSoon(state.summarySub);
+  }
+  __name(renderSummarySubContent, "renderSummarySubContent");
+  var SUBS_META = {
+    balance: { label: "Balance" },
+    presupuesto: { label: "Presupuesto" },
+    evolucion: { label: "Evoluci\xF3n" },
+    inversiones: { label: "Inversiones" }
+  };
+  function renderSummarySubtabsInner() {
+    return state.summarySubOrder.map(
+      (id) => '<button class="subtab ' + (state.summarySub === id ? "active" : "") + (state.subtabDragId === id ? " dragging" : "") + '" data-summary-sub="' + id + '">' + SUBS_META[id].label + "</button>"
+    ).join("");
+  }
+  __name(renderSummarySubtabsInner, "renderSummarySubtabsInner");
+  function renderSummaryView() {
+    document.getElementById("header-title").textContent = "Resumen";
+    const subHtml = '<div class="subtabs" id="resumen-subtabs">' + renderSummarySubtabsInner() + "</div>";
+    document.getElementById("view-root").innerHTML = subHtml + '<div id="resumen-content"></div>';
+    renderSummarySubContent();
+  }
+  __name(renderSummaryView, "renderSummaryView");
 
   // src/views/menu.ts
   var CATEGORY_ICON_CHOICES = ["tags", "cart", "car", "utensils", "home", "film", "heart", "repeat", "briefcase", "laptop", "plusCircle", "trending", "bank", "coin", "card", "cash", "users", "layers", "sparkle", "more"];
@@ -2398,6 +3153,10 @@
   }
   __name(parseStatementCSV, "parseStatementCSV");
   function importStatementRows(rows) {
+    if (state.demoMode) {
+      toast("No disponible en modo demo");
+      return { creadas: 0, conRegla: 0, pendientes: 0 };
+    }
     const reglaByComercio = {};
     groupedRules().forEach((r) => {
       reglaByComercio[r.comercio] = r;
@@ -2778,6 +3537,10 @@
   }
   __name(loadAvailableStatements, "loadAvailableStatements");
   async function useImportedStatement(id, password) {
+    if (state.demoMode) {
+      toast("No disponible en modo demo");
+      return;
+    }
     const item = state.reconciliar.disponibles.find(function(d) {
       return d.id === id;
     });
@@ -2820,6 +3583,10 @@
   }
   __name(useImportedStatement, "useImportedStatement");
   async function tryOpenStatementFile(buffer, nombre, password) {
+    if (state.demoMode) {
+      toast("No disponible en modo demo");
+      return;
+    }
     state.reconciliar.cargando = true;
     state.reconciliar.error = null;
     state.reconciliar.errorPassword = null;
@@ -3016,7 +3783,7 @@
   }
   __name(createTxFromMovement, "createTxFromMovement");
   function renderMenuDemo() {
-    document.getElementById("view-root").innerHTML = menuScreenHead("Modo demo") + '<div class="card" style="padding:16px;"><div class="menu-item-card" style="padding:0;"><span class="menu-item-card-icon" style="--fill:var(--cat-butter-fill);--ink:var(--cat-butter-ink)">' + ICONS.lock + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">Ocultar montos reales</div><div class="menu-item-card-sub">\xDAtil para mostrar la app en p\xFAblico sin revelar tus n\xFAmeros</div></div><button class="switch ' + (state.demoMode ? "on" : "") + '" data-toggle-demo aria-label="Activar modo demo" aria-pressed="' + (state.demoMode ? "true" : "false") + '"></button></div><div class="platform-hint muted" style="margin-top:14px;">Cuando est\xE1 activado, los montos se reemplazan por "$\u2022\u2022\u2022\u2022\u2022\u2022" en pantallas, tarjetas y gr\xE1ficos. Los formularios donde t\xFA editas un monto siguen mostrando el n\xFAmero real mientras los completas.</div></div>';
+    document.getElementById("view-root").innerHTML = menuScreenHead("Modo demo") + '<div class="card" style="padding:16px;"><div class="menu-item-card" style="padding:0;"><span class="menu-item-card-icon" style="--fill:var(--cat-butter-fill);--ink:var(--cat-butter-ink)">' + ICONS.lock + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">Mostrar datos de ejemplo</div><div class="menu-item-card-sub">\xDAtil para mostrar la app en p\xFAblico sin revelar tus n\xFAmeros reales</div></div><button class="switch ' + (state.demoMode ? "on" : "") + '" data-toggle-demo aria-label="Activar modo demo" aria-pressed="' + (state.demoMode ? "true" : "false") + '"></button></div><div class="platform-hint muted" style="margin-top:14px;">Cuando est\xE1 activado, TODA tu data real (transacciones, categor\xEDas, grupos, inversiones) se reemplaza por un set de ejemplo con n\xFAmeros inventados -- se ve completo, no enmascarado. Tu data real queda intacta y no se guarda nada de lo que hagas mientras el demo est\xE1 activo; al desactivarlo vuelves exactamente donde estabas. No se puede importar por correo, leer boletas, reconciliar cartolas ni enviar notificaciones push mientras el demo est\xE1 activo.</div></div>';
   }
   __name(renderMenuDemo, "renderMenuDemo");
   function renderMenuAsesoria() {
@@ -3582,6 +4349,10 @@
   }
   __name(loadNotifStatus, "loadNotifStatus");
   async function enableNotifications() {
+    if (state.demoMode) {
+      toast("No disponible en modo demo");
+      return;
+    }
     if (state.notifBusy) return;
     state.notifBusy = true;
     state.notifError = null;
@@ -3618,6 +4389,10 @@
   }
   __name(enableNotifications, "enableNotifications");
   async function disableNotifications() {
+    if (state.demoMode) {
+      toast("No disponible en modo demo");
+      return;
+    }
     if (state.notifBusy) return;
     state.notifBusy = true;
     state.notifError = null;
@@ -3662,6 +4437,10 @@
   }
   __name(enviarPushHogar, "enviarPushHogar");
   async function sendTestPush() {
+    if (state.demoMode) {
+      toast("No disponible en modo demo");
+      return;
+    }
     if (state.notifTestBusy) return;
     state.notifTestBusy = true;
     state.notifTestResult = null;
@@ -3824,760 +4603,333 @@
   }
   __name(renderMenuView, "renderMenuView");
 
-  // src/views/inversiones.ts
-  function platformIds() {
-    return Object.keys(CATEGORIES).filter((k) => CATEGORIES[k].tipo === "inversion");
+  // src/demo.ts
+  var realSnapshot = null;
+  function clone(v) {
+    return JSON.parse(JSON.stringify(v));
   }
-  __name(platformIds, "platformIds");
-  function isPlatformArchived(id) {
-    return !!(PLATFORM_DATA[id] && PLATFORM_DATA[id].archivada);
+  __name(clone, "clone");
+  function pad2(n) {
+    return n < 10 ? "0" + n : "" + n;
   }
-  __name(isPlatformArchived, "isPlatformArchived");
-  function activePlatformIds() {
-    return platformIds().filter((id) => !isPlatformArchived(id));
+  __name(pad2, "pad2");
+  function ymdOf(d) {
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
   }
-  __name(activePlatformIds, "activePlatformIds");
-  function archivedPlatformIds() {
-    return platformIds().filter((id) => isPlatformArchived(id));
+  __name(ymdOf, "ymdOf");
+  function ymOf(d) {
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1);
   }
-  __name(archivedPlatformIds, "archivedPlatformIds");
-  function goalCapablePlatformIds() {
-    return activePlatformIds().filter((id) => !PLATFORM_DATA[id].sinValuacion);
+  __name(ymOf, "ymOf");
+  function dateInMonth(monthsBack, day) {
+    const d = /* @__PURE__ */ new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - monthsBack);
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(day, lastDay));
+    return ymdOf(d);
   }
-  __name(goalCapablePlatformIds, "goalCapablePlatformIds");
-  function generalCatIdFor(platformId) {
-    return platformId + "__general";
+  __name(dateInMonth, "dateInMonth");
+  function monthKey(monthsBack) {
+    const d = /* @__PURE__ */ new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - monthsBack);
+    return ymOf(d);
   }
-  __name(generalCatIdFor, "generalCatIdFor");
-  function platformGeneralAmount(platformId) {
-    const generalId = generalCatIdFor(platformId);
-    let total = 0;
-    TRANSACTIONS.forEach((t) => {
-      if (t.tipo !== "inversion") return;
-      t.categorias.forEach((c) => {
-        if (c.cat === generalId) total += c.monto;
-      });
+  __name(monthKey, "monthKey");
+  function monthLabelOf(monthsBack) {
+    const NOMBRES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+    const d = /* @__PURE__ */ new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - monthsBack);
+    return NOMBRES[d.getMonth()] + " " + d.getFullYear();
+  }
+  __name(monthLabelOf, "monthLabelOf");
+  function demoCategories() {
+    const out = {};
+    Object.keys(CATEGORY_SEED_DEFAULTS).forEach((k) => {
+      out[k] = Object.assign({}, CATEGORY_SEED_DEFAULTS[k]);
     });
-    return total;
-  }
-  __name(platformGeneralAmount, "platformGeneralAmount");
-  function platformAportadoNeto(id) {
-    return goalsForPlatform(id).reduce((s, m) => s + metaAportadoNeto(m), 0) + platformGeneralAmount(id);
-  }
-  __name(platformAportadoNeto, "platformAportadoNeto");
-  function investmentCatOptions(selectedId) {
-    const out = [];
-    platformIds().forEach((platId) => {
-      const plat = CATEGORIES[platId];
-      const generalId = generalCatIdFor(platId);
-      const goals = goalsForPlatform(platId);
-      const belongsHere = selectedId === generalId || goals.some((g) => g.id === selectedId);
-      if (isPlatformArchived(platId) && !belongsHere) return;
-      goals.forEach((g) => out.push({ value: g.id, label: plat.nombre + " \xB7 " + g.nombre, plataformaId: platId, icon: plat.icon }));
-      const generalLabel = goals.length === 0 && PLATFORM_DATA[platId].sinValuacion ? plat.nombre : plat.nombre + " \xB7 General";
-      out.push({ value: generalId, label: generalLabel, plataformaId: platId, icon: plat.icon });
-    });
+    out.fintual = { nombre: "Fintual", tipo: "inversion", colorHue: 160, icon: "trending" };
+    out.racional = { nombre: "Racional", tipo: "inversion", colorHue: 30, icon: "trending" };
+    out.banco_chile = { nombre: "Banco de Chile", tipo: "inversion", colorHue: 50, icon: "bank" };
+    out.buda = { nombre: "Buda (cripto)", tipo: "inversion", colorHue: 340, icon: "coin" };
     return out;
   }
-  __name(investmentCatOptions, "investmentCatOptions");
-  function platformValorMonths(id) {
-    return MONTHS.filter((m) => PLATFORM_DATA[id].valorHistorial[m] != null);
-  }
-  __name(platformValorMonths, "platformValorMonths");
-  function platformCurrentValue(id) {
-    if (PLATFORM_DATA[id].sinValuacion) return platformAportadoNeto(id);
-    const months = platformValorMonths(id);
-    return months.length ? PLATFORM_DATA[id].valorHistorial[months[months.length - 1]] : 0;
-  }
-  __name(platformCurrentValue, "platformCurrentValue");
-  function platformIdForInvestmentCat(catId) {
-    if (!catId) return null;
-    const goal = INVESTMENT_GOALS.find((g) => g.id === catId);
-    if (goal) return goal.plataformaId;
-    const GENERAL_SUFFIX = "__general";
-    return catId.slice(-GENERAL_SUFFIX.length) === GENERAL_SUFFIX ? catId.slice(0, -GENERAL_SUFFIX.length) : null;
-  }
-  __name(platformIdForInvestmentCat, "platformIdForInvestmentCat");
-  function bumpPlatformValueForContribution(platformId, deltaMonto) {
-    if (!platformId || !deltaMonto) return;
-    const plat = PLATFORM_DATA[platformId];
-    if (!plat || plat.sinValuacion) return;
-    const mesActual = todayISO().slice(0, 7);
-    ensureMonthExists(mesActual);
-    const base = plat.valorHistorial[mesActual] != null ? plat.valorHistorial[mesActual] : platformCurrentValue(platformId);
-    plat.valorHistorial[mesActual] = base + deltaMonto;
-  }
-  __name(bumpPlatformValueForContribution, "bumpPlatformValueForContribution");
-  function platformDiasDesdeActualizacion(id) {
-    const hoy = /* @__PURE__ */ new Date(todayISO() + "T00:00:00");
-    const fecha = /* @__PURE__ */ new Date(PLATFORM_DATA[id].fechaActualizacion + "T00:00:00");
-    return Math.max(0, Math.round((hoy.getTime() - fecha.getTime()) / 864e5));
-  }
-  __name(platformDiasDesdeActualizacion, "platformDiasDesdeActualizacion");
-  function inversionesMonthsCalendarYear() {
-    const year = todayISO().slice(0, 4);
-    const out = [];
-    for (let m = 1; m <= 12; m++) out.push(year + "-" + String(m).padStart(2, "0"));
-    return out;
-  }
-  __name(inversionesMonthsCalendarYear, "inversionesMonthsCalendarYear");
-  function mesTieneValorParaTodas(monthKey) {
-    const ids = activePlatformIds();
-    return ids.length > 0 && ids.every((id) => PLATFORM_DATA[id].sinValuacion || PLATFORM_DATA[id].valorHistorial[monthKey] != null);
-  }
-  __name(mesTieneValorParaTodas, "mesTieneValorParaTodas");
-  function aportadoAcumuladoHastaMesONull(monthKey) {
-    if (!mesTieneValorParaTodas(monthKey)) return null;
-    let total = 0;
-    TRANSACTIONS.forEach((t) => {
-      if (t.tipo !== "inversion" || t.estado === "no_es_gasto") return;
-      if (t.fecha.slice(0, 7) <= monthKey) total += aggregatedTxAmount(t);
+  __name(demoCategories, "demoCategories");
+  function demoTransactions() {
+    const tx = [];
+    let n = 0;
+    const id = /* @__PURE__ */ __name(() => "demo_t" + ++n, "id");
+    const sueldos = [125e4, 125e4, 122e4, 12e5, 12e5];
+    for (let m = 4; m >= 0; m--) {
+      const sueldo = sueldos[m];
+      tx.push({ id: id(), fecha: dateInMonth(m, 25), hora: "07:50", comercio: "Sueldo", monto: sueldo, medio: "cuenta_vista", tipo: "ingreso", recurrencia: "mensual", estado: "confirmado", categorias: [{ cat: "sueldo", monto: sueldo }], porCobrar: [], reglaAuto: false, nota: "" });
+      tx.push({ id: id(), fecha: dateInMonth(m, 5), hora: "10:00", comercio: "Arriendo depto", monto: 38e4, medio: "cuenta_vista", tipo: "gasto", recurrencia: "mensual", estado: "confirmado", categorias: [{ cat: "hogar", monto: 38e4 }], porCobrar: [], reglaAuto: true, nota: "" });
+      tx.push({ id: id(), fecha: dateInMonth(m, 20), hora: "19:10", comercio: "Jumbo \xD1u\xF1oa", monto: 48e3 + m * 1e3, medio: "debito_bci", tipo: "gasto", recurrencia: "variable", estado: "confirmado", categorias: [{ cat: "supermercado", monto: 48e3 + m * 1e3 }], porCobrar: [], reglaAuto: false, nota: "" });
+      tx.push({ id: id(), fecha: dateInMonth(m, 14), hora: "18:00", comercio: "Netflix", monto: 7990, medio: "visa_bch", tipo: "gasto", recurrencia: "mensual", estado: "confirmado", categorias: [{ cat: "suscripciones", monto: 7990 }], porCobrar: [], reglaAuto: true, nota: "" });
+      tx.push({ id: id(), fecha: dateInMonth(m, 8), hora: "08:10", comercio: "Copec Providencia", monto: 19e3, medio: "visa_bch", tipo: "gasto", recurrencia: "variable", estado: "confirmado", categorias: [{ cat: "transporte", monto: 19e3 }], porCobrar: [], reglaAuto: true, nota: "" });
+      tx.push({ id: id(), fecha: dateInMonth(m, 10), hora: "10:00", comercio: "Aporte Fintual", monto: 1e5, medio: "cuenta_vista", tipo: "inversion", recurrencia: "mensual", estado: "confirmado", categorias: [{ cat: "fintual", monto: 1e5 }], porCobrar: [], reglaAuto: false, nota: "" });
+    }
+    tx.push({
+      id: id(),
+      fecha: dateInMonth(0, 12),
+      hora: "12:30",
+      comercio: "Farmacias Ahumada",
+      monto: 15200,
+      medio: "debito_bci",
+      tipo: "gasto",
+      recurrencia: "variable",
+      estado: "por_cobrar",
+      categorias: [{ cat: "salud", monto: 15200 }],
+      porCobrar: [{ persona: "Isapre", monto: null, pagado: false, tipo: "reembolso", montoRecibido: null, linkedTxId: null }],
+      reglaAuto: false,
+      nota: "Reembolso de la isapre en camino"
     });
-    return total;
-  }
-  __name(aportadoAcumuladoHastaMesONull, "aportadoAcumuladoHastaMesONull");
-  function platformGeneralAmountHastaMes(platformId, monthKey) {
-    const generalId = generalCatIdFor(platformId);
-    let total = 0;
-    TRANSACTIONS.forEach((t) => {
-      if (t.tipo !== "inversion") return;
-      if (t.fecha.slice(0, 7) > monthKey) return;
-      t.categorias.forEach((c) => {
-        if (c.cat === generalId) total += c.monto;
-      });
+    tx.push({
+      id: id(),
+      fecha: dateInMonth(0, 6),
+      hora: "21:00",
+      comercio: "Restobar Lastarria",
+      monto: 64e3,
+      medio: "visa_bch",
+      tipo: "gasto",
+      recurrencia: "variable",
+      estado: "por_cobrar",
+      categorias: [{ cat: "restoranes", monto: 64e3 }],
+      porCobrar: [
+        { persona: "Caro", monto: 21333, divisionValor: 1, pagado: true, tipo: "persona", montoRecibido: 21333, linkedTxId: null },
+        { persona: "Pancho", monto: 21333, divisionValor: 1, pagado: false, tipo: "persona", montoRecibido: null, linkedTxId: null }
+      ],
+      pagadorDivisionValor: 1,
+      reglaAuto: false,
+      nota: "Cumplea\xF1os"
     });
-    return total;
-  }
-  __name(platformGeneralAmountHastaMes, "platformGeneralAmountHastaMes");
-  function platformAportadoNetoHastaMes(id, monthKey) {
-    return goalsForPlatform(id).reduce((s, m) => s + (metaHistorialAt(m, monthKey) || 0), 0) + platformGeneralAmountHastaMes(id, monthKey);
-  }
-  __name(platformAportadoNetoHastaMes, "platformAportadoNetoHastaMes");
-  function valorTotalEnMesONull(monthKey) {
-    if (!mesTieneValorParaTodas(monthKey)) return null;
-    return activePlatformIds().reduce(
-      (s, id) => s + (PLATFORM_DATA[id].sinValuacion ? platformAportadoNetoHastaMes(id, monthKey) : PLATFORM_DATA[id].valorHistorial[monthKey] || 0),
-      0
-    );
-  }
-  __name(valorTotalEnMesONull, "valorTotalEnMesONull");
-  function buildDualLineChart(months, seriesA, seriesB, colorA, colorB) {
-    const W = 320, H = 180, padL = 38, padR = 8, padTop = 16, padBottom = 24;
-    const plotW = W - padL - padR, plotH = H - padTop - padBottom;
-    const valoresReales = seriesA.concat(seriesB).filter((v) => v != null);
-    const maxV = valoresReales.length ? Math.max(...valoresReales, 0) : 1;
-    const minV = valoresReales.length ? Math.min(...valoresReales, 0) : 0;
-    const range = maxV - minV || 1;
-    const stepX = plotW / (months.length - 1 || 1);
-    function xAt(i) {
-      return padL + i * stepX;
-    }
-    __name(xAt, "xAt");
-    function yAt(v) {
-      return padTop + (1 - (v - minV) / range) * plotH;
-    }
-    __name(yAt, "yAt");
-    function segmentos(vals) {
-      const segs = [];
-      let actual = [];
-      vals.forEach((v, i) => {
-        if (v == null) {
-          if (actual.length) segs.push(actual);
-          actual = [];
-          return;
-        }
-        actual.push([xAt(i), yAt(v)]);
-      });
-      if (actual.length) segs.push(actual);
-      return segs;
-    }
-    __name(segmentos, "segmentos");
-    function pathsFor(segs, extraAttrs) {
-      return segs.map(
-        (seg) => '<path d="' + seg.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ") + '" ' + extraAttrs + "/>"
-      ).join("");
-    }
-    __name(pathsFor, "pathsFor");
-    const segsA = segmentos(seriesA), segsB = segmentos(seriesB);
-    const linesA = pathsFor(segsA, 'fill="none" stroke="' + colorA + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"');
-    const linesB = pathsFor(segsB, 'fill="none" stroke="' + colorB + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 4"');
-    const dotsA = segsA.flat().map((p) => '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3" fill="' + colorA + '"/>').join("");
-    const dotsB = segsB.flat().map((p) => '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3" fill="' + colorB + '" stroke="var(--surface)" stroke-width="1"/>').join("");
-    const labelsX = months.map(
-      (m, i) => '<text x="' + xAt(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="9" fill="var(--text-tertiary)">' + monthAbbr(parseInt(m.slice(5, 7), 10)) + "</text>"
-    ).join("");
-    const yTicks = [maxV, (maxV + minV) / 2, minV];
-    const gridY = yTicks.map((v) => {
-      const y = yAt(v);
-      return '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 3"/><text x="' + (padL - 6) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" font-size="9" fill="var(--text-tertiary)">' + moneyShort(v) + "</text>";
-    }).join("");
-    function ultimoPunto(vals) {
-      for (let i = vals.length - 1; i >= 0; i--) {
-        if (vals[i] != null) return [xAt(i), yAt(vals[i]), vals[i]];
-      }
-      return null;
-    }
-    __name(ultimoPunto, "ultimoPunto");
-    const lastA = ultimoPunto(seriesA), lastB = ultimoPunto(seriesB);
-    let labelsFin = "";
-    if (lastA && lastB) {
-      let yA = lastA[1] - 8, yB = lastB[1] - 8;
-      const minGap = 13;
-      if (Math.abs(yA - yB) < minGap) {
-        const mid = (yA + yB) / 2;
-        if (yA <= yB) {
-          yA = mid - minGap / 2;
-          yB = mid + minGap / 2;
-        } else {
-          yA = mid + minGap / 2;
-          yB = mid - minGap / 2;
-        }
-      }
-      labelsFin = '<text x="' + lastA[0].toFixed(1) + '" y="' + Math.max(10, yA).toFixed(1) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + colorA + '">' + moneyPlainMasked(lastA[2]) + '</text><text x="' + lastB[0].toFixed(1) + '" y="' + Math.max(10, yB).toFixed(1) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + colorB + '">' + moneyPlainMasked(lastB[2]) + "</text>";
-    } else if (lastA) {
-      labelsFin = '<text x="' + lastA[0].toFixed(1) + '" y="' + Math.max(10, lastA[1] - 8).toFixed(1) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + colorA + '">' + moneyPlainMasked(lastA[2]) + "</text>";
-    } else if (lastB) {
-      labelsFin = '<text x="' + lastB[0].toFixed(1) + '" y="' + Math.max(10, lastB[1] - 8).toFixed(1) + '" text-anchor="end" font-size="10" font-weight="700" fill="' + colorB + '">' + moneyPlainMasked(lastB[2]) + "</text>";
-    }
-    return '<svg viewBox="0 0 ' + W + " " + H + '" width="100%" style="display:block;overflow:visible;">' + gridY + linesA + linesB + dotsA + dotsB + labelsX + labelsFin + "</svg>";
-  }
-  __name(buildDualLineChart, "buildDualLineChart");
-  function renderPlatformEditForm(id) {
-    const cat = catInfo(id);
-    const d = state.platformDraft;
-    return '<div class="card platform-card editing"><div class="platform-head"><span class="platform-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="platform-name">' + cat.nombre + '</span></div><label class="draft-label">Valor actual aproximado</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="valor" value="' + d.valor + '" placeholder="0"><label class="draft-label" style="margin-top:12px;">Crecimiento anual estimado (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="tasaAnual" value="' + d.tasaAnual + '" placeholder="Sin estimar, ej: 6"><div class="platform-hint muted">Escr\xEDbelo solo si quieres que el valor "crezca" solo entre actualizaciones \u2014 la app no te sugiere ning\xFAn n\xFAmero. D\xE9jalo vac\xEDo para que se mueva solo con tus aportes y retiros.</div>' + // comision now lives on each goal (it depends on the specific fund/investment) — here
-    // it's only offered when the platform doesn't yet have any goal of its own.
-    (goalsForPlatform(id).length === 0 ? '<label class="draft-label" style="margin-top:12px;">Comisi\xF3n anual / TAC (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="comision" value="' + d.comision + '" placeholder="Ej: 1.1"><div class="platform-hint muted">El % que te cobra esta plataforma al a\xF1o (TAC, comisi\xF3n de administraci\xF3n, etc.) \u2014 ponlo t\xFA, la app no te sugiere ning\xFAn n\xFAmero. Se calcula sobre tu ganancia, no sobre el total de la cuenta. Si m\xE1s adelante le agregas metas, la comisi\xF3n se define por cada una, ya que puede variar por fondo.</div>' : "") + '<label class="draft-label" style="margin-top:12px;">Plazo de esta plataforma (opcional)</label>' + segmentedHtml("platform-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<div class="platform-hint muted">Solo si esta plataforma no tiene metas propias con su plazo ya definido.</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-platform-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-platform="' + id + '">Guardar</button></div>' + platformDeleteBlock(id) + "</div>";
-  }
-  __name(renderPlatformEditForm, "renderPlatformEditForm");
-  function platformDeleteBlock(id) {
-    const enUso = isCategoryInUse(id) || isCategoryInUse(generalCatIdFor(id));
-    const tieneMetas = goalsForPlatform(id).length > 0;
-    if (tieneMetas) {
-      return '<div class="file-format-hint">No se puede cerrar ni eliminar: tiene metas asociadas. Elim\xEDnalas primero.</div>';
-    }
-    if (!enUso) {
-      if (state.confirmDeletePlatformId === id) {
-        return '<div class="file-format-hint" style="margin-bottom:8px;">\xBFEliminar esta plataforma? No se puede deshacer, y tambi\xE9n desaparece de Men\xFA &gt; Categor\xEDas.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-platform>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--expense-ink);" data-confirm-delete-platform="' + id + '">S\xED, eliminar</button></div>';
-      }
-      return '<button class="budget-delete-link" style="margin-top:10px;" data-delete-platform="' + id + '">Eliminar plataforma</button>';
-    }
-    if (state.confirmArchivePlatformId === id) {
-      return '<div class="file-format-hint" style="margin-bottom:8px;">\xBFCerrar esta plataforma? Deja de contar en "Mis plataformas", en el total invertido y en Men\xFA &gt; Categor\xEDas \u2014 tus transacciones pasadas no se tocan, y puedes reabrirla cuando quieras.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-archive-platform>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-confirm-archive-platform="' + id + '">S\xED, cerrar</button></div>';
-    }
-    return '<button class="budget-delete-link" style="margin-top:10px;" data-archive-platform="' + id + '">Cerrar plataforma</button><div class="platform-hint muted">Deja de contar en "Mis plataformas" y en el total invertido \u2014 tus transacciones pasadas no se tocan.</div>';
-  }
-  __name(platformDeleteBlock, "platformDeleteBlock");
-  function renderNewPlatformForm() {
-    const d = state.newPlatformDraft;
-    return '<div class="card platform-card editing"><div class="platform-head"><span class="platform-name">Nueva plataforma</span></div><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-newplatform-field="nombre" value="' + d.nombre + '" placeholder="Ej: Banco Santander"><label class="draft-label" style="margin-top:12px;">\xCDcono</label><div class="icon-picker">' + CATEGORY_ICON_CHOICES.map((ic) => '<button type="button" data-newplatform-icon="' + ic + '" class="' + (d.icon === ic ? "active" : "") + '">' + ICONS[ic] + "</button>").join("") + '</div><label class="draft-label" style="margin-top:12px;">Color</label><div class="hue-picker-row"><span class="hue-swatch" style="background:' + categoryFillCss(d.colorHue) + ";color:" + categoryFillCss(d.colorHue) + ";border-color:" + categoryFillCss(d.colorHue) + '"></span><input type="range" min="0" max="359" value="' + d.colorHue + '" data-newplatform-hue class="hue-slider"></div>' + (function() {
-      const colision = categoriesCollidingWithHue(CATEGORIES, "inversion", d.colorHue, null);
-      return colision.length ? '<div class="file-format-hint" style="color:var(--expense-ink);">Ese color queda muy parecido al de "' + colision.join('", "') + '" -- en los gr\xE1ficos de torta se pueden ver como un solo bloque. Prueba otro tono.</div>' : "";
-    })() + '<label class="draft-label" style="margin-top:12px;">Valor actual aproximado</label><input type="text" inputmode="decimal" class="draft-input tabular" data-newplatform-field="valor" value="' + d.valor + '" placeholder="0"><div class="platform-hint muted">Si ya tienes plata en esta plataforma, pon cu\xE1nto vale hoy \u2014 si acabas de abrirla, d\xE9jalo en 0.</div><label class="draft-label" style="margin-top:12px;">Plazo (opcional)</label>' + segmentedHtml("newplatform-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-newplatform>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-newplatform>Guardar</button></div></div>';
-  }
-  __name(renderNewPlatformForm, "renderNewPlatformForm");
-  function renderPlatformGroup(id) {
-    if (state.editingPlatformId === id) return '<div class="platform-group">' + renderPlatformEditForm(id) + "</div>";
-    const cat = catInfo(id);
-    const sinValuacion = !!PLATFORM_DATA[id].sinValuacion;
-    const valorActual = platformCurrentValue(id);
-    const aportado = platformAportadoNeto(id);
-    const diff = valorActual - aportado;
-    const dias = sinValuacion ? 0 : platformDiasDesdeActualizacion(id);
-    const stale = !sinValuacion && dias > UPDATE_THRESHOLD_DAYS;
-    const tieneMetas = goalsForPlatform(id).length > 0;
-    const comision = PLATFORM_DATA[id].comision;
-    const ganancia = Math.max(0, diff);
-    const comisionRow = comision != null && !tieneMetas && !sinValuacion ? '<div class="platform-comision-row"><span>Comisi\xF3n anual: <b class="tabular">' + comision + '%</b></span><span class="muted tabular">\u2248 ' + money(ganancia * comision / 100) + "/a\xF1o sobre tu ganancia</span></div>" : "";
-    const open = state.openPlatformId === id;
-    const header = '<button class="platform-head-toggle" data-toggle-platform="' + id + '" aria-expanded="' + (open ? "true" : "false") + '"><span class="platform-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="platform-head-body"><span class="platform-name">' + cat.nombre + "</span>" + (sinValuacion ? "" : '<span class="platform-update-tag' + (stale ? " stale" : "") + '">Actualizado hace ' + dias + " " + (dias === 1 ? "d\xEDa" : "d\xEDas") + "</span>") + '</span><span class="platform-head-value tabular">' + money(valorActual) + '</span><span class="platform-chev' + (open ? " open" : "") + '">' + ICONS.chevR + "</span></button>";
-    if (!open) return '<div class="card platform-group">' + header + "</div>";
-    const { metas, totalObjetivo, totalAcumulado, rachaCombinada } = platformGoalsSummary(id);
-    const addingHere = state.editingGoalId === "nueva" && state.addGoalPlatformId === id;
-    const combinedPct = totalObjetivo > 0 ? totalAcumulado / totalObjetivo * 100 : 0;
-    const combinedSummary = metas.length > 0 && totalObjetivo > 0 ? '<div class="platform-meta-summary"><div class="platform-meta-summary-head"><span>Tus metas en ' + cat.nombre + "</span>" + (rachaCombinada > 0 ? '<span class="meta-racha-badge">' + rachaCombinada + " \u{1F525}</span>" : "") + '</div><div class="platform-meta-summary-figs tabular">' + money(totalAcumulado) + '<span class="of-text"> de ' + money(totalObjetivo) + '</span><span class="budget-pct tabular">' + Math.round(combinedPct) + '%</span></div><div class="budget-track"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, combinedPct)) + '%;background:var(--accent);"></div></div></div>' : "";
-    const metasBody = sinValuacion ? "" : combinedSummary + metas.map(renderGoalCard).join("") + (addingHere ? renderGoalEditForm(null, id) : '<button class="budget-add-link platform-add-meta-link" data-add-goal="' + id + '">+ Agregar meta a ' + cat.nombre + "</button>");
-    const body = '<div class="platform-body"><div class="platform-figs"><div class="platform-fig"><span class="platform-fig-label">' + (sinValuacion ? "Aportado" : "Total en esta plataforma") + '</span><span class="platform-fig-value tabular">' + money(valorActual) + '</span></div><div class="platform-fig"><span class="platform-fig-label">Aportado neto</span><span class="platform-fig-value tabular muted">' + money(aportado) + "</span></div></div>" + // The plazo chip is only shown if it doesn't have its own goals yet — as soon as
-    // you add a goal, its plazo takes over and this one becomes redundant.
-    (!tieneMetas && !sinValuacion ? '<div class="platform-diff-row">' + termChip(PLATFORM_DATA[id].plazo) + "</div>" : "") + comisionRow + '<div class="platform-actions-row"><button class="budget-ver-mas" data-platform-see-more="' + id + '">Ver transacciones \u2192</button>' + // Nothing to update on a sinValuacion platform (no valuation, no comision of its own) --
-    // no pencil button.
-    (sinValuacion ? "" : '<button class="budget-edit-btn" data-edit-platform="' + id + '" aria-label="Actualizar valor de ' + cat.nombre + '">' + ICONS.edit + "</button>") + '</div><div class="platform-goal-nest">' + metasBody + "</div></div>";
-    return '<div class="card platform-group open">' + header + body + "</div>";
-  }
-  __name(renderPlatformGroup, "renderPlatformGroup");
-  function renderArchivedPlatformsBlock() {
-    const ids = archivedPlatformIds();
-    if (!ids.length) return "";
-    return '<div class="section-title" style="margin-top:18px;">Plataformas cerradas</div>' + ids.map((id) => {
-      const cat = catInfo(id);
-      return '<div class="card platform-card archived-card"><div class="platform-head"><span class="platform-icon" style="--fill:var(--surface-sunken);--ink:var(--text-tertiary)">' + catIconMarkup(cat.icon) + '</span><span class="platform-name muted">' + cat.nombre + '</span><button class="budget-edit-btn" data-reopen-platform="' + id + '" aria-label="Reabrir ' + cat.nombre + '">' + ICONS.repeat + '</button></div><button class="budget-ver-mas" data-platform-see-more="' + id + '">Ver transacciones \u2192</button></div>';
-    }).join("");
-  }
-  __name(renderArchivedPlatformsBlock, "renderArchivedPlatformsBlock");
-  function round1(n) {
-    return Math.round(n * 10) / 10;
-  }
-  __name(round1, "round1");
-  function metasPorPlazo(plazo) {
-    return INVESTMENT_GOALS.filter((m) => (m.plazo || null) === plazo);
-  }
-  __name(metasPorPlazo, "metasPorPlazo");
-  function planMetaRowHtml(meta) {
-    const pct = PLANNER.metaPcts[meta.id] || 0;
-    return '<div class="plan-row"><div class="plan-name">' + meta.nombre + "<small>Meta de aporte: " + money(meta.aporteMensualMeta) + '/mes</small></div><div class="plan-pctbox"><input type="text" inputmode="decimal" data-plan-goal-pct data-plan-goal-id="' + meta.id + '" value="' + pct + '"><span>%</span></div><div class="plan-amt tabular" data-plan-goal-amt="' + meta.id + '"></div></div>';
-  }
-  __name(planMetaRowHtml, "planMetaRowHtml");
-  function planGroupBlock(plazoKey) {
-    const info = GOAL_TERM[plazoKey];
-    const metas = metasPorPlazo(plazoKey);
-    const rows = metas.length ? metas.map(planMetaRowHtml).join("") : '<div class="plan-empty-hint muted">Sin metas de plazo ' + info.label.toLowerCase() + " todav\xEDa \u2014 agr\xE9galas en Inversiones.</div>";
-    return '<div class="card plan-block"><div class="plan-block-head" style="color:var(--cat-' + info.color + '-ink);"><span class="tag" style="background:var(--cat-' + info.color + '-fill);"></span>' + info.label + " plazo</div>" + rows + (metas.length ? '<div class="plan-subtotal" style="color:var(--cat-' + info.color + '-ink);"><span>Subtotal ' + info.label.toLowerCase() + ' \xB7 <span data-plan-group-pct="' + plazoKey + '"></span>%</span><span class="plan-subtotal-amt tabular" data-plan-group-amt="' + plazoKey + '"></span></div>' : "") + "</div>";
-  }
-  __name(planGroupBlock, "planGroupBlock");
-  function renderPlanificadorSection() {
-    const P = PLANNER;
-    const defaultBase = computeDefaultPlanBase();
-    const mesActualLabel = MONTH_LABEL[todayISO().slice(0, 7)] || "";
-    return '<div class="section-title">Planificador de sueldo</div><div class="card plan-base-card"><div class="plan-base-input-row"><div class="plan-base-field"><label class="draft-label">Total mensual a repartir</label><div class="plan-base-input"><span>$</span><input type="text" inputmode="numeric" data-plan-base-input value="' + moneyPlain(P.base) + '"></div></div><div style="flex-shrink:0;"><span class="plan-total-pill" data-plan-total-pill><span class="dot"></span><span data-plan-total-txt></span></span><div class="plan-unassigned" data-plan-unassigned></div></div></div><div class="plan-base-hint muted">Sugerido: ingresos \u2212 gastos de ' + mesActualLabel + " = " + money(defaultBase) + '. Ed\xEDtalo si tu excedente real es otro.</div></div><div class="plan-bar" data-plan-bar></div><div class="plan-legend" data-plan-legend></div><div class="plan-cols">' + planGroupBlock("corto") + planGroupBlock("medio") + planGroupBlock("largo") + "</div>";
-  }
-  __name(renderPlanificadorSection, "renderPlanificadorSection");
-  function updateProyeccionCompute() {
-    const proy = projectedContributions(3, 20);
-    const totalEl = document.querySelector("[data-proj-total]");
-    if (totalEl) totalEl.textContent = money(proy.proyectadoConRetorno);
-  }
-  __name(updateProyeccionCompute, "updateProyeccionCompute");
-  function updatePlanCompute() {
-    const P = PLANNER;
-    const base = P.base;
-    const groupPct = { corto: 0, medio: 0, largo: 0 };
-    ["corto", "medio", "largo"].forEach((plazoKey) => {
-      metasPorPlazo(plazoKey).forEach((meta) => {
-        const pct = P.metaPcts[meta.id] || 0;
-        groupPct[plazoKey] += pct;
-        const el = document.querySelector('[data-plan-goal-amt="' + meta.id + '"]');
-        if (el) el.textContent = money(base * pct / 100);
-      });
-      const pctEl = document.querySelector('[data-plan-group-pct="' + plazoKey + '"]');
-      if (pctEl) pctEl.textContent = String(round1(groupPct[plazoKey]));
-      const amtEl = document.querySelector('[data-plan-group-amt="' + plazoKey + '"]');
-      if (amtEl) amtEl.textContent = money(base * groupPct[plazoKey] / 100);
+    tx.push({
+      id: id(),
+      fecha: dateInMonth(0, 15),
+      hora: "16:20",
+      comercio: "Falabella \xB7 Notebook",
+      monto: 3e4,
+      medio: "visa_bch",
+      tipo: "gasto",
+      recurrencia: "variable",
+      estado: "confirmado",
+      categorias: [{ cat: "hogar", monto: 3e4 }],
+      porCobrar: [],
+      reglaAuto: false,
+      nota: "",
+      cuotas: { total: 3, montoTotal: 9e4 }
     });
-    const total = groupPct.corto + groupPct.medio + groupPct.largo;
-    const pillEl = document.querySelector("[data-plan-total-pill]");
-    const txtEl = document.querySelector("[data-plan-total-txt]");
-    const unEl = document.querySelector("[data-plan-unassigned]");
-    const diff = 100 - total;
-    if (pillEl && txtEl && unEl) {
-      if (Math.abs(diff) < 0.05) {
-        pillEl.classList.remove("warn");
-        txtEl.textContent = "100% asignado";
-        unEl.textContent = "";
-      } else if (diff > 0) {
-        pillEl.classList.remove("warn");
-        txtEl.textContent = round1(total) + "% asignado";
-        unEl.textContent = "Sin asignar: " + money(base * diff / 100) + " (" + round1(diff) + "%)";
-      } else {
-        pillEl.classList.add("warn");
-        txtEl.textContent = round1(total) + "% \u2014 te pasaste";
-        unEl.textContent = "Asignaste " + money(base * -diff / 100) + " (" + round1(-diff) + "%) m\xE1s de tu excedente";
-      }
-    }
-    const barEl = document.querySelector("[data-plan-bar]");
-    const legEl = document.querySelector("[data-plan-legend]");
-    if (barEl && legEl) {
-      barEl.innerHTML = "";
-      legEl.innerHTML = "";
-      const segs = [
-        { pct: groupPct.corto, color: "var(--cat-sky-fill)" },
-        { pct: groupPct.medio, color: "var(--cat-sage-fill)" },
-        { pct: groupPct.largo, color: "var(--cat-lavender-fill)" }
-      ];
-      const denom = Math.max(total, 100);
-      segs.forEach((s) => {
-        if (s.pct <= 0) return;
-        const d = document.createElement("span");
-        d.style.width = s.pct / denom * 100 + "%";
-        d.style.background = s.color;
-        barEl.appendChild(d);
-      });
-      [["var(--cat-sky-fill)", "Corto"], ["var(--cat-sage-fill)", "Medio"], ["var(--cat-lavender-fill)", "Largo"]].forEach(([c, l]) => {
-        const s = document.createElement("span");
-        s.innerHTML = '<i style="background:' + c + '"></i>' + l;
-        legEl.appendChild(s);
-      });
-    }
-  }
-  __name(updatePlanCompute, "updatePlanCompute");
-  function renderInvestmentsView() {
-    const ids = activePlatformIds();
-    const totalValor = ids.reduce((s, id) => s + platformCurrentValue(id), 0);
-    const totalAportado = ids.reduce((s, id) => s + platformAportadoNeto(id), 0);
-    const invMonths = inversionesMonthsCalendarYear();
-    const aportadoSerie = invMonths.map(aportadoAcumuladoHastaMesONull);
-    const valorSerie = invMonths.map(valorTotalEnMesONull);
-    const anio = todayISO().slice(0, 4);
-    const { objetivoAnual, aporteAnio, otrosAporteAnio } = annualInvestmentGoalProgress(anio);
-    const anualPct = objetivoAnual > 0 ? aporteAnio / objetivoAnual * 100 : 0;
-    const otrosAporteLine = otrosAporteAnio > 0 ? '<div class="platform-total-sub" style="margin-top:2px;">+ ' + money(otrosAporteAnio) + " en aportes sin objetivo fijo este a\xF1o</div>" : "";
-    const goalBlock = !INVESTMENT_GOALS.length ? "" : objetivoAnual > 0 ? '<div class="platform-total-goal-block"><div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversi\xF3n ' + anio + ' (aporte fijo mensual \xD7 12)</div><div class="platform-total-value tabular" style="font-size:20px;">' + money(aporteAnio) + '<span class="of-text"> de ' + money(objetivoAnual) + '</span></div><div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, anualPct)) + '%;background:var(--accent);"></div></div><div class="platform-total-sub"><span>' + Math.round(anualPct) + "% completado este a\xF1o</span></div>" + otrosAporteLine + // Small detail: how much "all your fixed-aporte goals" add up to per month, in money — and
-    // along the way makes clear that this same number is what defines your Investment goal %
-    // in Balance.
-    '<div class="platform-total-sub" style="margin-top:2px;color:var(--text-tertiary);font-size:11.5px;">Aporte mensual objetivo: <b class="tabular">' + money(monthlyInvestmentGoalCLP()) + "</b> \xB7 " + Math.round(investmentGoalPct()) + "% de tus ingresos</div>" + renderTotalChecksGrid() + "</div>" : (
-      // Every goal is flow-only (no fixed aporteMensualMeta at all) -- a 0/$0 bar would just look
-      // broken, so this shows an honest message instead of a meaningless progress bar. The racha/
-      // checks grid stays untouched either way (it's driven by TOTAL_GOAL_CHECKS, unrelated to
-      // this calculation).
-      '<div class="platform-total-goal-block"><div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversi\xF3n ' + anio + '</div><p class="muted" style="font-size:12.5px;margin:4px 0 0;">Ninguna de tus metas tiene un aporte mensual fijo todav\xEDa, as\xED que no hay un objetivo anual que medir.' + (otrosAporteAnio > 0 ? " Aun as\xED, llevas " + money(otrosAporteAnio) + " invertidos este a\xF1o." : "") + "</p>" + renderTotalChecksGrid() + "</div>"
-    );
-    const proy = projectedContributions(3, 20);
-    const proyeccionCard = proy.meses.length >= 2 ? '<div class="card proyeccion-card"><div class="proyeccion-head"><span class="proyeccion-icon">' + ICONS.sparkle + '</span><span class="proyeccion-title">Simulador</span></div><div class="proyeccion-value tabular" data-proj-total>' + money(proy.proyectadoConRetorno) + '</div><div class="proyeccion-sub">en ' + proy.anios + ' a\xF1os \xB7 pesos nominales (sin descontar inflaci\xF3n)</div><div class="proyeccion-text">Aportando <input type="text" inputmode="numeric" class="proy-inline-input proy-aporte-input" data-proj-contribution-input placeholder="' + moneyPlain(Math.round(proy.promedioMensual)) + '" value="' + (state.simulatedContribution != null ? moneyPlain(state.simulatedContribution) : "") + '">/mes al <input type="text" inputmode="decimal" class="proy-inline-input" data-proj-return-input value="' + proy.retornoAnual + '">% anual.</div><div class="proyeccion-caption">Promedio de tus \xFAltimas 3 inversiones mensuales: <b class="tabular">' + money(proy.promedioMensual) + "</b></div></div>" : "";
-    const html = '<div class="card platform-total-card"><div class="platform-total-label">Total invertido</div><div class="platform-total-value tabular">' + money(totalValor) + '</div><div class="stat-grid stat-grid-compact" style="margin-top:14px;margin-bottom:0;"><div class="stat-tile stat-inversiones"><div class="stat-label">Aportado neto</div><div class="stat-value tabular">' + money(totalAportado) + "</div></div></div>" + goalBlock + '</div><div class="section-title" style="margin-top:4px;">Mis plataformas</div>' + ids.map(renderPlatformGroup).join("") + (state.creatingPlatform ? renderNewPlatformForm() : '<button class="budget-add-link" data-add-platform style="margin:4px 0 2px;margin-bottom:16px;">+ Agregar nueva plataforma</button>') + renderArchivedPlatformsBlock() + '<div class="section-title">Aportado vs. valor mes a mes</div><div class="card evo-card"><div class="evo-legend-row"><span class="evo-legend-item"><span class="evo-line-sample" style="background:var(--invest-ink);"></span>Aportado</span><span class="evo-legend-item"><span class="evo-line-sample dashed" style="border-color:var(--accent);"></span>Valor estimado</span></div>' + buildDualLineChart(invMonths, aportadoSerie, valorSerie, "var(--invest-ink)", "var(--accent)") + '<div class="evo-caption muted">El valor es una aproximaci\xF3n manual: sube y baja solo cuando t\xFA lo actualizas, o con tus aportes y retiros.</div></div>' + renderPlanificadorSection() + proyeccionCard + '<div class="plan-disclaimer">Herramienta de orden personal, no asesor\xEDa financiera formal. Para decisiones grandes, val\xEDdalo con una persona profesional licenciada.</div><div style="height:12px;"></div>';
-    document.getElementById("resumen-content").innerHTML = html;
-    updatePlanCompute();
-  }
-  __name(renderInvestmentsView, "renderInvestmentsView");
-  function renderSummarySubContent() {
-    if (state.summarySub === "balance") renderBalanceView();
-    else if (state.summarySub === "presupuesto") renderBudgetView();
-    else if (state.summarySub === "evolucion") renderEvolutionView();
-    else if (state.summarySub === "inversiones") renderInvestmentsView();
-    else renderComingSoon(state.summarySub);
-  }
-  __name(renderSummarySubContent, "renderSummarySubContent");
-  var SUBS_META = {
-    balance: { label: "Balance" },
-    presupuesto: { label: "Presupuesto" },
-    evolucion: { label: "Evoluci\xF3n" },
-    inversiones: { label: "Inversiones" }
-  };
-  function renderSummarySubtabsInner() {
-    return state.summarySubOrder.map(
-      (id) => '<button class="subtab ' + (state.summarySub === id ? "active" : "") + (state.subtabDragId === id ? " dragging" : "") + '" data-summary-sub="' + id + '">' + SUBS_META[id].label + "</button>"
-    ).join("");
-  }
-  __name(renderSummarySubtabsInner, "renderSummarySubtabsInner");
-  function renderSummaryView() {
-    document.getElementById("header-title").textContent = "Resumen";
-    const subHtml = '<div class="subtabs" id="resumen-subtabs">' + renderSummarySubtabsInner() + "</div>";
-    document.getElementById("view-root").innerHTML = subHtml + '<div id="resumen-content"></div>';
-    renderSummarySubContent();
-  }
-  __name(renderSummaryView, "renderSummaryView");
-
-  // src/views/evolucion.ts
-  function monthTotals(monthKey) {
-    const monthTx = txsOfMonth(monthKey);
-    let ingresos = 0, entradas = 0, gastos = 0, inversiones = 0, cobros = 0, movimientoCapital = 0, porClasificar = 0;
-    monthTx.forEach((t) => {
-      if (t.estado === "no_es_gasto") return;
-      if (t.tipo === "ingreso") {
-        const bruto = t.monto;
-        entradas += bruto;
-        const nature = incomeNatureOf(t);
-        if (nature === "ingreso") ingresos += bruto;
-        else if (nature === "reembolso") ingresos += incomeNatureAmount(t);
-        else if (nature === "cobro") cobros += bruto;
-        else if (nature === "movimiento_capital") movimientoCapital += bruto;
-        else porClasificar += bruto;
-      } else if (t.tipo === "gasto") {
-        gastos += aggregatedTxAmount(t);
-      } else if (t.tipo === "inversion") {
-        inversiones += aggregatedTxAmount(t);
-      }
+    tx.push({
+      id: id(),
+      fecha: dateInMonth(0, 3),
+      hora: "14:10",
+      comercio: "Transferencia entre mis cuentas",
+      monto: 2e5,
+      medio: "cuenta_vista",
+      tipo: "gasto",
+      recurrencia: "variable",
+      estado: "no_es_gasto",
+      categorias: [],
+      porCobrar: [],
+      reglaAuto: false,
+      nota: "Traspaso, no es un gasto real"
     });
+    tx.push({
+      id: id(),
+      fecha: dateInMonth(0, 16),
+      hora: "09:00",
+      comercio: "Freelance dise\xF1o web",
+      monto: 18e4,
+      medio: "cuenta_vista",
+      tipo: "ingreso",
+      recurrencia: "variable",
+      estado: "confirmado",
+      categorias: [{ cat: "pololos_extra", monto: 18e4 }],
+      porCobrar: [],
+      reglaAuto: false,
+      nota: ""
+    });
+    tx.push({
+      id: id(),
+      fecha: dateInMonth(0, 2),
+      hora: "12:00",
+      comercio: "Venta bicicleta vieja",
+      monto: 4e4,
+      medio: "efectivo",
+      tipo: "ingreso",
+      recurrencia: "variable",
+      estado: "confirmado",
+      categorias: [],
+      porCobrar: [],
+      reglaAuto: false,
+      nota: ""
+    });
+    return tx;
+  }
+  __name(demoTransactions, "demoTransactions");
+  function demoBudgets() {
     return {
-      ingresos,
-      entradas,
-      gastos,
-      inversiones,
-      cobros,
-      movimientoCapital,
-      porClasificar,
-      // Flujo de caja del mes: TODAS las entradas (no solo el ingreso real), para cuadrar con el
-      // banco -- ver la nota de arriba.
-      balance: entradas - gastos - inversiones,
-      // Tasa de ahorro = cuánto de lo que ganaste realmente destinaste a invertir (no "lo que
-      // sobró" -- eso puede incluir plata sin invertir todavía, sentada en la cuenta corriente,
-      // que no es ahorro real en el sentido de construir patrimonio). Siempre sobre ingreso REAL,
-      // nunca sobre el total de entradas.
-      tasaAhorro: ingresos > 0 ? inversiones / ingresos * 100 : 0,
-      tasaGastos: ingresos > 0 ? gastos / ingresos * 100 : 0
+      supermercado: { meta: 18e4, alertas: { 80: true, 90: true, 100: true } },
+      transporte: { meta: 9e4, alertas: { 80: true, 90: false, 100: true } },
+      restoranes: { meta: 6e4, alertas: { 80: true, 90: true, 100: true } },
+      hogar: { meta: 42e4, alertas: { 80: false, 90: false, 100: true } },
+      salud: { meta: 3e4, alertas: { 80: true, 90: true, 100: true } },
+      suscripciones: { meta: 15e3, alertas: { 80: true, 90: true, 100: true } }
     };
   }
-  __name(monthTotals, "monthTotals");
-  function yearTotals(year) {
-    const months = fullYearMonths(year);
-    let ingresos = 0, entradas = 0, gastos = 0, inversiones = 0, cobros = 0, movimientoCapital = 0, porClasificar = 0;
-    months.forEach((m) => {
-      const t = monthTotals(m);
-      ingresos += t.ingresos;
-      entradas += t.entradas;
-      gastos += t.gastos;
-      inversiones += t.inversiones;
-      cobros += t.cobros;
-      movimientoCapital += t.movimientoCapital;
-      porClasificar += t.porClasificar;
-    });
+  __name(demoBudgets, "demoBudgets");
+  function demoPlatformData() {
+    const hist = /* @__PURE__ */ __name((base, step) => {
+      const out = {};
+      for (let m = 4; m >= 0; m--) out[monthKey(m)] = base + (4 - m) * step;
+      return out;
+    }, "hist");
     return {
-      year,
+      fintual: { valorHistorial: hist(81600, 105e3), fechaActualizacion: dateInMonth(0, 10), tasaAnual: null, comision: null, plazo: "largo" },
+      racional: { valorHistorial: hist(40800, 33e3), fechaActualizacion: dateInMonth(1, 10), tasaAnual: null, comision: null, plazo: "largo" },
+      banco_chile: { valorHistorial: hist(37e5, 45e4), fechaActualizacion: dateInMonth(0, 5), tasaAnual: null, comision: null, plazo: null },
+      buda: { valorHistorial: hist(2e5, 15e3), fechaActualizacion: dateInMonth(1, 1), tasaAnual: null, comision: null, plazo: "largo" }
+    };
+  }
+  __name(demoPlatformData, "demoPlatformData");
+  function demoInvestmentGoals() {
+    const startMonth = monthKey(4);
+    return [
+      { id: "demo_m1", nombre: "Fondo de emergencia", montoObjetivo: 3e6, aporteMensualMeta: 15e4, plataformaId: "banco_chile", plazo: "corto", comision: null, startMonth, startingAmount: 208e4, checks: { [monthKey(4)]: true, [monthKey(3)]: true, [monthKey(2)]: true, [monthKey(1)]: true, [monthKey(0)]: true } },
+      { id: "demo_m2", nombre: "Pie departamento", montoObjetivo: 8e6, aporteMensualMeta: 3e5, plataformaId: "banco_chile", plazo: "medio", comision: null, startMonth, startingAmount: 312e4, checks: { [monthKey(4)]: true, [monthKey(3)]: true, [monthKey(2)]: true, [monthKey(1)]: true, [monthKey(0)]: true } },
+      { id: "demo_m3", nombre: "Jubilaci\xF3n (APV)", aporteMensualMeta: 1e5, plataformaId: "fintual", plazo: "largo", comision: null, startMonth, startingAmount: 0, checks: { [monthKey(4)]: true, [monthKey(3)]: true, [monthKey(2)]: true, [monthKey(1)]: true, [monthKey(0)]: true } },
+      { id: "demo_m4", nombre: "Cripto largo plazo", aporteMensualMeta: 4e4, plataformaId: "buda", plazo: "largo", comision: null, startMonth, startingAmount: 0, checks: { [monthKey(4)]: true, [monthKey(3)]: true, [monthKey(2)]: false, [monthKey(1)]: true, [monthKey(0)]: true } }
+    ];
+  }
+  __name(demoInvestmentGoals, "demoInvestmentGoals");
+  function demoGroupsBundle() {
+    const myId = currentUser ? currentUser.id : "demo-sin-sesion";
+    const grupoId = "demo_g1";
+    const pYo = "demo_p1", pCaro = "demo_p2";
+    const grupos = [{ id: grupoId, nombre: "Depto con Caro", icono: "\u{1F3E0}", creado_por: myId, invite_code: "DEMO01", created_at: dateInMonth(1, 1) + "T00:00:00Z" }];
+    const participantes = [
+      { id: pYo, grupo_id: grupoId, user_id: myId, nombre: "T\xFA", color: "lavender" },
+      { id: pCaro, grupo_id: grupoId, user_id: null, nombre: "Caro", color: "mint" }
+    ];
+    const gastosCompartidos = [
+      {
+        id: "demo_se1",
+        grupo_id: grupoId,
+        descripcion: "Supermercado del depto",
+        categoria_origen: "supermercado",
+        monto: 64e3,
+        fecha: dateInMonth(0, 9),
+        pagado_por: pYo,
+        registrado_por: myId,
+        division_tipo: "iguales",
+        tx_origen_id: null,
+        reparto: [
+          { id: "demo_sp1", gasto_compartido_id: "demo_se1", participante_id: pYo, monto: 32e3 },
+          { id: "demo_sp2", gasto_compartido_id: "demo_se1", participante_id: pCaro, monto: 32e3 }
+        ]
+      },
+      {
+        id: "demo_se2",
+        grupo_id: grupoId,
+        descripcion: "Cuenta de la luz",
+        categoria_origen: "hogar",
+        monto: 45e3,
+        fecha: dateInMonth(0, 4),
+        pagado_por: pCaro,
+        registrado_por: myId,
+        division_tipo: "iguales",
+        tx_origen_id: null,
+        reparto: [
+          { id: "demo_sp3", gasto_compartido_id: "demo_se2", participante_id: pYo, monto: 22500 },
+          { id: "demo_sp4", gasto_compartido_id: "demo_se2", participante_id: pCaro, monto: 22500 }
+        ]
+      }
+    ];
+    return { grupos, participantes, gastosCompartidos };
+  }
+  __name(demoGroupsBundle, "demoGroupsBundle");
+  function buildDemoBlob() {
+    const months = [];
+    const monthLabel = {};
+    for (let m = 4; m >= 0; m--) {
+      const k = monthKey(m);
+      months.push(k);
+      monthLabel[k] = monthLabelOf(m);
+    }
+    return {
+      transacciones: demoTransactions(),
+      categorias: demoCategories(),
+      mediosPago: {
+        visa_bch: { nombre: "Visa Banco de Chile", corto: "\u2022\u2022\u2022\u2022 4821", icon: "card" },
+        debito_bci: { nombre: "D\xE9bito BCI", corto: "\u2022\u2022\u2022\u2022 9034", icon: "card" },
+        cuenta_vista: { nombre: "Cuenta Vista", corto: "Cta. Vista", icon: "bank" },
+        efectivo: { nombre: "Efectivo", corto: "Efectivo", icon: "cash" }
+      },
+      presupuestos: demoBudgets(),
+      monthlyBudgetTotal: 9e5,
+      metasGastoPct: { fijo: 45, variable: 17 },
+      datosTransferencia: { nombre: "Cuenta de ejemplo", rut: "11.111.111-1", banco: "Banco de Chile", tipoCuenta: "Cuenta Vista", numeroCuenta: "000000000", email: "demo@ejemplo.cl" },
+      metasInversion: demoInvestmentGoals(),
+      plataformas: demoPlatformData(),
+      planificador: { base: 9e5, metaPcts: {} },
+      metasTotalChecks: {},
+      presupuestoAvisosEnviados: {},
       months,
-      ingresos,
-      entradas,
-      gastos,
-      inversiones,
-      cobros,
-      movimientoCapital,
-      porClasificar,
-      // Mismo motivo que en monthTotals: flujo de caja del año completo, no solo el ingreso real.
-      balance: entradas - gastos - inversiones,
-      // Tasa de ahorro = cuánto de lo que ganaste realmente destinaste a invertir (no "lo que
-      // sobró" -- eso puede incluir plata sin invertir todavía, sentada en la cuenta corriente,
-      // que no es ahorro real en el sentido de construir patrimonio). Siempre sobre ingreso REAL.
-      tasaAhorro: ingresos > 0 ? inversiones / ingresos * 100 : 0,
-      tasaGastos: ingresos > 0 ? gastos / ingresos * 100 : 0
+      monthLabel,
+      contactos: ["Caro", "Pancho"]
     };
   }
-  __name(yearTotals, "yearTotals");
-  var PROJECTION_ASSUMPTIONS = { retornoAnual: 6 };
-  function projectedContributions(mesesPromedio, aniosProyeccion) {
-    const mesActual = todayISO().slice(0, 7);
-    const mesesConDatos = MONTHS.filter((m) => m <= mesActual).slice(-mesesPromedio);
-    const promedioMensual = mesesConDatos.length ? mesesConDatos.reduce((s, m) => s + monthTotals(m).inversiones, 0) / mesesConDatos.length : 0;
-    const aporteMensualUsado = state.simulatedContribution != null ? state.simulatedContribution : promedioMensual;
-    const totalActual = activePlatformIds().reduce((s, id) => s + platformCurrentValue(id), 0);
-    const aporteAnual = aporteMensualUsado * 12;
-    const proyectadoSinRetorno = totalActual + aporteAnual * aniosProyeccion;
-    const retornoAnual = PROJECTION_ASSUMPTIONS.retornoAnual;
-    const r = retornoAnual / 100;
-    const factor = Math.pow(1 + r, aniosProyeccion);
-    const valorFuturoActual = totalActual * factor;
-    const valorFuturoAportes = Math.abs(r) < 1e-4 ? aporteAnual * aniosProyeccion : aporteAnual * ((factor - 1) / r);
-    const proyectadoConRetorno = valorFuturoActual + valorFuturoAportes;
-    return { promedioMensual, aporteMensualUsado, totalActual, proyectadoSinRetorno, proyectadoConRetorno, retornoAnual, meses: mesesConDatos, anios: aniosProyeccion };
+  __name(buildDemoBlob, "buildDemoBlob");
+  function isDemoActive() {
+    return realSnapshot !== null;
   }
-  __name(projectedContributions, "projectedContributions");
-  function buildSparkline(values, w, h, color) {
-    if (values.length < 2) return "";
-    const maxV = Math.max(...values), minV = Math.min(...values);
-    const range = maxV - minV || 1;
-    const stepX = w / (values.length - 1);
-    const pad = 3;
-    const pts = values.map((v, i) => [i * stepX, pad + (1 - (v - minV) / range) * (h - pad * 2)]);
-    const d = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
-    const last = pts[pts.length - 1];
-    return '<svg viewBox="0 0 ' + w + " " + h + '" width="' + w + '" height="' + h + '" style="display:block;overflow:visible;"><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="3" fill="' + color + '"/></svg>';
-  }
-  __name(buildSparkline, "buildSparkline");
-  function buildEvolutionBars(months, selMonth) {
-    const totals = months.map(monthTotals);
-    const maxVal = Math.max(1, ...totals.flatMap((t) => [t.ingresos, t.gastos, t.inversiones]));
-    const W = 320, chartH = 128, padTop = 6, padBottom = 20, H = chartH + padTop + padBottom;
-    const groupW = W / months.length;
-    const barGap = 3, groupPad = 8;
-    let out = "";
-    months.forEach((m, i) => {
-      const t = totals[i];
-      const gx = i * groupW;
-      const isSelected = m === selMonth;
-      const vals = [t.ingresos, t.gastos, t.inversiones];
-      const colors = ["var(--income-fill)", "var(--expense-fill)", "var(--invest-fill)"];
-      const innerX = gx + groupPad / 2;
-      const innerW = groupW - groupPad;
-      const barW = (innerW - barGap * 2) / 3;
-      let bars = "";
-      vals.forEach((v, vi) => {
-        const h = maxVal > 0 ? Math.max(2, v / maxVal * chartH) : 2;
-        const bx = innerX + vi * (barW + barGap);
-        const by = padTop + (chartH - h);
-        bars += '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" width="' + Math.max(0, barW).toFixed(1) + '" height="' + h.toFixed(1) + '" rx="2.5" fill="' + colors[vi] + '" opacity="' + (isSelected ? 1 : 0.4) + '"/>';
-      });
-      const short = MONTH_LABEL[m].split(" ")[0].slice(0, 3);
-      out += '<g data-evo-month="' + m + '" style="cursor:pointer;"><rect x="' + gx.toFixed(1) + '" y="0" width="' + groupW.toFixed(1) + '" height="' + (padTop + chartH + 4).toFixed(1) + '" rx="8" fill="' + (isSelected ? "var(--surface-sunken)" : "transparent") + '"/>' + bars + '<text x="' + (gx + groupW / 2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="9.5" fill="' + (isSelected ? "var(--text)" : "var(--text-tertiary)") + '" font-weight="' + (isSelected ? "700" : "400") + '">' + short + "</text></g>";
-    });
-    return '<svg viewBox="0 0 ' + W + " " + H + '" width="100%" style="display:block;overflow:visible;">' + out + "</svg>";
-  }
-  __name(buildEvolutionBars, "buildEvolutionBars");
-  function metaContribTxs(meta) {
-    return TRANSACTIONS.filter((t) => t.tipo === "inversion" && t.categorias.some((c) => c.cat === meta.id));
-  }
-  __name(metaContribTxs, "metaContribTxs");
-  function metaContribAmount(t, metaId) {
-    return t.categorias.filter((c) => c.cat === metaId).reduce((s, c) => s + c.monto, 0);
-  }
-  __name(metaContribAmount, "metaContribAmount");
-  function metaAportadoNeto(meta) {
-    const contribs = metaContribTxs(meta).reduce((s, t) => s + metaContribAmount(t, meta.id), 0);
-    return (meta.startingAmount || 0) + contribs;
-  }
-  __name(metaAportadoNeto, "metaAportadoNeto");
-  function metaHistorialAt(meta, monthKey) {
-    const start = meta.startMonth || monthKey;
-    if (monthKey < start) return null;
-    const contribs = metaContribTxs(meta).filter((t) => t.fecha.slice(0, 7) <= monthKey).reduce((s, t) => s + metaContribAmount(t, meta.id), 0);
-    return (meta.startingAmount || 0) + contribs;
-  }
-  __name(metaHistorialAt, "metaHistorialAt");
-  function metaMonths(meta) {
-    const start = meta.startMonth || todayISO().slice(0, 7);
-    const end = MONTHS[MONTHS.length - 1] || start;
-    const out = [];
-    let y = parseInt(start.slice(0, 4), 10), m = parseInt(start.slice(5, 7), 10);
-    const ey = parseInt(end.slice(0, 4), 10), em = parseInt(end.slice(5, 7), 10);
-    while (y < ey || y === ey && m <= em) {
-      out.push(y + "-" + String(m).padStart(2, "0"));
-      m++;
-      if (m > 12) {
-        m = 1;
-        y++;
-      }
+  __name(isDemoActive, "isDemoActive");
+  function enterDemoMode() {
+    if (realSnapshot) return;
+    const { grupos, participantes, gastosCompartidos } = { grupos: clone(GROUPS), participantes: clone(GROUP_PARTICIPANTS), gastosCompartidos: clone(SHARED_EXPENSES) };
+    realSnapshot = {
+      blob: buildFullStateBlob(),
+      grupos,
+      participantes,
+      gastosCompartidos,
+      saldosPagados: clone(PAID_BALANCES),
+      mapeoCategorias: clone(CATEGORY_MAPPINGS),
+      sb
+    };
+    if (groupsRealtimeChannel && sb) {
+      sb.removeChannel(groupsRealtimeChannel);
+      setGroupsRealtimeChannel(null);
     }
-    return out;
+    setSb(null);
+    applyStateBlob(buildDemoBlob());
+    const bundle = demoGroupsBundle();
+    setGroups(bundle.grupos);
+    setGroupParticipants(bundle.participantes);
+    setSharedExpenses(bundle.gastosCompartidos);
+    setPaidBalances([]);
+    setCategoryMappings([]);
+    state.demoMode = true;
+    render();
   }
-  __name(metaMonths, "metaMonths");
-  function metaAcumuladoActual(meta) {
-    return metaAportadoNeto(meta);
+  __name(enterDemoMode, "enterDemoMode");
+  function exitDemoMode() {
+    if (!realSnapshot) return;
+    const snap = realSnapshot;
+    realSnapshot = null;
+    applyStateBlob(snap.blob);
+    setGroups(snap.grupos);
+    setGroupParticipants(snap.participantes);
+    setSharedExpenses(snap.gastosCompartidos);
+    setPaidBalances(snap.saldosPagados);
+    setCategoryMappings(snap.mapeoCategorias);
+    setSb(snap.sb);
+    state.demoMode = false;
+    if (snap.sb) subscribeToGroupsLive();
+    render();
   }
-  __name(metaAcumuladoActual, "metaAcumuladoActual");
-  function metaGananciaEstimada(meta) {
-    const aportadoPlataforma = platformAportadoNeto(meta.plataformaId);
-    if (aportadoPlataforma <= 0) return 0;
-    const gananciaPlataforma = Math.max(0, platformCurrentValue(meta.plataformaId) - aportadoPlataforma);
-    const share = metaAportadoNeto(meta) / aportadoPlataforma;
-    return gananciaPlataforma * share;
-  }
-  __name(metaGananciaEstimada, "metaGananciaEstimada");
-  function metaRacha(meta) {
-    const months = metaMonths(meta);
-    let racha = 0;
-    for (let i = months.length - 1; i >= 0; i--) {
-      if (meta.checks[months[i]]) racha++;
-      else break;
-    }
-    return racha;
-  }
-  __name(metaRacha, "metaRacha");
-  function goalsForPlatform(id) {
-    return INVESTMENT_GOALS.filter((m) => m.plataformaId === id);
-  }
-  __name(goalsForPlatform, "goalsForPlatform");
-  function platformGoalsSummary(id) {
-    const metas = goalsForPlatform(id);
-    const totalObjetivo = metas.reduce((s, m) => s + (m.montoObjetivo || 0), 0);
-    const totalAcumulado = metas.reduce((s, m) => s + metaAcumuladoActual(m), 0);
-    const rachas = metas.map(metaRacha);
-    const rachaCombinada = metas.length > 0 && rachas.every((r) => r > 0) ? Math.min(...rachas) : 0;
-    return { metas, totalObjetivo, totalAcumulado, rachaCombinada };
-  }
-  __name(platformGoalsSummary, "platformGoalsSummary");
-  function annualInvestmentGoalProgress(year) {
-    const fixedGoals = INVESTMENT_GOALS.filter((m) => m.aporteMensualMeta != null);
-    const fixedGoalIds = new Set(fixedGoals.map((m) => m.id));
-    const objetivoAnual = fixedGoals.reduce((s, m) => s + (m.aporteMensualMeta || 0), 0) * 12;
-    const aporteAnio = fixedGoals.reduce(
-      (s, m) => s + metaContribTxs(m).filter((t) => t.fecha.slice(0, 4) === year && t.estado !== "no_es_gasto").reduce((s2, t) => s2 + metaContribAmount(t, m.id), 0),
-      0
-    );
-    let otrosAporteAnio = 0;
-    TRANSACTIONS.forEach((t) => {
-      if (t.tipo !== "inversion" || t.estado === "no_es_gasto" || t.fecha.slice(0, 4) !== year) return;
-      t.categorias.forEach((c) => {
-        if (!fixedGoalIds.has(c.cat)) otrosAporteAnio += c.monto;
-      });
-    });
-    return { objetivoAnual, aporteAnio, otrosAporteAnio };
-  }
-  __name(annualInvestmentGoalProgress, "annualInvestmentGoalProgress");
-  function metaTotalRacha() {
-    const year = todayISO().slice(0, 4);
-    const mesActual = todayISO().slice(0, 7);
-    const months = fullYearMonths(year).filter((m) => m <= mesActual);
-    let racha = 0;
-    for (let i = months.length - 1; i >= 0; i--) {
-      if (TOTAL_GOAL_CHECKS[months[i]]) racha++;
-      else break;
-    }
-    return racha;
-  }
-  __name(metaTotalRacha, "metaTotalRacha");
-  function renderTotalChecksGrid() {
-    const year = todayISO().slice(0, 4);
-    const months = fullYearMonths(year);
-    const racha = metaTotalRacha();
-    const cells = months.map((m) => {
-      const checked = !!TOTAL_GOAL_CHECKS[m];
-      const monthIdx = parseInt(m.slice(5, 7), 10) - 1;
-      const short = MONTHS_LONG[monthIdx].slice(0, 3);
-      const label = short.charAt(0).toUpperCase() + short.slice(1);
-      return '<button class="meta-total-check-cell' + (checked ? " done" : "") + '" data-toggle-goal-total-check="' + m + '" aria-pressed="' + (checked ? "true" : "false") + '" aria-label="' + label + " " + year + (checked ? ": objetivo total cumplido" : ": no marcado") + '"><span class="mcc-icon">' + (checked ? ICONS.check : ICONS.close) + '</span><span class="mcc-label">' + label + "</span></button>";
-    }).join("");
-    return '<div class="meta-total-checks-label muted" style="display:flex;align-items:center;gap:6px;justify-content:space-between;"><span>\xBFCumpliste tu objetivo total cada mes?</span>' + (racha > 0 ? '<span class="meta-racha-badge">' + racha + " \u{1F525}</span>" : "") + '</div><div class="meta-total-checks-grid">' + cells + '</div><div class="meta-racha">' + (racha > 0 ? "Racha activa \u2014 cumpliste tu objetivo total " + racha + " " + (racha === 1 ? "mes" : "meses") + " seguidos hasta hoy" : "Sin racha activa \u2014 marca los meses en que cumpliste tu objetivo total") + "</div>";
-  }
-  __name(renderTotalChecksGrid, "renderTotalChecksGrid");
-  function renderGoalEditForm(meta, plataformaId) {
-    const d = state.goalDraft;
-    const ctxId = meta ? meta.plataformaId : plataformaId || state.addGoalPlatformId;
-    const ctxNombre = ctxId ? catInfo(ctxId).nombre : "";
-    return '<div class="card meta-goal-card editing">' + (ctxNombre ? '<div class="meta-goal-ctx muted">' + (meta ? "Meta en " : "Nueva meta en ") + ctxNombre + "</div>" : "") + '<label class="draft-label">Nombre de la meta</label><input type="text" class="draft-input" data-goal-field="nombre" value="' + d.nombre.replace(/"/g, "&quot;") + '" placeholder="Ej: Fondo de emergencia"><label class="draft-label" style="margin-top:12px;">Monto objetivo (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="' + d.montoObjetivo + '" placeholder="D\xE9jalo vac\xEDo si no juntas un total"><div class="platform-hint muted">Ponlo solo si esta meta es juntar un total (ej. el pie de un depto) \u2014 muestra una barra de progreso hacia ese monto. Si es una meta de aporte mensual sin un total fijo, d\xE9jalo vac\xEDo.</div><label class="draft-label" style="margin-top:12px;">Aporte mensual meta (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aporteMensualMeta" value="' + d.aporteMensualMeta + '" placeholder="D\xE9jalo vac\xEDo si aportas lo que puedas"><div class="platform-hint muted">Si tienes un monto fijo que aportas cada mes, ponlo ac\xE1 \u2014 suma al objetivo de inversi\xF3n del a\xF1o y a tu meta de Inversi\xF3n en Balance. Si prefieres aportar "lo que m\xE1s puedas" sin comprometerte a un monto, d\xE9jalo vac\xEDo: igual cuenta como inversi\xF3n real cuando aportes.</div><label class="draft-label" style="margin-top:12px;">\xBFCu\xE1nto tienes ahorrado hasta ahora?</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="aportadoInicial" value="' + d.aportadoInicial + '" placeholder="0"><div class="platform-hint muted">Lo que ya ten\xEDas guardado para esta meta antes de empezar a registrarla ac\xE1. Se suma a lo que categorices desde el mes de inicio de abajo.</div><label class="draft-label" style="margin-top:12px;">\xBFDesde qu\xE9 mes partiste con esta meta?</label><input type="month" class="draft-input" data-goal-field="mesInicio" value="' + d.mesInicio + '"><div class="platform-hint muted">Si empezaste antes de usar la app, hazla partir en ese mes \u2014 as\xED tus transacciones antiguas de ese per\xEDodo tambi\xE9n cuentan para el progreso.</div><label class="draft-label" style="margin-top:12px;">Plazo</label>' + segmentedHtml("meta-plazo", [{ id: "corto", label: "Corto" }, { id: "medio", label: "Medio" }, { id: "largo", label: "Largo" }], d.plazo, false) + '<label class="draft-label" style="margin-top:12px;">Comisi\xF3n anual / TAC (opcional)</label><input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="comision" value="' + d.comision + '" placeholder="Ej: 1.1"><div class="platform-hint muted">El % que te cobra el fondo espec\xEDfico de esta meta \u2014 ponlo t\xFA, la app no te sugiere ning\xFAn n\xFAmero. Se calcula sobre tu ganancia, no sobre el total ahorrado.</div><div style="display:flex;gap:10px;margin-top:14px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-goal-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-goal="' + (meta ? meta.id : "nueva") + '">Guardar</button></div>' + (meta ? state.confirmDeleteGoalId === meta.id ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar la meta "' + meta.nombre + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-goal>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-goal="' + meta.id + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-goal="' + meta.id + '">Eliminar meta</button>' : "") + "</div>";
-  }
-  __name(renderGoalEditForm, "renderGoalEditForm");
-  function metaChecksMonths(meta) {
-    const year = todayISO().slice(0, 4);
-    const tracked = metaMonths(meta);
-    const start = tracked.length ? tracked[0] : todayISO().slice(0, 7);
-    return fullYearMonths(year).filter((m) => m >= start);
-  }
-  __name(metaChecksMonths, "metaChecksMonths");
-  function renderGoalCard(meta) {
-    if (state.editingGoalId === meta.id) return renderGoalEditForm(meta);
-    const trackedMonths = metaMonths(meta);
-    const acumulado = metaAcumuladoActual(meta);
-    const objetivoEsEstimado = meta.montoObjetivo == null && meta.aporteMensualMeta != null;
-    const objetivoEfectivo = meta.montoObjetivo != null ? meta.montoObjetivo : objetivoEsEstimado ? meta.aporteMensualMeta * 12 : null;
-    const tieneObjetivo = objetivoEfectivo != null;
-    const pct = tieneObjetivo && objetivoEfectivo > 0 ? acumulado / objetivoEfectivo * 100 : 0;
-    const racha = metaRacha(meta);
-    const comision = meta.comision;
-    const gananciaMeta = metaGananciaEstimada(meta);
-    const comisionRow = comision != null ? '<div class="platform-comision-row"><span>Comisi\xF3n anual: <b class="tabular">' + comision + '%</b></span><span class="muted tabular">\u2248 ' + money(gananciaMeta * comision / 100) + "/a\xF1o sobre tu ganancia</span></div>" : "";
-    const historialVals = trackedMonths.map((m) => metaHistorialAt(meta, m));
-    const checksRow = metaChecksMonths(meta).map((m) => {
-      const short = MONTH_LABEL[m].split(" ")[0].slice(0, 3);
-      const done = !!meta.checks[m];
-      return '<button class="meta-check-chip' + (done ? " done" : "") + '" data-toggle-goal-check="' + meta.id + '" data-toggle-goal-month="' + m + '"><span class="mcc-icon">' + (done ? ICONS.check : ICONS.close) + '</span><span class="mcc-label">' + short + "</span></button>";
-    }).join("");
-    const stockBlock = tieneObjetivo ? '<div class="meta-goal-figs"><span class="tabular gastado">' + money(acumulado) + '</span><span class="of-text"> de ' + money(objetivoEfectivo) + (objetivoEsEstimado ? " (estimado)" : "") + '</span><span class="budget-pct tabular">' + Math.round(pct) + '%</span></div><div class="budget-track"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, pct)) + '%;background:var(--accent);"></div></div>' : '<div class="meta-goal-figs"><span class="tabular gastado">' + money(acumulado) + '</span><span class="of-text"> aportado hasta ahora</span></div>';
-    const aporteBlock = meta.aporteMensualMeta != null ? '<div class="meta-goal-aporte muted">Meta de aporte<br><span class="tabular" style="color:var(--text);font-weight:600;">' + money(meta.aporteMensualMeta) + "</span>/mes</div>" : "";
-    return '<div class="card meta-goal-card"><div class="meta-goal-head"><span class="meta-goal-name">' + meta.nombre + "</span>" + termChip(meta.plazo) + (racha > 0 ? '<span class="meta-racha-badge">' + racha + " \u{1F525}</span>" : "") + '<button class="budget-edit-btn" data-edit-goal="' + meta.id + '" aria-label="Editar ' + meta.nombre + '">' + ICONS.edit + "</button></div>" + stockBlock + comisionRow + '<div class="meta-goal-spark-row"><div class="meta-goal-spark">' + buildSparkline(historialVals, 120, 32, "var(--accent)") + "</div>" + aporteBlock + '</div><div class="meta-check-row">' + checksRow + '</div><div class="meta-racha">' + (racha > 0 ? "Racha activa \u2014 cumpliste tu aporte " + racha + " " + (racha === 1 ? "mes" : "meses") + " seguidos hasta hoy" : "Sin racha activa \u2014 marca los meses en que cumpliste tu aporte") + "</div></div>";
-  }
-  __name(renderGoalCard, "renderGoalCard");
-  function fullYearMonths(year) {
-    const out = [];
-    for (let m = 1; m <= 12; m++) {
-      const key = year + "-" + String(m).padStart(2, "0");
-      if (!MONTH_LABEL[key]) MONTH_LABEL[key] = monthLabelFor(key);
-      out.push(key);
-    }
-    return out;
-  }
-  __name(fullYearMonths, "fullYearMonths");
-  function renderEvolutionView() {
-    const year = todayISO().slice(0, 4);
-    const months = fullYearMonths(year);
-    const mesActual = todayISO().slice(0, 7);
-    const selMonth = state.evolutionSelectedMonth && months.includes(state.evolutionSelectedMonth) ? state.evolutionSelectedMonth : mesActual;
-    const sel = monthTotals(selMonth);
-    const legendRow = '<div class="evo-legend-row"><span class="evo-legend-item"><span class="evo-dot" style="background:var(--income-fill)"></span>Ingresos</span><span class="evo-legend-item"><span class="evo-dot" style="background:var(--expense-fill)"></span>Gastos</span><span class="evo-legend-item"><span class="evo-dot" style="background:var(--invest-fill)"></span>Inversiones</span></div>';
-    const detailRow = '<div class="evo-detail-row"><div class="evo-detail-item"><span class="evo-detail-label">Ingresos</span><span class="evo-detail-value tabular">' + money(sel.ingresos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Gastos</span><span class="evo-detail-value tabular">' + money(sel.gastos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Inversiones</span><span class="evo-detail-value tabular">' + money(sel.inversiones) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de ahorro</span><span class="evo-detail-value tabular">' + Math.round(sel.tasaAhorro) + '%</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de gastos</span><span class="evo-detail-value tabular">' + Math.round(sel.tasaGastos) + "%</span></div></div>";
-    const yr = yearTotals(selMonth.slice(0, 4));
-    const yearRow = '<div class="evo-detail-row"><div class="evo-detail-item"><span class="evo-detail-label">Ingresos</span><span class="evo-detail-value tabular">' + money(yr.ingresos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Gastos</span><span class="evo-detail-value tabular">' + money(yr.gastos) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Inversiones</span><span class="evo-detail-value tabular">' + money(yr.inversiones) + '</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de ahorro</span><span class="evo-detail-value tabular">' + Math.round(yr.tasaAhorro) + '%</span></div><div class="evo-detail-item"><span class="evo-detail-label">Tasa de gastos</span><span class="evo-detail-value tabular">' + Math.round(yr.tasaGastos) + "%</span></div></div>";
-    const html = '<div class="section-title" style="margin-top:4px;">Ingresos, gastos e inversiones por mes</div><div class="card evo-card">' + legendRow + buildEvolutionBars(months, selMonth) + '<div class="evo-caption muted">Toca un mes para ver el detalle</div><div class="evo-detail-month">' + MONTH_LABEL[selMonth] + "</div>" + detailRow + '</div><div class="section-title">Total del a\xF1o ' + yr.year + '</div><div class="card evo-card"><div class="evo-detail-month">Enero \u2013 Diciembre ' + yr.year + "</div>" + yearRow + // Composition (donut by category, Fijo/Variable/Inversión) lives in Balance, not here --
-    // this is just a text link out, never a duplicated chart (Evolución stays "how things
-    // change over time", Balance stays "composition").
-    '<button class="budget-ver-mas" data-goto-balance-anual>Ver desglose del a\xF1o \u2192</button></div><div class="evo-caption muted" style="padding:0 4px;">\xBFBuscas tus metas de inversi\xF3n y tus plataformas? Ahora viven juntas en <b>Inversiones</b>.</div><div style="height:12px;"></div>';
-    document.getElementById("resumen-content").innerHTML = html;
-  }
-  __name(renderEvolutionView, "renderEvolutionView");
+  __name(exitDemoMode, "exitDemoMode");
 
   // src/views/transacciones.ts
   var PERSONAL_GROUP_ID = "__personal__";
@@ -6738,8 +7090,8 @@
     }
     const toggleDemoBtn = e.target.closest("[data-toggle-demo]");
     if (toggleDemoBtn) {
-      state.demoMode = !state.demoMode;
-      render();
+      if (state.demoMode) exitDemoMode();
+      else enterDemoMode();
       toast(state.demoMode ? "Modo demo activado" : "Modo demo desactivado");
       return;
     }
@@ -7457,6 +7809,10 @@
   }
   __name(boletaWorkerConfigured, "boletaWorkerConfigured");
   var sb = null;
+  function setSb(v) {
+    sb = v;
+  }
+  __name(setSb, "setSb");
   var currentUser = null;
   var currentHouseholdId = null;
   var authMode = "login";
@@ -9544,7 +9900,7 @@
   __name(currentMonthIndex, "currentMonthIndex");
   var fmt = new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
   function money(n) {
-    return state.demoMode ? "$\u2022\u2022\u2022\u2022\u2022\u2022" : fmt.format(Math.round(n));
+    return fmt.format(Math.round(n));
   }
   __name(money, "money");
   function moneyPlain(n) {
@@ -9552,7 +9908,7 @@
   }
   __name(moneyPlain, "moneyPlain");
   function moneyPlainMasked(n) {
-    return state.demoMode ? "\u2022\u2022\u2022\u2022\u2022\u2022" : moneyPlain(n);
+    return moneyPlain(n);
   }
   __name(moneyPlainMasked, "moneyPlainMasked");
   function moneyShort(n) {
