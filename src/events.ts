@@ -5,7 +5,8 @@ import { navClearType, navDepth, navPeek, navPop, navPush, NavFrame } from './na
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter } from './sheet';
-import { CATEGORIES, CONTACTS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
+import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
+import { buildGroupExportWorkbookArrayBuffer } from './group-export';
 import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
@@ -1949,6 +1950,15 @@ phone.addEventListener('click', function(e: any){
   if(exportJsonBtn){
     downloadFile('pitucas-sin-lucas-respaldo-'+todayISO()+'.json', buildBackupJSON(), 'application/json;charset=utf-8;');
     toast('Respaldo JSON descargado');
+    return;
+  }
+  const exportGroupBtn = e.target.closest('[data-export-group]');
+  if(exportGroupBtn){
+    const groupId = exportGroupBtn.getAttribute('data-export-group');
+    const g = GROUPS.find(x=>x.id===groupId);
+    const buffer = buildGroupExportWorkbookArrayBuffer(groupId);
+    downloadFile('pitucas-sin-lucas-grupo-'+(g?g.nombre.replace(/[^a-z0-9]+/gi,'-').toLowerCase():groupId)+'-'+todayISO()+'.xlsx', buffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    toast('Info del grupo descargada');
     return;
   }
   const importAgainBtn = e.target.closest('[data-import-again]');

@@ -147,31 +147,41 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  openReceiptFlow: openReceiptFlow,
 """ + indent + """  buildReconcileDiff: buildReconcileDiff, matchConfidence: matchConfidence, movementLineId: movementLineId,
 """ + indent + """  normalizeComercio: normalizeComercio, isAutomaticOrigin: isAutomaticOrigin, isProtectedOrigin: isProtectedOrigin,
-""" + indent + """  statementPeriod: statementPeriod, regenerateInstallmentsFor: regenerateInstallmentsFor
+""" + indent + """  statementPeriod: statementPeriod, regenerateInstallmentsFor: regenerateInstallmentsFor,
+""" + indent + """  buildIntegrantesRows: buildIntegrantesRows, buildTransaccionesRows: buildTransaccionesRows,
+""" + indent + """  buildDetalleDivisionRows: buildDetalleDivisionRows, buildTransferenciasRows: buildTransferenciasRows,
+""" + indent + """  groupExportSheets: groupExportSheets, buildGroupExportWorkbookArrayBuffer: buildGroupExportWorkbookArrayBuffer,
+""" + indent + """  splitTypeLabel: splitTypeLabel
 """ + indent + """};"""
 
 inline_js_debug = inline_js.replace(anchor, debug_block, 1)
 
-def build(prefix_html, js_body, suffix_html, pdfjs_local=False):
+def build(prefix_html, js_body, suffix_html, pdfjs_local=False, xlsx_local=False):
     p = prefix_html
     if pdfjs_local:
         p = p.replace(
             'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
             'pdf.min.js'
         )
+    if xlsx_local:
+        p = p.replace(
+            'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+            'xlsx.full.min.js'
+        )
     return p + '<script>\n' + js_body + '\n</script>' + suffix_html
 
-# index.html / test.html: identical to source (CDN pdf.js), no debug block.
+# index.html / test.html: identical to source (CDN pdf.js/xlsx), no debug block.
 # Todo lo generado va a public/ -- es exactamente lo que se sube a Cloudflare Pages (ver
-# sección 8 de DOCUMENTACION.md), junto con sw.js, manifest.json, icons/, pdf.min.js/pdf.worker.min.js.
-out_index = build(prefix, inline_js, suffix, pdfjs_local=False)
+# sección 8 de DOCUMENTACION.md), junto con sw.js, manifest.json, icons/, pdf.min.js/pdf.worker.min.js,
+# xlsx.full.min.js.
+out_index = build(prefix, inline_js, suffix, pdfjs_local=False, xlsx_local=False)
 with open('public/index.html', 'w', encoding='utf-8') as f:
     f.write(out_index)
 with open('public/test.html', 'w', encoding='utf-8') as f:
     f.write(out_index)
 
-# test_debug.html: local pdf.js + debug block injected.
-out_debug = build(prefix, inline_js_debug, suffix, pdfjs_local=True)
+# test_debug.html: local pdf.js + local xlsx (sin depender de la red en tests) + debug block.
+out_debug = build(prefix, inline_js_debug, suffix, pdfjs_local=True, xlsx_local=True)
 with open('public/test_debug.html', 'w', encoding='utf-8') as f:
     f.write(out_debug)
 

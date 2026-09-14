@@ -1095,13 +1095,21 @@ export function renderMenuCuenta(){
 export function buildChargeWhatsAppText(t){
   // A 'debo' row (see ReceivableItem.direccion) is money YOU owe someone else, not money to
   // collect — this message is for chasing what people owe YOU, so it's excluded here.
-  const pendientes = (t.porCobrar||[]).filter(p=>p.tipo==='persona' && !p.pagado && p.direccion!=='debo');
+  const rows = (t.porCobrar||[]).filter(p=>p.tipo==='persona' && p.direccion!=='debo');
+  const pendientes = rows.filter(p=>!p.pagado);
   if(pendientes.length===0) return null;
+  // El total mostrado es el del GASTO completo (t.monto), no la suma de lo pendiente -- así la
+  // persona que recibe el mensaje ve cuánto costó todo, no solo lo que a ella le falta pagar. Tu
+  // propia parte (lo que te toca a ti del reparto, si participas) sale primero y numerada igual
+  // que el resto, para que se vea que te estás sumando a la división y no solo cobrando.
+  const otrosSum = rows.reduce((s,p)=>s+Math.round(p.monto||0),0);
+  const tuParte = Math.max(Math.round(t.monto||0) - otrosSum, 0);
   const lines = ['Pendiente de pago'];
-  pendientes.forEach((p,i)=>{ lines.push((i+1)+'. '+(p.persona||'Sin nombre')+' '+fmt.format(Math.round(p.monto||0))); });
-  const total = pendientes.reduce((s,p)=>s+Math.round(p.monto||0),0);
+  let n = 1;
+  if(tuParte>0){ lines.push(n+'. Tú '+fmt.format(tuParte)); n++; }
+  pendientes.forEach(p=>{ lines.push(n+'. '+(p.persona||'Sin nombre')+' '+fmt.format(Math.round(p.monto||0))); n++; });
   lines.push('');
-  lines.push('Total: '+fmt.format(total));
+  lines.push('Total: '+fmt.format(Math.round(t.monto||0)));
   const d = TRANSFER_INFO;
   const datosLines = [];
   if(d.nombre) datosLines.push(d.nombre);
