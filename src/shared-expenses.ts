@@ -264,6 +264,47 @@ export function draftFromExistingSplit(t: Transaction){
   };
 }
 
+// Group twin of draftFromExistingSplit, above -- reopens "Editar" on an already-shared
+// transaction (tx.groupId/tx.sharedExpenseId set). Rebuilds from SHARED_EXPENSES/its .reparto
+// (already loaded locally for the group detail view) instead of from tx.porCobrar: unlike the
+// no-group case, a group expense you didn't personally pay for wipes tx.porCobrar/categorias
+// down to a bare receipt (see shareExistingTransaction in views/menu.ts) -- the real split only
+// survives in the shared record itself, which every participant already has a local copy of.
+export function draftFromExistingGroupSplit(t: Transaction){
+  const gasto = SHARED_EXPENSES.find(g=>g.id===t.sharedExpenseId);
+  if(!gasto){
+    // Record not loaded (yet) -- a fresh equal split among the group's current members is a
+    // safe fallback (built by hand, not via defaultShareDraft in views/grupos.ts, to avoid a
+    // circular import between that file and this one).
+    const participantes = participantsOfGroup(t.groupId);
+    return {
+      txId: t.id, groupId: t.groupId, divisionTipo:'iguales' as SplitType,
+      pagadoPorId: participantes[0] ? participantes[0].id : null,
+      participantesIncluidos: participantes.map(p=>p.id), customValues:{}, extraParticipants:[]
+    };
+  }
+  const divisionTipo: SplitType = (gasto.division_tipo as SplitType) || 'iguales';
+  const total = gasto.monto;
+  const seed = (monto: number) => {
+    if(divisionTipo==='iguales') return '';
+    if(divisionTipo==='pct') return String(total ? Math.round((monto/total)*1000)/10 : 0);
+    return String(monto);
+  };
+  const reparto = gasto.reparto||[];
+  const participantesIncluidos = reparto.map(r=>r.participante_id);
+  if(!participantesIncluidos.includes(gasto.pagado_por)) participantesIncluidos.push(gasto.pagado_por);
+  const customValues: Record<string,string> = {};
+  reparto.forEach(r=>{ customValues[r.participante_id] = seed(r.monto); });
+  if(customValues[gasto.pagado_por]==null){
+    const sumaOtros = reparto.reduce((s,r)=>s+r.monto,0);
+    customValues[gasto.pagado_por] = seed(total-sumaOtros);
+  }
+  return {
+    txId: t.id, groupId: t.groupId, divisionTipo, pagadoPorId: gasto.pagado_por,
+    participantesIncluidos, customValues, extraParticipants: []
+  };
+}
+
 // Commits a "divide this expense with someone" draft (no group) into the transaction's own
 // porCobrar -- the no-group twin of shareExistingTransaction (views/menu.ts), which writes to
 // Supabase for the group case. Two shapes, matching ReceivableItem.direccion (see types.ts):

@@ -3,7 +3,7 @@ import { applyCuotaMonto } from './helpers';
 import { render } from './render';
 import { monthLabelFor, regenerateInstallmentsFor } from './shared-expenses';
 import { migrateLegacyCategoryColor } from './category-colors';
-import { CATEGORIES, CATEGORY_SEED_DEFAULTS, CONTACTS, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, MONTH_LABEL, PLANNER, PLATFORM_DATA, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, currentMonthIndex, getPlannerDefaults, importIdCounter, goalIdCounter, monthlyBudgetTotal, setTransferInfo, setSharedExpenses, setGroups, setGroupParticipants, setImportIdCounter, setCategoryMappings, setContacts, setSpendingGoalPct, setInvestmentGoals, setTotalGoalChecks, setGoalIdCounter, setPlanner, setPlatformData, setBudgets, setBudgetAlertsSent, setMonthlyBudgetTotal, setPaidBalances, setTransactions, state, todayISO } from './state';
+import { CATEGORIES, CATEGORY_SEED_DEFAULTS, CONTACTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, MONTH_LABEL, PLANNER, PLATFORM_DATA, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, currentMonthIndex, getPlannerDefaults, importIdCounter, goalIdCounter, monthlyBudgetTotal, setTransferInfo, setSharedExpenses, setGroups, setGroupParticipants, setImportIdCounter, setCategoryMappings, setContacts, setGroupCategoryRules, setSpendingGoalPct, setInvestmentGoals, setTotalGoalChecks, setGoalIdCounter, setPlanner, setPlatformData, setBudgets, setBudgetAlertsSent, setMonthlyBudgetTotal, setPaidBalances, setTransactions, state, todayISO } from './state';
 import { absorbImportedRows, loadSharedExpenses, checkBudgetPushAlerts, groupsRealtimeChannel, setGroupsRealtimeChannel, subscribeToGroupsLive } from './views/menu';
 /* ===================== SUPABASE: ACCOUNTS + CLOUD SAVING =====================
    Up to this point everything ran the same as the mockup: it rendered with the sample data
@@ -70,7 +70,8 @@ export function emptyAppStateBlob(){
     // A diferencia de categorías/medios de pago, no hay un valor "de ejemplo" razonable para
     // los nombres de personas con las que reparte gastos -- una cuenta nueva de verdad arranca
     // sin ninguno, no con los 4 nombres de la maqueta (Cata/Fran/Pancho/Mamá).
-    contactos: []
+    contactos: [],
+    reglasGrupoCategoria: {}
   };
 }
 
@@ -86,7 +87,7 @@ export function buildFullStateBlob(){
     metasGastoPct: SPENDING_GOAL_PCT, datosTransferencia: TRANSFER_INFO,
     metasInversion: INVESTMENT_GOALS, plataformas: PLATFORM_DATA, planificador: PLANNER,
     metasTotalChecks: TOTAL_GOAL_CHECKS, presupuestoAvisosEnviados: BUDGET_ALERTS_SENT,
-    months: MONTHS, monthLabel: MONTH_LABEL, contactos: CONTACTS
+    months: MONTHS, monthLabel: MONTH_LABEL, contactos: CONTACTS, reglasGrupoCategoria: GROUP_CATEGORY_RULES
   };
 }
 
@@ -130,6 +131,7 @@ export function applyStateBlob(blob){
     }
   });
   setContacts(blob.contactos || []);
+  setGroupCategoryRules(blob.reglasGrupoCategoria || {});
   setBudgets(blob.presupuestos || {});
   setMonthlyBudgetTotal(blob.monthlyBudgetTotal || 0);
   setSpendingGoalPct(blob.metasGastoPct || {fijo:45, variable:17});
