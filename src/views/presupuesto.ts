@@ -1,3 +1,4 @@
+import { esc } from '../esc';
 import { catInfo, catNetAmount, netExpenseTx, monthlyReimbursementTotal, reimbursementTotalForMonths, txsOfMonth } from '../helpers';
 import { categoryColorVars } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
@@ -62,7 +63,7 @@ export function renderBudgetEditForm(catId, cfg){
   return '<div class="card budget-cat-card editing">'+
     '<div class="budget-cat-head">'+
       '<span class="budget-cat-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
-      '<span class="budget-cat-name">'+cat.nombre+'</span>'+
+      '<span class="budget-cat-name">'+esc(cat.nombre)+'</span>'+
     '</div>'+
     '<label class="draft-label">Meta mensual</label>'+
     '<input type="text" inputmode="decimal" class="draft-input tabular" data-budget-goal-input value="'+d.meta+'" placeholder="0">'+
@@ -73,7 +74,7 @@ export function renderBudgetEditForm(catId, cfg){
       '<button class="save-tx-btn" style="flex:1;" data-save-budget="'+catId+'">Guardar</button>'+
     '</div>'+
     (cfg ? (state.confirmDeleteBudgetCatId===catId
-      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar el presupuesto de "'+cat.nombre+'"? No se puede deshacer.</div>'+
+      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar el presupuesto de "'+esc(cat.nombre)+'"? No se puede deshacer.</div>'+
         '<div style="display:flex;gap:10px;">'+
           '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-budget>Cancelar</button>'+
           '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-budget="'+catId+'">Sí, eliminar</button>'+
@@ -94,7 +95,7 @@ export function renderBudgetCatCard(catId){
   if(!cfg){
     return '<div class="card budget-cat-card empty">'+
       '<span class="budget-cat-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
-      '<span class="budget-cat-name">'+cat.nombre+'</span>'+
+      '<span class="budget-cat-name">'+esc(cat.nombre)+'</span>'+
       '<button class="budget-add-link" data-edit-budget="'+catId+'">+ Agregar presupuesto</button>'+
     '</div>';
   }
@@ -110,8 +111,8 @@ export function renderBudgetCatCard(catId){
   return '<div class="card budget-cat-card">'+
     '<div class="budget-cat-head">'+
       '<span class="budget-cat-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
-      '<span class="budget-cat-name">'+cat.nombre+'</span>'+
-      '<button class="budget-edit-btn" data-edit-budget="'+catId+'" aria-label="Editar presupuesto de '+cat.nombre+'">'+ICONS.edit+'</button>'+
+      '<span class="budget-cat-name">'+esc(cat.nombre)+'</span>'+
+      '<button class="budget-edit-btn" data-edit-budget="'+catId+'" aria-label="Editar presupuesto de '+esc(cat.nombre)+'">'+ICONS.edit+'</button>'+
     '</div>'+
     '<div class="budget-cat-figs"><span class="tabular gastado">'+money(gastado)+'</span><span class="of-text"> de '+money(meta)+'</span><span class="budget-pct tabular">'+Math.round(pct)+'%</span></div>'+
     renderBudgetBar(pct)+

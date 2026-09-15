@@ -1,3 +1,4 @@
+import { esc } from './esc';
 import { allCollected, catInfo, dayLabel, incomeNatureOf, paymentMethodInfo, pendingEffectiveAmount, pendingLinkedTo, allPendingReceivables, receivableTotal, hasReceivableType, receivableAssignedTotal, incomeAssignedTotal, receivablesLinkedFrom, receivableEstado } from './helpers';
 import { navPopIfTop, navPush } from './nav';
 import { categoryColorVars } from './category-colors';
@@ -37,7 +38,7 @@ export function currentEditableTx(){
 
 export function segmentedHtml(name, options, value, disabled?){
   return '<div class="segmented" data-seg="'+name+'">'+options.map(o=>
-    '<button data-seg-val="'+o.id+'" class="'+(value===o.id?'active':'')+'" '+(disabled?'disabled':'')+'>'+o.label+'</button>'
+    '<button data-seg-val="'+o.id+'" class="'+(value===o.id?'active':'')+'" '+(disabled?'disabled':'')+'>'+esc(o.label)+'</button>'
   ).join('')+'</div>';
 }
 
@@ -63,7 +64,7 @@ export function renderCategoryRows(t, allowSplit){
   const rows = list.map((c,idx)=>{
     const ci = c.cat ? catInfo(c.cat) : null;
     const opts = '<option value="">Sin categoría</option>'+investOrPlainOptions(t.tipo, c.cat).map(o=>
-      '<option value="'+o.value+'" '+(c.cat===o.value?'selected':'')+'>'+o.label+'</option>'
+      '<option value="'+o.value+'" '+(c.cat===o.value?'selected':'')+'>'+esc(o.label)+'</option>'
     ).join('');
     const shown = unit==='%' ? (t.monto ? Math.round((c.monto/t.monto)*1000)/10 : 0) : c.monto;
     return '<div class="split-row" data-cat-row="'+idx+'">'+
@@ -111,7 +112,7 @@ function renderPersonaSettlementRows(t){
     const isDebo = p.direccion==='debo';
     // 'debo' (someone else paid, you owe THEM): the label reads "Le debes a <payer>". Absent or
     // 'me_deben' (you paid, unchanged from before this feature): "<persona> te debe".
-    const etiqueta = isDebo ? 'Le debes a '+(p.persona||'esta persona') : (p.persona||'Sin nombre')+' te debe';
+    const etiqueta = isDebo ? 'Le debes a '+esc(p.persona||'esta persona') : esc(p.persona||'Sin nombre')+' te debe';
     const nameField = '<span style="flex:1;min-width:0;"><span class="persona-label" style="font-size:13px;font-weight:600;">'+etiqueta+'</span></span>';
     // Un cobro PARCIALMENTE asignado (ver assignIncomeToReceivable en helpers.ts) sigue
     // mostrando el monto completo que le corresponde (pendingEffectiveAmount no cambia para
@@ -177,9 +178,9 @@ export function renderChargeSplitBlock(t){
     const montoConocido = p.monto!=null;
     const shown = !montoConocido ? '' : (unit==='%' ? Math.round((p.monto/t.monto)*1000)/10 : p.monto);
     const nameField = p.pagado
-      ? '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span class="pend-tipo-tag">Reembolso</span><span class="persona-label" style="font-size:13px;font-weight:600;">'+(p.persona||'Sin nombre')+'</span></span>'
+      ? '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span class="pend-tipo-tag">Reembolso</span><span class="persona-label" style="font-size:13px;font-weight:600;">'+esc(p.persona||'Sin nombre')+'</span></span>'
       : '<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;"><span class="pend-tipo-tag">Reembolso</span>'+
-          '<input type="text" class="persona-label" style="width:100%;" data-charge-name="'+idx+'" value="'+p.persona+'" placeholder="Isapre, seguro…"></span>';
+          '<input type="text" class="persona-label" style="width:100%;" data-charge-name="'+idx+'" value="'+esc(p.persona)+'" placeholder="Isapre, seguro…"></span>';
     // Un reembolso PARCIALMENTE asignado (ver assignIncomeToReceivable) todavía no está pagado
     // -- sin este aviso el campo editable se vería igual a "nada asignado todavía".
     const parcialHint = receivableEstado(p)==='parcial' ? '<span class="pend-esperado muted">ya llegó '+moneyPlainMasked(receivableAssignedTotal(p))+'</span>' : '';
@@ -192,7 +193,7 @@ export function renderChargeSplitBlock(t){
     const linkBtn = (p.pagado || isDraft) ? '' : '<button class="link-btn" data-link-pending="'+idx+'" aria-label="Vincular a un depósito">'+ICONS.inbox+'</button>';
     return '<div>'+
       '<div class="split-row'+(p.pagado?' paid':'')+'" data-charge-row="'+idx+'">'+
-        '<button class="chk-pagado'+(p.pagado?' checked':'')+'" data-toggle-paid="'+idx+'" aria-label="Marcar '+(p.persona||'este reembolso')+' como pagado" aria-pressed="'+(p.pagado?'true':'false')+'">'+ICONS.check+'</button>'+
+        '<button class="chk-pagado'+(p.pagado?' checked':'')+'" data-toggle-paid="'+idx+'" aria-label="Marcar '+esc(p.persona||'este reembolso')+' como pagado" aria-pressed="'+(p.pagado?'true':'false')+'">'+ICONS.check+'</button>'+
         nameField+ amtField+ linkBtn+
         '<button class="rm-btn" data-charge-remove="'+idx+'">'+ICONS.trash+'</button>'+
       '</div>'+
@@ -237,7 +238,7 @@ export function renderDraftCategoryRow(d){
   if(d.tipo==='inversion' && INVESTMENT_GOALS.length===0) return renderInvestGoalEmptyState();
   const ci = chosen ? catInfo(chosen) : null;
   const opts = '<option value="">Sin categoría</option>'+investOrPlainOptions(d.tipo, chosen).map(o=>
-    '<option value="'+o.value+'" '+(chosen===o.value?'selected':'')+'>'+o.label+'</option>'
+    '<option value="'+o.value+'" '+(chosen===o.value?'selected':'')+'>'+esc(o.label)+'</option>'
   ).join('');
   return '<div class="cat-rows"><div class="split-row" data-draft-cat-row>'+
     '<span class="cat-row-icon" style="'+categoryColorVars(ci)+'">'+(ci?catIconMarkup(ci.icon):ICONS.more)+'</span>'+
@@ -250,7 +251,7 @@ export function catPickerGrid(tipoFilter, attrName, selectedId?){
   return '<div class="cat-picker-grid">'+Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo===tipoFilter && (tipoFilter!=='inversion' || !isPlatformArchived(k) || k===selectedId)).map(k=>{
     const c = CATEGORIES[k];
     const sel = k===selectedId;
-    return '<button class="cat-picker-chip" data-'+attrName+'="'+k+'" '+(sel?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+catIconMarkup(c.icon)+' '+c.nombre+'</button>';
+    return '<button class="cat-picker-chip" data-'+attrName+'="'+k+'" '+(sel?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+catIconMarkup(c.icon)+' '+esc(c.nombre)+'</button>';
   }).join('')+'</div>';
 }
 // Same chip-grid look as catPickerGrid, but for classifying an investment-type transaction for
@@ -261,7 +262,7 @@ export function catPickerGrid(tipoFilter, attrName, selectedId?){
 export function investCatPickerGrid(selectedId?){
   return '<div class="cat-picker-grid">'+investmentCatOptions(selectedId).map(o=>{
     const sel = o.value===selectedId;
-    return '<button class="cat-picker-chip" data-pick-cat="'+o.value+'" '+(sel?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+catIconMarkup(o.icon)+' '+o.label+'</button>';
+    return '<button class="cat-picker-chip" data-pick-cat="'+o.value+'" '+(sel?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+catIconMarkup(o.icon)+' '+esc(o.label)+'</button>';
   }).join('')+'</div>';
 }
 // Shown instead of the category picker for an investment-type transaction when there isn't a
@@ -389,7 +390,7 @@ export function renderSheetContent(t){
 
   const cuotaBlock = (t.tipo!=='gasto' || isInvest) ? '' :
     t.cuotaProyectada
-      ? '<div class="sheet-block card" style="padding:16px;"><div class="cuota-note">'+ICONS.layers+'<span>Esta es la cuota '+t.cuotaNumero+' de '+t.cuotaTotal+' de la compra en <b>'+t.comercio+'</b>. Se generó sola a partir de la cuota 1 y va a dejar de aparecer después de la cuota '+t.cuotaTotal+'.</span></div></div>'
+      ? '<div class="sheet-block card" style="padding:16px;"><div class="cuota-note">'+ICONS.layers+'<span>Esta es la cuota '+t.cuotaNumero+' de '+t.cuotaTotal+' de la compra en <b>'+esc(t.comercio)+'</b>. Se generó sola a partir de la cuota 1 y va a dejar de aparecer después de la cuota '+t.cuotaTotal+'.</span></div></div>'
       : '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Pago en cuotas</div>'+
           '<div class="cuota-row"><span class="cuota-icon">'+ICONS.layers+'</span>'+
           '<span class="cuota-text">La pagaste en cuotas y quieres verla los próximos meses</span>'+
@@ -402,7 +403,7 @@ export function renderSheetContent(t){
         '</div>';
 
   const medioOptsExisting = Object.keys(PAYMENT_METHODS).map(function(k){
-    return '<option value="'+k+'" '+(t.medio===k?'selected':'')+'>'+PAYMENT_METHODS[k].nombre+'</option>';
+    return '<option value="'+k+'" '+(t.medio===k?'selected':'')+'>'+esc(PAYMENT_METHODS[k].nombre)+'</option>';
   }).join('');
 
   // The delete button no longer depends on the transaction being imported by email — see
@@ -435,15 +436,15 @@ export function renderSheetContent(t){
       '</div>';
 
   return '<div class="sheet-top">'+
-      '<div class="merchant" id="sheet-title-el">'+t.comercio+'</div>'+
-      '<div class="meta">'+dayLabel(t.fecha)+' · '+t.hora+' · '+paymentMethodInfo(t.medio).nombre+'</div>'+
+      '<div class="merchant" id="sheet-title-el">'+esc(t.comercio)+'</div>'+
+      '<div class="meta">'+dayLabel(t.fecha)+' · '+t.hora+' · '+esc(paymentMethodInfo(t.medio).nombre)+'</div>'+
       '<div class="sheet-amount '+(isIncome?'pos':'')+' tabular">'+(isIncome?'+':'')+money(t.monto)+'</div>'+
-      '<div class="meta" data-note-echo style="margin-top:6px;'+(t.nota?'':'display:none;')+'">'+(t.nota||'')+'</div>'+
+      '<div class="meta" data-note-echo style="margin-top:6px;'+(t.nota?'':'display:none;')+'">'+esc(t.nota||'')+'</div>'+
     '</div>'+
 
     '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nombre, monto y fecha</div>'+
       '<div class="draft-field"><label class="draft-label">Nombre</label>'+
-        '<input type="text" class="draft-input" data-tx-field="comercio" data-tx="'+t.id+'" value="'+t.comercio.replace(/"/g,'&quot;')+'"></div>'+
+        '<input type="text" class="draft-input" data-tx-field="comercio" data-tx="'+t.id+'" value="'+esc(t.comercio)+'"></div>'+
       '<div class="draft-field"><label class="draft-label">Monto</label>'+
         '<div class="edit-amount-row">'+
           '<input type="text" inputmode="decimal" class="draft-input tabular" data-tx-field="monto" data-tx="'+t.id+'" value="'+t.monto+'">'+
@@ -471,7 +472,7 @@ export function renderSheetContent(t){
     (isInvest ? '' :
     '<div class="sheet-block card lock-card'+(t.reglaAuto?' active-rule':'')+'" style="padding:14px 16px;"><div class="lock-row">'+
       '<span class="lock-icon">'+ICONS.lock+'</span>'+
-      '<span class="lock-text">'+(t.reglaAuto ? 'Ya clasificamos siempre así lo de <b>'+t.comercio+'</b>' : 'Clasificar siempre así los gastos de <b>'+t.comercio+'</b>')+'</span>'+
+      '<span class="lock-text">'+(t.reglaAuto ? 'Ya clasificamos siempre así lo de <b>'+esc(t.comercio)+'</b>' : 'Clasificar siempre así los gastos de <b>'+esc(t.comercio)+'</b>')+'</span>'+
       '<button class="switch '+(t.reglaAuto?'on':'')+'" data-toggle-lock="'+t.id+'" aria-label="Activar regla automática" aria-pressed="'+(t.reglaAuto?'true':'false')+'"></button>'+
     '</div></div>')+
 
@@ -496,7 +497,7 @@ export function renderSheetContent(t){
           if(t.estado==='no_es_gasto' || (!vinculo && (t.categorias.length>0 || !hayAlgoQueVincular))) return '';
           return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos</div>'+
             (vinculo
-              ? '<div class="cobro-banner-done">'+ICONS.checkCircle+'<span>Vinculado a '+(vinculo.persona||'un pendiente')+' · '+vinculo.comercio+'</span></div>'+
+              ? '<div class="cobro-banner-done">'+ICONS.checkCircle+'<span>Vinculado a '+(vinculo.persona||'un pendiente')+' · '+esc(vinculo.comercio)+'</span></div>'+
                 '<button class="split-toggle-link" data-unlink-income="'+t.id+'">Quitar vínculo</button>'
               : '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Si este depósito corresponde a un cobro o reembolso pendiente, vincúlalo para tacharlo de la lista.</p>'+
                 '<button class="action-btn" data-open-link-income="'+t.id+'">'+ICONS.inbox+' Vincular a un pendiente</button>')+
@@ -508,7 +509,7 @@ export function renderSheetContent(t){
     + renderShareGroupSection(t)
 
     + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nota</div>'+
-        '<input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="'+t.id+'" value="'+(t.nota||'').replace(/"/g,'&quot;')+'" placeholder="Agregar notas personales">'+
+        '<input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="'+t.id+'" value="'+esc(t.nota||'')+'" placeholder="Agregar notas personales">'+
       '</div>'
 
     + importedBlock
@@ -653,12 +654,12 @@ function renderAssignAmountStep(p, gastoTx, incomeTx, idx){
   const restante = p.monto!=null ? Math.max(p.monto - receivableAssignedTotal(p), 0) : null;
   return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
       '<div class="merchant" style="font-size:17px;">¿Cuánto de este depósito?</div>'+
-      '<div class="meta">'+(p.persona||'Este pendiente')+' — '+gastoTx.comercio+
+      '<div class="meta">'+(p.persona||'Este pendiente')+' — '+esc(gastoTx.comercio)+
         (restante!=null ? ' · quedan '+money(restante) : ' · monto por confirmar')+'</div>'+
     '</div>'+
     '<div class="card" style="padding:14px 16px;margin-top:6px;">'+
       '<div class="split-row" style="align-items:center;margin-bottom:10px;">'+
-        '<span class="link-pick-body"><span class="link-pick-name">'+incomeTx.comercio+'</span>'+
+        '<span class="link-pick-body"><span class="link-pick-name">'+esc(incomeTx.comercio)+'</span>'+
           '<span class="link-pick-sub">'+dayLabel(incomeTx.fecha)+'</span></span>'+
         '<span class="link-pick-amt tabular pos">+'+money(incomeTx.monto)+'</span>'+
       '</div>'+
@@ -688,7 +689,7 @@ export function renderLinkFlowContent(){
         asignaciones.map(a=>{
           const it = getTx(a.incomeTxId);
           return '<div class="split-row" style="align-items:center;">'+
-            '<span style="flex:1;">'+(it?it.comercio:'Depósito')+'</span>'+
+            '<span style="flex:1;">'+esc(it?it.comercio:'Depósito')+'</span>'+
             '<span class="tabular muted" style="margin-right:8px;">'+money(a.monto)+'</span>'+
             '<button class="rm-btn" data-unassign-income="'+lf.expenseTxId+'|'+lf.idx+'|'+a.incomeTxId+'" aria-label="Quitar esta asignación">'+ICONS.trash+'</button>'+
           '</div>';
@@ -698,14 +699,14 @@ export function renderLinkFlowContent(){
     const rows = ingresos.map(t=>{
       const restanteDeposito = Math.max(t.monto - incomeAssignedTotal(t.id), 0);
       return '<button class="link-pick-row" data-select-income="'+t.id+'">'+
-        '<span class="link-pick-body"><span class="link-pick-name">'+t.comercio+'</span>'+
+        '<span class="link-pick-body"><span class="link-pick-name">'+esc(t.comercio)+'</span>'+
           '<span class="link-pick-sub">'+dayLabel(t.fecha)+(restanteDeposito<t.monto?' · le quedan '+money(restanteDeposito)+' sin asignar':'')+'</span></span>'+
         '<span class="link-pick-amt tabular pos">+'+money(t.monto)+'</span>'+
       '</button>';
     }).join('');
     return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
         '<div class="merchant" style="font-size:17px;">¿Qué depósito corresponde?</div>'+
-        '<div class="meta">Elige el ingreso que corresponde a '+(p.persona||'este pendiente')+' — '+gastoTx.comercio+
+        '<div class="meta">Elige el ingreso que corresponde a '+(p.persona||'este pendiente')+' — '+esc(gastoTx.comercio)+
           (yaAsignadoTotal>0 ? ' · ya asignado: '+money(yaAsignadoTotal) : '')+'.</div>'+
       '</div>'+
       asignadosHtml+
@@ -726,7 +727,7 @@ export function renderLinkFlowContent(){
         '<div class="sheet-block-title" style="margin-bottom:6px;">Ya asignado a</div>'+
         linksDeEsteDeposito.map(l=>{
           return '<div class="split-row" style="align-items:center;">'+
-            '<span style="flex:1;">'+(l.persona||'Sin nombre')+' — '+l.comercio+'</span>'+
+            '<span style="flex:1;">'+(l.persona||'Sin nombre')+' — '+esc(l.comercio)+'</span>'+
             '<span class="tabular muted" style="margin-right:8px;">'+money(l.montoAsignado)+'</span>'+
             '<button class="rm-btn" data-unassign-income="'+l.expenseTxId+'|'+l.idx+'|'+ingresoTx.id+'" aria-label="Quitar esta asignación">'+ICONS.trash+'</button>'+
           '</div>';
@@ -735,10 +736,10 @@ export function renderLinkFlowContent(){
     const rows = pendientes.map(p=>{
       const montoTxt = p.monto!=null ? money(p.restante)+' restante' : 'monto por confirmar';
       return '<button class="link-pick-row" data-select-pending="'+p.expenseTxId+'|'+p.idx+'">'+
-        '<span class="link-pick-body"><span class="link-pick-name">'+(p.persona||'Sin nombre')+
+        '<span class="link-pick-body"><span class="link-pick-name">'+esc(p.persona||'Sin nombre')+
           (p.tipo==='reembolso'?' <span class="pend-tipo-tag" style="margin-left:4px;">Reembolso</span>':'')+
           (p.estado==='parcial'?' <span class="pend-tipo-tag" style="margin-left:4px;">Parcial</span>':'')+'</span>'+
-          '<span class="link-pick-sub">'+p.comercio+' · '+dayLabel(p.fecha)+'</span></span>'+
+          '<span class="link-pick-sub">'+esc(p.comercio)+' · '+dayLabel(p.fecha)+'</span></span>'+
         '<span class="link-pick-amt tabular muted">'+montoTxt+'</span>'+
       '</button>';
     }).join('');
@@ -750,7 +751,7 @@ export function renderLinkFlowContent(){
     const gastos = TRANSACTIONS.filter(t=>t.tipo==='gasto' && t.estado!=='no_es_gasto').slice().sort((a,b)=> (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
     const gastoRows = gastos.map(t=>
       '<button class="link-pick-row" data-pick-gasto-reembolso="'+t.id+'">'+
-        '<span class="link-pick-body"><span class="link-pick-name">'+t.comercio+'</span>'+
+        '<span class="link-pick-body"><span class="link-pick-name">'+esc(t.comercio)+'</span>'+
           '<span class="link-pick-sub">'+dayLabel(t.fecha)+'</span></span>'+
         '<span class="link-pick-amt tabular muted">'+money(t.monto)+'</span>'+
       '</button>'
@@ -763,7 +764,7 @@ export function renderLinkFlowContent(){
         : '');
     return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
         '<div class="merchant" style="font-size:17px;">¿A qué pendiente corresponde?</div>'+
-        '<div class="meta">Este depósito de '+money(ingresoTx.monto)+' ('+ingresoTx.comercio+')'+
+        '<div class="meta">Este depósito de '+money(ingresoTx.monto)+' ('+esc(ingresoTx.comercio)+')'+
           (yaAsignadoDelDeposito>0 ? ' ya tiene '+money(yaAsignadoDelDeposito)+' asignado' : '')+'.</div>'+
       '</div>'+
       asignadosHtml+
@@ -824,7 +825,7 @@ export function renderReceiptCapture(){
   const b = state.boleta;
   const configurado = boletaWorkerConfigured();
   return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
-      '<div class="merchant" style="font-size:17px;">Boleta de '+(b.comercio||'esta transacción')+'</div>'+
+      '<div class="merchant" style="font-size:17px;">Boleta de '+esc(b.comercio||'esta transacción')+'</div>'+
       '<div class="meta">Sácale una foto o súbela desde tu galería y la convertimos en una lista de items para repartir.</div>'+
     '</div>'+
     '<div class="boleta-capture-row">'+
@@ -845,7 +846,7 @@ export function renderReceiptItems(){
   const b = state.boleta;
   const rows = b.items.map((item,idx)=>
     '<div class="split-row" data-receipt-item-row="'+idx+'">'+
-      '<input type="text" data-receipt-item-name="'+idx+'" value="'+item.nombre+'" placeholder="Nombre del item">'+
+      '<input type="text" data-receipt-item-name="'+idx+'" value="'+esc(item.nombre)+'" placeholder="Nombre del item">'+
       '<span class="num-wrap"><input type="text" inputmode="decimal" data-receipt-item-amount="'+idx+'" value="'+item.monto+'"><span>$</span></span>'+
       '<button class="rm-btn" data-receipt-item-remove="'+idx+'">'+ICONS.trash+'</button>'+
     '</div>'
@@ -863,7 +864,7 @@ export function renderReceiptItems(){
     '<span class="num-wrap"><input type="text" inputmode="decimal" data-receipt-tip-input value="'+b.propinaValor+'" placeholder="'+(b.propinaUnit==='%'?'Otro %':'Monto $')+'"><span>'+b.propinaUnit+'</span></span>'+
   '</div>';
   return '<div class="sheet-top" style="text-align:left;padding:8px 2px 4px;">'+
-      '<div class="merchant" style="font-size:17px;">'+(b.comercio||'Tu boleta')+'</div>'+
+      '<div class="merchant" style="font-size:17px;">'+esc(b.comercio||'Tu boleta')+'</div>'+
       '<div class="meta">Revisa los items — puedes editarlos, agregar o borrar antes de repartir.</div>'+
     '</div>'+
     rows+
@@ -894,7 +895,7 @@ export function renderReceiptAssign(){
       '<button class="boleta-person-chip'+(asignados.includes(p)?' active':'')+'" data-receipt-toggle-person="'+item.id+'|'+p+'">'+p+'</button>'
     ).join('');
     return '<div class="card boleta-item-block">'+
-      '<div class="boleta-item-head"><span class="boleta-item-name">'+item.nombre+'</span><span class="boleta-item-amt tabular">'+money(item.monto)+'</span></div>'+
+      '<div class="boleta-item-head"><span class="boleta-item-name">'+esc(item.nombre)+'</span><span class="boleta-item-amt tabular">'+money(item.monto)+'</span></div>'+
       '<div class="boleta-person-chips">'+chips+'</div>'+
       (asignados.length===0 ? '<div class="file-format-hint" style="margin-top:8px;">Sin asignar todavía.</div>' : '')+
     '</div>';
@@ -970,7 +971,7 @@ export function saveReceipt(){
 // "undefined" and the filter's category chips showed as "undefined Home", "undefined
 // Supermarket", etc. catIconMarkup already resolves both cases (known name or plain emoji).
 export function chipToggle(attrName, id, label, icon, active){
-  return '<button class="cat-picker-chip" data-'+attrName+'="'+id+'" '+(active?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+(icon?catIconMarkup(icon)+' ':'')+label+'</button>';
+  return '<button class="cat-picker-chip" data-'+attrName+'="'+id+'" '+(active?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+(icon?catIconMarkup(icon)+' ':'')+esc(label)+'</button>';
 }
 export function renderFilterSheetContent(){
   const af = state.advFilters;
@@ -1022,7 +1023,7 @@ export function renderFilterSheetContent(){
 }
 export function renderNewTxSheetContent(d){
   const tipoOpts = [{id:'gasto',label:'Gasto'},{id:'ingreso',label:'Ingreso'},{id:'inversion',label:'Inversión'}];
-  const medioOpts = Object.keys(PAYMENT_METHODS).map(k=>'<option value="'+k+'" '+(d.medio===k?'selected':'')+'>'+PAYMENT_METHODS[k].nombre+'</option>').join('')+
+  const medioOpts = Object.keys(PAYMENT_METHODS).map(k=>'<option value="'+k+'" '+(d.medio===k?'selected':'')+'>'+esc(PAYMENT_METHODS[k].nombre)+'</option>').join('')+
     '<option value="__nuevo_medio__">+ Agregar tarjeta o medio nuevo…</option>';
   const canSave = d.comercio.trim().length>0 && d.monto>0;
   const nm = state.newPaymentMethodDraft;
@@ -1030,9 +1031,9 @@ export function renderNewTxSheetContent(d){
   const newPaymentMethodForm = state.addingPaymentMethod
     ? '<div class="new-medio-form">'+
         '<label class="draft-label">Nombre de la tarjeta o medio</label>'+
-        '<input type="text" class="draft-input" data-new-payment-method-field="nombre" value="'+nm.nombre.replace(/"/g,'&quot;')+'" placeholder="Ej: Visa Falabella, Mach…">'+
+        '<input type="text" class="draft-input" data-new-payment-method-field="nombre" value="'+esc(nm.nombre)+'" placeholder="Ej: Visa Falabella, Mach…">'+
         '<label class="draft-label" style="margin-top:12px;">Últimos 4 dígitos (opcional)</label>'+
-        '<input type="text" inputmode="numeric" maxlength="4" class="draft-input" data-new-payment-method-field="ultimos4" value="'+nm.ultimos4.replace(/"/g,'&quot;')+'" placeholder="Ej: 1234">'+
+        '<input type="text" inputmode="numeric" maxlength="4" class="draft-input" data-new-payment-method-field="ultimos4" value="'+esc(nm.ultimos4)+'" placeholder="Ej: 1234">'+
         '<div style="display:flex;gap:10px;margin-top:12px;">'+
           '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-new-payment-method>Cancelar</button>'+
           '<button class="save-tx-btn" style="flex:1;" data-save-new-payment-method '+(nm.nombre.trim()?'':'disabled')+'>Agregar</button>'+
@@ -1049,7 +1050,7 @@ export function renderNewTxSheetContent(d){
 
     '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Comercio y monto</div>'+
       '<div class="draft-field"><label class="draft-label">Comercio</label>'+
-        '<input type="text" class="draft-input" data-draft-field="comercio" value="'+d.comercio.replace(/"/g,'&quot;')+'" placeholder="Ej: Jumbo, Uber, Sueldo…"></div>'+
+        '<input type="text" class="draft-input" data-draft-field="comercio" value="'+esc(d.comercio)+'" placeholder="Ej: Jumbo, Uber, Sueldo…"></div>'+
       '<div class="draft-field" style="margin-top:14px;"><label class="draft-label">Monto</label>'+
         '<input type="text" inputmode="decimal" class="draft-input amount tabular" data-draft-field="monto" value="'+(d.monto||'')+'" placeholder="0"></div>'+
       '<div class="draft-field" style="margin-top:14px;"><label class="draft-label">Fecha</label>'+

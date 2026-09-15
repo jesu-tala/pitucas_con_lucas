@@ -154,7 +154,8 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  buildIntegrantesRows: buildIntegrantesRows, buildTransaccionesRows: buildTransaccionesRows,
 """ + indent + """  buildDetalleDivisionRows: buildDetalleDivisionRows, buildTransferenciasRows: buildTransferenciasRows,
 """ + indent + """  groupExportSheets: groupExportSheets, buildGroupExportWorkbookArrayBuffer: buildGroupExportWorkbookArrayBuffer,
-""" + indent + """  splitTypeLabel: splitTypeLabel
+""" + indent + """  splitTypeLabel: splitTypeLabel,
+""" + indent + """  esc: esc, toast: toast
 """ + indent + """};"""
 
 inline_js_debug = inline_js.replace(anchor, debug_block, 1)

@@ -1,3 +1,4 @@
+import { esc } from '../esc';
 import { allCollected, capitalizeFirst, catInfo, categoryFilterMatches, dayLabel, netExpenseTx, netIncomeTx, lastSalaryTx, paymentMethodInfo, paymentMethodTagIcon, currentMonthHasSalary, pendingEffectiveAmount, hasReceivableType } from '../helpers';
 import { categoryColorVars } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
@@ -148,15 +149,15 @@ export function renderTxItem(t){
   return '<button class="tx-item" data-tx="'+t.id+'">'+
     '<span class="tx-avatar" style="'+categoryColorVars(primaryCat)+'">'+catIconMarkup(primaryCat.icon)+'</span>'+
     '<span class="tx-info">'+
-      '<span class="tx-name">'+t.comercio+'</span>'+
+      '<span class="tx-name">'+esc(t.comercio)+'</span>'+
       '<span class="tx-sub">'+(t.reglaAuto?'<span class="lock-badge">'+ICONS.lockSmall+'</span>':'')+
-        '<span style="overflow:hidden;text-overflow:ellipsis;">'+leftLabel+'</span>'+stateTag+
+        '<span style="overflow:hidden;text-overflow:ellipsis;">'+esc(leftLabel)+'</span>'+stateTag+
       '</span>'+
     '</span>'+
     '<span class="tx-right">'+
       '<span class="tx-amount tabular '+amountClass+(isCobrado?' tachado':'')+'">'+amtDisplay+'</span>'+
       montoRealInline+
-      '<div class="tx-right-sub"><span class="tx-hora">'+t.hora+'</span><span>·</span>'+(paymentMethodTagIcon(medio)?'<span class="medio-tag-icon">'+paymentMethodTagIcon(medio)+'</span>':'')+medio.corto+'</div>'+
+      '<div class="tx-right-sub"><span class="tx-hora">'+t.hora+'</span><span>·</span>'+(paymentMethodTagIcon(medio)?'<span class="medio-tag-icon">'+paymentMethodTagIcon(medio)+'</span>':'')+esc(medio.corto)+'</div>'+
     '</span>'+
   '</button>';
 }
@@ -209,7 +210,7 @@ export function renderTransactionsView(){
     // number alone), unlike a 'YYYY-MM' which needs the month name from MONTH_LABEL.
     const periodoLabel = !state.categoryFilterMonth ? '' : state.categoryFilterMonth.length===4 ? state.categoryFilterMonth : MONTH_LABEL[state.categoryFilterMonth];
     const pillLabel = catInfo(state.categoryFilter).nombre + (periodoLabel ? ' · '+periodoLabel : '');
-    filterPill = '<button class="chip filter-active" data-clear-catfilter="1">'+pillLabel+' '+ICONS.close+'</button>';
+    filterPill = '<button class="chip filter-active" data-clear-catfilter="1">'+esc(pillLabel)+' '+ICONS.close+'</button>';
   }
   const advCount = advFilterCount();
 
@@ -260,7 +261,7 @@ export function renderCuotasProximasBanner(){
   const totalProximas = proximas.reduce((s,t)=>s+t.monto,0);
   const maxFilas = 3;
   const filas = proximas.slice(0,maxFilas).map(t=>
-    '<div class="cuota-proxima-row"><span>'+t.comercio+' · cuota '+t.cuotaNumero+'/'+t.cuotaTotal+'<span class="cuota-proxima-fecha"> · '+capitalizeFirst(dayLabel(t.fecha))+'</span></span><span class="tabular">'+money(t.monto)+'</span></div>'
+    '<div class="cuota-proxima-row"><span>'+esc(t.comercio)+' · cuota '+t.cuotaNumero+'/'+t.cuotaTotal+'<span class="cuota-proxima-fecha"> · '+capitalizeFirst(dayLabel(t.fecha))+'</span></span><span class="tabular">'+money(t.monto)+'</span></div>'
   ).join('');
   const resto = proximas.length>maxFilas ? '<div class="muted" style="font-size:11px;margin-top:4px;">+'+(proximas.length-maxFilas)+' más</div>' : '';
   return '<div class="card cuotas-proximas-card">'+

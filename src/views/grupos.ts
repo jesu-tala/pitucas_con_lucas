@@ -1,3 +1,4 @@
+import { esc } from '../esc';
 import { catInfo, dayLabel } from '../helpers';
 import { categoryColorVars } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
@@ -9,15 +10,21 @@ import { currentUser } from '../supabase';
 /* ===================== GROUPS (shared expenses) ===================== */
 // Round avatar with the participant's initial + color -- same category-color reuse approach
 // (--cat-<color>-fill/ink) so as not to invent a new palette.
+// `nombre` solo aporta su inicial (una letra), pero `color` se mete crudo adentro de un
+// style="..." -- y grupo_participantes.color lo puede escribir cualquier miembro del grupo
+// desde la API, así que sin escapar una comilla ahí se sale del atributo e inyecta HTML.
 export function avatarHtml(nombre, color, size?){
   const s = size||28;
-  const inicial = (nombre||'?').trim().charAt(0).toUpperCase() || '?';
+  const inicial = esc((nombre||'?').trim().charAt(0).toUpperCase() || '?');
+  const c = esc(color||'lavender');
   return '<span class="avatar-circle" style="width:'+s+'px;height:'+s+'px;font-size:'+Math.round(s*0.42)+'px;'+
-    '--fill:var(--cat-'+(color||'lavender')+'-fill);--ink:var(--cat-'+(color||'lavender')+'-ink);">'+inicial+'</span>';
+    '--fill:var(--cat-'+c+'-fill);--ink:var(--cat-'+c+'-ink);">'+inicial+'</span>';
 }
 
+// El título llega como texto plano en todos los usos (incluido el nombre del grupo, que lo
+// escribe otra persona) -- se escapa acá, una vez, en vez de en cada llamada.
 export function groupScreenHead(title){
-  return '<div class="menu-screen-head"><button class="menu-back-btn" data-group-back aria-label="Volver a Grupos">'+ICONS.chevL+'</button><h2 class="menu-screen-title">'+title+'</h2></div>';
+  return '<div class="menu-screen-head"><button class="menu-back-btn" data-group-back aria-label="Volver a Grupos">'+ICONS.chevL+'</button><h2 class="menu-screen-title">'+esc(title)+'</h2></div>';
 }
 
 export function myParticipantInGroup(groupId){
@@ -100,7 +107,7 @@ export function renderShareGroupSection(tx){
     if(state.confirmRemoveShareId===tx.id){
       return '<div class="sheet-block card" style="padding:16px;">'+
         '<div class="sheet-block-title">Compartido con un grupo</div>'+
-        '<p class="muted" style="font-size:12.5px;">¿Quitar este gasto de "'+(g?g.nombre:'el grupo')+'"? Deja de estar compartido -- no borra nada del historial del grupo.</p>'+
+        '<p class="muted" style="font-size:12.5px;">¿Quitar este gasto de "'+esc(g?g.nombre:'el grupo')+'"? Deja de estar compartido -- no borra nada del historial del grupo.</p>'+
         '<div style="display:flex;gap:10px;margin-top:10px;">'+
           '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-remove-cancel>Cancelar</button>'+
           '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-share-remove-confirm="'+tx.id+'">Sí, quitar</button>'+
@@ -109,7 +116,7 @@ export function renderShareGroupSection(tx){
     }
     return '<div class="sheet-block card" style="padding:16px;">'+
       '<div class="sheet-block-title">Compartido con un grupo</div>'+
-      '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Este gasto está compartido con <b>'+(g?g.nombre:'un grupo')+'</b>.</p>'+
+      '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Este gasto está compartido con <b>'+esc(g?g.nombre:'un grupo')+'</b>.</p>'+
       '<div style="display:flex;gap:10px;">'+
         '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-share-edit="'+tx.id+'">Editar</button>'+
         '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-share-remove-ask="'+tx.id+'">Quitar del grupo</button>'+
@@ -146,7 +153,7 @@ export function renderSplitDraftForm(tx, d){
   ], d.divisionTipo);
   const groupSelectHtml = !d.groupId ? '' :
     '<label class="draft-label">Grupo</label>'+
-    '<select data-share-group>'+GROUPS.map(g=>'<option value="'+g.id+'" '+(g.id===d.groupId?'selected':'')+'>'+g.icono+' '+g.nombre+'</option>').join('')+'</select>';
+    '<select data-share-group>'+GROUPS.map(g=>'<option value="'+g.id+'" '+(g.id===d.groupId?'selected':'')+'>'+esc(g.icono)+' '+esc(g.nombre)+'</option>').join('')+'</select>';
   // A contact (no-group flow, everyone except "Tú") can be renamed or removed from CONTACTS
   // right here -- editing/deleting never touches TRANSACTIONS: a CONTACTS entry is just a
   // quick-pick name, not a reference, so removing it can never delete an expense already split
@@ -163,7 +170,7 @@ export function renderSplitDraftForm(tx, d){
     }
     if(isContact && state.confirmDeleteContactName===p.id){
       return '<div class="split-row" style="align-items:center;flex-wrap:wrap;gap:6px;">'+
-        '<span style="flex:1 1 100%;font-size:12.5px;" class="muted">¿Quitar a <b>'+p.nombre+'</b> de la lista de personas? No borra gastos ya repartidos con '+p.nombre+'.</span>'+
+        '<span style="flex:1 1 100%;font-size:12.5px;" class="muted">¿Quitar a <b>'+esc(p.nombre)+'</b> de la lista de personas? No borra gastos ya repartidos con '+esc(p.nombre)+'.</span>'+
         '<button class="chip" data-cancel-delete-contact>Cancelar</button>'+
         '<button class="chip" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-contact="'+p.id+'">Sí, quitar</button>'+
       '</div>';
@@ -188,11 +195,11 @@ export function renderSplitDraftForm(tx, d){
     return '<div class="split-row" style="align-items:center;">'+
       '<input type="checkbox" data-share-include="'+p.id+'" '+(incluido?'checked':'')+' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
       avatarHtml(p.nombre, p.color, 24)+
-      '<span style="flex:1;margin-left:8px;">'+p.nombre+'</span>'+
+      '<span style="flex:1;margin-left:8px;">'+esc(p.nombre)+'</span>'+
       valueField+
       (isContact
-        ? '<button type="button" class="rm-btn" data-open-edit-contact="'+p.id+'" aria-label="Editar a '+p.nombre+'">'+ICONS.edit+'</button>'+
-          '<button type="button" class="rm-btn" data-ask-delete-contact="'+p.id+'" aria-label="Quitar a '+p.nombre+'">'+ICONS.trash+'</button>'
+        ? '<button type="button" class="rm-btn" data-open-edit-contact="'+p.id+'" aria-label="Editar a '+esc(p.nombre)+'">'+ICONS.edit+'</button>'+
+          '<button type="button" class="rm-btn" data-ask-delete-contact="'+p.id+'" aria-label="Quitar a '+esc(p.nombre)+'">'+ICONS.trash+'</button>'
         : '')+
     '</div>';
   }).join('');
@@ -208,7 +215,7 @@ export function renderSplitDraftForm(tx, d){
   const saveAsRuleHtml = !catUnica ? '' :
     '<label class="split-row" style="align-items:center;cursor:pointer;margin-top:6px;">'+
       '<input type="checkbox" data-share-save-as-rule '+(state.shareDraftSaveAsRule?'checked':'')+' style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
-      '<span style="flex:1;font-size:13px;">Usar siempre esta división para <b>'+catUnica.nombre+'</b></span>'+
+      '<span style="flex:1;font-size:13px;">Usar siempre esta división para <b>'+esc(catUnica.nombre)+'</b></span>'+
     '</label>';
   return '<div class="sheet-block card" style="padding:16px;">'+
     '<div class="sheet-block-title">'+(editandoExistente?'Editar reparto del grupo':d.groupId?'Compartir con un grupo':'Dividir este gasto')+'</div>'+
@@ -217,7 +224,7 @@ export function renderSplitDraftForm(tx, d){
     // Un segmented (fila de botones) se ve bien con 2-4 opciones, pero con un grupo grande (10+
     // personas) se desborda y queda ilegible -- un <select> escala a cualquier cantidad de gente.
     '<label class="draft-label" style="margin-top:12px;">¿Quién pagó?</label>'+
-    '<select data-share-pagador>'+participantes.map(p=>'<option value="'+p.id+'" '+(p.id===d.pagadoPorId?'selected':'')+'>'+p.nombre+'</option>').join('')+'</select>'+
+    '<select data-share-pagador>'+participantes.map(p=>'<option value="'+p.id+'" '+(p.id===d.pagadoPorId?'selected':'')+'>'+esc(p.nombre)+'</option>').join('')+'</select>'+
     '<label class="draft-label" style="margin-top:12px;">¿Entre quiénes se divide?</label>'+
     rows+addPersonRow+
     '<div class="split-remaining"><span>Total repartido</span><span class="'+(ok?'ok':'bad')+' tabular">'+money(suma)+' de '+money(tx.monto)+'</span></div>'+
@@ -262,8 +269,8 @@ export function renderGroupsList(){
     const n = participantsOfGroup(g.id).length;
     const balanceTxt = myBalance===0 ? 'Todo saldado' : (myBalance>0 ? 'Te deben '+money(myBalance) : 'Debes '+money(-myBalance));
     return '<li><button class="menu-list-item" data-group-open="'+g.id+'">'+
-      '<span class="menu-item-icon" style="font-size:20px;">'+(g.icono||'👥')+'</span>'+
-      '<span class="menu-item-label">'+g.nombre+'<span class="menu-item-sub">'+n+' participante'+(n===1?'':'s')+' · '+balanceTxt+'</span></span>'+
+      '<span class="menu-item-icon" style="font-size:20px;">'+esc(g.icono||'👥')+'</span>'+
+      '<span class="menu-item-label">'+esc(g.nombre)+'<span class="menu-item-sub">'+n+' participante'+(n===1?'':'s')+' · '+balanceTxt+'</span></span>'+
       '<span class="menu-item-chev">'+ICONS.chevL+'</span>'+
     '</button></li>';
   }).join('');
@@ -282,7 +289,7 @@ export function renderCreateGroupForm(){
   return groupScreenHead('Crear grupo')+
     '<div class="sheet-block card" style="padding:16px;">'+
       '<label class="draft-label">Nombre</label>'+
-      '<input type="text" class="draft-input" data-group-draft-field="nombre" value="'+d.nombre+'" placeholder="Ej: Depto, Familia, Viaje a Chiloé">'+
+      '<input type="text" class="draft-input" data-group-draft-field="nombre" value="'+esc(d.nombre)+'" placeholder="Ej: Depto, Familia, Viaje a Chiloé">'+
       '<label class="draft-label" style="margin-top:12px;">Ícono</label>'+
       '<div class="icon-picker emoji-icon-picker">'+iconos.map(em=>'<button type="button" data-group-draft-icon="'+em+'" class="'+(d.icono===em?'active':'')+'">'+em+'</button>').join('')+'</div>'+
       '<div class="platform-hint muted" style="margin-top:10px;">Quedas tú como primer participante -- después puedes invitar a alguien más con cuenta, o agregar a alguien sin cuenta que tú administres.</div>'+
@@ -321,7 +328,7 @@ export function renderJoinGroupForm(){
     const seleccionado = d.selectedParticipantId===p.id;
     return '<label class="split-row" style="align-items:center;'+(p.reclamado?'opacity:.5;':'cursor:pointer;')+'">'+
       '<input type="radio" name="join-participant" '+(p.reclamado?'disabled':'')+' '+(seleccionado?'checked':'')+' data-join-select-participant="'+p.id+'" style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
-      '<span style="flex:1;">'+p.nombre+'</span>'+
+      '<span style="flex:1;">'+esc(p.nombre)+'</span>'+
       (p.reclamado?'<span class="muted" style="font-size:12px;">Ya reclamado</span>':'')+
     '</label>';
   }).join('');
@@ -330,7 +337,7 @@ export function renderJoinGroupForm(){
   // botón no puede quedar deshabilitado en base a su contenido: se valida recién al hacer click
   // (mismo patrón que "Crear grupo" -- data-group-create-confirm en events.ts).
   const confirmHabilitado = !!d.selectedParticipantId || d.addingNew;
-  return groupScreenHead('Unirme a "'+r.grupoNombre+'"')+
+  return groupScreenHead('Unirme a "'+esc(r.grupoNombre)+'"')+
     '<div class="sheet-block card" style="padding:16px;">'+
       '<div class="platform-hint muted" style="margin-bottom:10px;">¿Cuál de estos participantes eres tú?</div>'+
       rows+
@@ -338,7 +345,7 @@ export function renderJoinGroupForm(){
         '<input type="radio" name="join-participant" '+(d.addingNew?'checked':'')+' data-join-select-nuevo style="width:18px;height:18px;flex-shrink:0;margin-right:8px;">'+
         '<span style="flex:1;">No estoy en la lista</span>'+
       '</label>'+
-      (d.addingNew ? '<input type="text" class="draft-input" style="margin-top:8px;" data-join-draft-field="nombre" value="'+d.nombre+'" placeholder="Tu nombre en este grupo" autofocus>' : '')+
+      (d.addingNew ? '<input type="text" class="draft-input" style="margin-top:8px;" data-join-draft-field="nombre" value="'+esc(d.nombre)+'" placeholder="Tu nombre en este grupo" autofocus>' : '')+
       (d.errorRoster ? '<div class="field-error">'+d.errorRoster+'</div>' : '')+
       '<div style="display:flex;gap:10px;margin-top:16px;">'+
         '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-group-join-cancel>Cancelar</button>'+
@@ -400,16 +407,16 @@ export function renderGroupExpenseDetailCard(gasto: SharedExpense, groupId: stri
     '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">'+
       catAvatarHtml(ci)+
       '<span style="flex:1;">'+
-        '<span class="sheet-block-title" style="margin:0;display:block;">'+gasto.descripcion+'</span>'+
+        '<span class="sheet-block-title" style="margin:0;display:block;">'+esc(gasto.descripcion)+'</span>'+
         '<span class="muted" style="font-size:12px;">'+dayLabel(gasto.fecha)+'</span>'+
       '</span>'+
       '<span class="tabular" style="font-weight:700;">'+money(gasto.monto)+'</span>'+
     '</div>'+
-    '<div class="muted" style="font-size:12.5px;margin-bottom:8px;">Pagó '+(pagador?pagador.nombre:'?')+'</div>'+
+    '<div class="muted" style="font-size:12.5px;margin-bottom:8px;">Pagó '+esc(pagador?pagador.nombre:'?')+'</div>'+
     (gasto.reparto||[]).map(r=>{
       const p = participantes.find(pp=>pp.id===r.participante_id);
       return '<div class="split-row" style="align-items:center;">'+avatarHtml(p?p.nombre:'?', p?p.color:'neutral', 24)+
-        '<span style="flex:1;margin-left:8px;">'+(p?p.nombre:'?')+'</span>'+
+        '<span style="flex:1;margin-left:8px;">'+esc(p?p.nombre:'?')+'</span>'+
         '<span class="tabular muted">'+money(r.monto)+'</span></div>';
     }).join('')+
     '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);width:100%;margin-top:12px;" data-group-expense-close>Cerrar</button>'+
@@ -436,8 +443,8 @@ export function renderGroupGastosTab(groupId){
       return '<div class="tx-item" data-group-expense-open="'+gc.id+'">'+
         catAvatarHtml(ci)+
         '<span class="tx-info">'+
-          '<span class="tx-name">'+gc.descripcion+'</span>'+
-          '<span class="tx-sub">'+dayLabel(gc.fecha)+' · pagó '+(pagador?pagador.nombre:'?')+' · entre '+entre+'</span>'+
+          '<span class="tx-name">'+esc(gc.descripcion)+'</span>'+
+          '<span class="tx-sub">'+dayLabel(gc.fecha)+' · pagó '+esc(pagador?pagador.nombre:'?')+' · entre '+esc(entre)+'</span>'+
         '</span>'+
         '<span class="tx-right"><span class="tx-amount tabular">'+money(gc.monto)+'</span></span>'+
       '</div>';
@@ -473,20 +480,20 @@ export function renderGroupBalancesTab(groupId){
       }
       if(state.confirmDeleteParticipantId===s.participantId){
         return '<div class="split-row" style="align-items:center;flex-wrap:wrap;gap:6px;">'+
-          '<span style="flex:1 1 100%;font-size:12.5px;" class="muted">¿Eliminar a <b>'+s.nombre+'</b> de este grupo?</span>'+
+          '<span style="flex:1 1 100%;font-size:12.5px;" class="muted">¿Eliminar a <b>'+esc(s.nombre)+'</b> de este grupo?</span>'+
           '<button class="chip" data-cancel-delete-participant>Cancelar</button>'+
           '<button class="chip" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-participant="'+s.participantId+'">Sí, eliminar</button>'+
         '</div>';
       }
       return '<div class="split-row" style="align-items:center;">'+
         avatarHtml(s.nombre, s.color)+
-        '<span style="flex:1;margin-left:10px;">'+s.nombre+(isMe?' (tú)':'')+'</span>'+
+        '<span style="flex:1;margin-left:10px;">'+esc(s.nombre)+(isMe?' (tú)':'')+'</span>'+
         '<span class="tabular" style="color:'+(s.balance>0?'var(--income-ink)':s.balance<0?'var(--expense-ink)':'var(--text-secondary)')+';font-weight:600;">'+
           (s.balance===0?'Al día':(s.balance>0?(isMe?'Te deben ':'Le deben '):(isMe?'Debes ':'Debe '))+money(Math.abs(s.balance)))+
         '</span>'+
         (sinCuenta
-          ? '<button class="rm-btn" data-open-edit-participant="'+s.participantId+'" aria-label="Editar a '+s.nombre+'">'+ICONS.edit+'</button>'+
-            '<button class="rm-btn" data-ask-delete-participant="'+s.participantId+'" aria-label="Eliminar a '+s.nombre+'">'+ICONS.trash+'</button>'
+          ? '<button class="rm-btn" data-open-edit-participant="'+s.participantId+'" aria-label="Editar a '+esc(s.nombre)+'">'+ICONS.edit+'</button>'+
+            '<button class="rm-btn" data-ask-delete-participant="'+s.participantId+'" aria-label="Eliminar a '+esc(s.nombre)+'">'+ICONS.trash+'</button>'
           : '')+
       '</div>';
     }).join('')+
@@ -502,7 +509,7 @@ export function renderGroupBalancesTab(groupId){
       const involvesMe = !!(mi && (t.from===mi.id || t.to===mi.id));
       return '<div class="split-row" style="align-items:center;'+(involvesMe?'background:var(--accent-soft);border-radius:10px;padding:6px 8px;margin:2px -8px;':'')+'">'+
         avatarHtml(from?from.nombre:'?', from?from.color:'neutral', 26)+
-        '<span style="flex:1;margin-left:8px;">'+(from?from.nombre:'?')+' → '+(to?to.nombre:'?')+'</span>'+
+        '<span style="flex:1;margin-left:8px;">'+esc(from?from.nombre:'?')+' → '+esc(to?to.nombre:'?')+'</span>'+
         '<span class="tabular" style="font-weight:600;margin-right:8px;">'+money(t.monto)+'</span>'+
         '<button class="chip" data-mark-transfer-paid="'+groupId+'|'+t.from+'|'+t.to+'|'+Math.round(t.monto)+'">Marcar como pagado</button>'+
       '</div>';
@@ -519,9 +526,9 @@ export function renderManualTransferForm(groupId){
   const ok = d.deId && d.aId && d.deId!==d.aId && d.monto>0;
   return '<div class="sheet-block card" style="padding:12px;background:var(--surface-sunken);">'+
     '<label class="draft-label">De</label>'+
-    '<select data-manual-transfer-field="deId">'+participantes.map(p=>'<option value="'+p.id+'" '+(p.id===d.deId?'selected':'')+'>'+p.nombre+'</option>').join('')+'</select>'+
+    '<select data-manual-transfer-field="deId">'+participantes.map(p=>'<option value="'+p.id+'" '+(p.id===d.deId?'selected':'')+'>'+esc(p.nombre)+'</option>').join('')+'</select>'+
     '<label class="draft-label" style="margin-top:10px;">A</label>'+
-    '<select data-manual-transfer-field="aId">'+participantes.map(p=>'<option value="'+p.id+'" '+(p.id===d.aId?'selected':'')+'>'+p.nombre+'</option>').join('')+'</select>'+
+    '<select data-manual-transfer-field="aId">'+participantes.map(p=>'<option value="'+p.id+'" '+(p.id===d.aId?'selected':'')+'>'+esc(p.nombre)+'</option>').join('')+'</select>'+
     '<label class="draft-label" style="margin-top:10px;">Monto</label>'+
     '<input type="text" inputmode="decimal" class="draft-input amount tabular" data-manual-transfer-field="monto" value="'+(d.monto||'')+'" placeholder="0">'+
     '<label class="draft-label" style="margin-top:10px;">Fecha</label>'+
@@ -575,7 +582,7 @@ export function renderGroupDetail(groupId){
   const inviteBlock =
     '<div class="card" style="padding:14px 16px;margin-top:12px;">'+
       '<div class="sheet-block-title" style="margin-bottom:8px;">Código de invitación</div>'+
-      '<p class="muted" style="margin-bottom:10px;font-size:12px;">Compártelo con quien quieras que se una a "'+g.nombre+'".</p>'+
+      '<p class="muted" style="margin-bottom:10px;font-size:12px;">Compártelo con quien quieras que se una a "'+esc(g.nombre)+'".</p>'+
       '<div style="display:flex;gap:8px;">'+
         '<input class="draft-input" readonly value="'+g.invite_code+'" style="font-size:11.5px;">'+
         '<button class="budget-edit-btn" data-copy-text="'+g.invite_code+'" aria-label="Copiar código de invitación">'+ICONS.copy+'</button>'+
@@ -590,7 +597,7 @@ export function renderGroupDetail(groupId){
   const deleteBlock = !canDelete ? '' :
     (state.confirmDeleteGroupId===groupId
       ? '<div class="sheet-block card" style="padding:16px;margin-top:14px;">'+
-          '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">¿Seguro que quieres eliminar "'+g.nombre+'"? Se borran todos sus gastos y saldos, para todos los participantes. No se puede deshacer.</p>'+
+          '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">¿Seguro que quieres eliminar "'+esc(g.nombre)+'"? Se borran todos sus gastos y saldos, para todos los participantes. No se puede deshacer.</p>'+
           '<div style="display:flex;gap:8px;">'+
             '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-group>Cancelar</button>'+
             '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-group="'+groupId+'">Sí, eliminar</button>'+
@@ -607,7 +614,7 @@ export function renderAddParticipantForm(groupId){
   const d = state.participantDraft;
   return '<div class="sheet-block card" style="padding:12px;margin-top:10px;background:var(--surface-sunken);">'+
     '<label class="draft-label">Nombre</label>'+
-    '<input type="text" class="draft-input" data-participant-draft-field="nombre" value="'+d.nombre+'" placeholder="Sin cuenta -- la administras tú">'+
+    '<input type="text" class="draft-input" data-participant-draft-field="nombre" value="'+esc(d.nombre)+'" placeholder="Sin cuenta -- la administras tú">'+
     '<div style="display:flex;gap:10px;margin-top:10px;">'+
       '<button class="save-tx-btn" style="background:var(--surface);color:var(--text);flex:1;" data-group-add-participant-cancel>Cancelar</button>'+
       '<button class="save-tx-btn" style="flex:1;" data-group-add-participant-confirm="'+groupId+'">Agregar</button>'+
