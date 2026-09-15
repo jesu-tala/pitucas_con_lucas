@@ -484,6 +484,9 @@
   .menu-list-item .menu-item-icon svg{width:16px;height:16px;}
   .menu-list-item .menu-item-label{flex:1;font-size:13.5px;font-weight:600;color:var(--text);line-height:1.35;}
   .menu-list-item .menu-item-sub{display:block;font-size:11.5px;font-weight:400;color:var(--text-secondary);margin-top:2px;}
+  /* Solo para el recordatorio de respaldo vencido: se nota sin gritar (no hay banner en todas las
+     pantallas -- eso terminaría ignorándose, que es justo lo que no sirve de un recordatorio). */
+  .menu-list-item .menu-item-sub-alerta{color:var(--expense-ink);font-weight:600;}
   .menu-list-item .menu-item-chev{color:var(--text-tertiary);flex-shrink:0;}
   .menu-list-item .menu-item-chev svg{width:14px;height:14px;transform:rotate(180deg);}
   .menu-list-item .switch{pointer-events:none;}
@@ -3364,6 +3367,24 @@
     return { creadas: rows.length, conRegla, pendientes };
   }
   __name(importStatementRows, "importStatementRows");
+  var DIAS_PARA_RECORDAR_RESPALDO = 30;
+  function respaldoInfo() {
+    const hayDatos = TRANSACTIONS.length > 0;
+    if (!ultimoRespaldo) return { nunca: true, dias: null, vencido: hayDatos, hayDatos };
+    const hoy = (/* @__PURE__ */ new Date(todayISO() + "T12:00:00")).getTime();
+    const ult = (/* @__PURE__ */ new Date(ultimoRespaldo + "T12:00:00")).getTime();
+    const dias = Math.max(0, Math.round((hoy - ult) / 864e5));
+    return { nunca: false, dias, vencido: hayDatos && dias >= DIAS_PARA_RECORDAR_RESPALDO, hayDatos };
+  }
+  __name(respaldoInfo, "respaldoInfo");
+  function respaldoSubtitulo() {
+    const r = respaldoInfo();
+    if (r.nunca) return r.hayDatos ? "Nunca descargaste uno \u2014 hazlo ahora" : "Descarga una copia completa de tus datos";
+    if (r.dias === 0) return "\xDAltimo respaldo: hoy";
+    if (r.dias === 1) return "\xDAltimo respaldo: ayer";
+    return "\xDAltimo respaldo: hace " + r.dias + " d\xEDas" + (r.vencido ? " \u2014 conviene bajar uno nuevo" : "");
+  }
+  __name(respaldoSubtitulo, "respaldoSubtitulo");
   function renderMenuMain() {
     const nReglas = groupedRules().length;
     const items = [
@@ -3372,7 +3393,7 @@
       { section: "medios", icon: "card", label: "Medios de pago", sub: Object.keys(PAYMENT_METHODS).length + " medios de pago" },
       { section: "reglas", icon: "lockSmall", label: "Reglas de clasificaci\xF3n", sub: nReglas + " regla" + (nReglas === 1 ? "" : "s") + " autom\xE1tica" + (nReglas === 1 ? "" : "s") },
       { section: "exportar", icon: "trending", label: "Exportar a Excel", sub: "Descarga tus transacciones en un CSV" },
-      { section: "respaldo", icon: "inbox", label: "Respaldo en JSON", sub: "Descarga una copia completa de tus datos" },
+      { section: "respaldo", icon: "inbox", label: "Respaldo en JSON", sub: respaldoSubtitulo(), alerta: respaldoInfo().vencido },
       { section: "importar", icon: "plusCircle", label: "Importar CSV de cartola", sub: "Sube movimientos desde un archivo de tu banco" },
       { section: "importarcorreo", icon: "inbox", label: "Importar desde tu correo", sub: "Autom\xE1tico, v\xEDa Gmail" },
       { section: "notificaciones", icon: "bell", label: "Notificaciones", sub: state.notifSubscribed ? "Activadas en este dispositivo" : "Av\xEDsame de transacciones y presupuesto" },
@@ -3381,7 +3402,7 @@
       { section: "asesoria", icon: "sparkle", label: "Asesor\xEDa financiera con Claude", sub: "Pr\xF3ximamente" }
     ];
     document.getElementById("view-root").innerHTML = '<ul class="menu-list">' + items.map(
-      (i) => '<li><button class="menu-list-item" data-menu-open="' + i.section + '"><span class="menu-item-icon">' + ICONS[i.icon] + '</span><span class="menu-item-label">' + i.label + '<span class="menu-item-sub">' + i.sub + '</span></span><span class="menu-item-chev">' + ICONS.chevL + "</span></button></li>"
+      (i) => '<li><button class="menu-list-item" data-menu-open="' + i.section + '"><span class="menu-item-icon">' + ICONS[i.icon] + '</span><span class="menu-item-label">' + esc(i.label) + '<span class="menu-item-sub' + (i.alerta ? " menu-item-sub-alerta" : "") + '">' + esc(i.sub) + '</span></span><span class="menu-item-chev">' + ICONS.chevL + "</span></button></li>"
     ).join("") + "</ul>";
   }
   __name(renderMenuMain, "renderMenuMain");
@@ -3460,7 +3481,9 @@
   }
   __name(renderMenuExportar, "renderMenuExportar");
   function renderMenuRespaldo() {
-    document.getElementById("view-root").innerHTML = menuScreenHead("Respaldo en JSON") + '<div class="card" style="padding:16px;"><div class="menu-item-card" style="padding:0;margin-bottom:16px;"><span class="menu-item-card-icon" style="--fill:var(--cat-sky-fill);--ink:var(--cat-sky-ink)">' + ICONS.inbox + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">Copia completa de tus datos</div><div class="menu-item-card-sub">Transacciones, categor\xEDas, medios, presupuestos, metas y plataformas</div></div></div><button class="save-tx-btn" data-export-json style="width:100%;">Descargar JSON</button><div class="file-format-hint">Pensado para guardar una copia de respaldo o migrarla m\xE1s adelante \u2014 no se puede volver a importar desde esta maqueta.</div></div>';
+    const r = respaldoInfo();
+    const aviso = !r.vencido ? "" : '<div class="card" style="padding:14px 16px;margin-bottom:12px;border-color:var(--expense-ink);"><div style="font-weight:700;font-size:13.5px;color:var(--expense-ink);margin-bottom:4px;">' + (r.nunca ? "Todav\xEDa no tienes ning\xFAn respaldo" : "Tu \xFAltimo respaldo es de hace " + r.dias + " d\xEDas") + '</div><div class="muted" style="font-size:12.5px;">Este archivo es tu \xFAnica copia fuera de la app. Si algo se corrompe o se borra por error, es lo \xFAnico que permite recuperar tus categor\xEDas, medios de pago y transacciones tal como los ten\xEDas.</div></div>';
+    document.getElementById("view-root").innerHTML = menuScreenHead("Respaldo en JSON") + aviso + '<div class="card" style="padding:16px;"><div class="menu-item-card" style="padding:0;margin-bottom:16px;"><span class="menu-item-card-icon" style="--fill:var(--cat-sky-fill);--ink:var(--cat-sky-ink)">' + ICONS.inbox + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">Copia completa de tus datos</div><div class="menu-item-card-sub">Transacciones, categor\xEDas, medios, presupuestos, metas y plataformas</div></div></div><button class="save-tx-btn" data-export-json style="width:100%;">Descargar JSON</button><div class="file-format-hint">' + (r.nunca ? "Todav\xEDa no has descargado ninguno." : "\xDAltimo descargado: " + dayLabel(ultimoRespaldo) + ".") + " Pensado para guardar una copia de respaldo o migrarla m\xE1s adelante \u2014 no se puede volver a importar desde esta maqueta.</div></div>";
   }
   __name(renderMenuRespaldo, "renderMenuRespaldo");
   function renderMenuImportar() {
@@ -7585,7 +7608,9 @@
     const exportJsonBtn = e.target.closest("[data-export-json]");
     if (exportJsonBtn) {
       downloadFile("pitucas-sin-lucas-respaldo-" + todayISO() + ".json", buildBackupJSON(), "application/json;charset=utf-8;");
+      setUltimoRespaldo2(todayISO());
       toast("Respaldo JSON descargado");
+      renderMenuView();
       return;
     }
     const exportGroupBtn = e.target.closest("[data-export-group]");
@@ -8665,7 +8690,8 @@
       // los nombres de personas con las que reparte gastos -- una cuenta nueva de verdad arranca
       // sin ninguno, no con los 4 nombres de la maqueta (Cata/Fran/Pancho/Mamá).
       contactos: [],
-      reglasGrupoCategoria: {}
+      reglasGrupoCategoria: {},
+      ultimoRespaldo: null
     };
   }
   __name(emptyAppStateBlob, "emptyAppStateBlob");
@@ -8693,7 +8719,8 @@
       months: MONTHS,
       monthLabel: MONTH_LABEL,
       contactos: CONTACTS,
-      reglasGrupoCategoria: GROUP_CATEGORY_RULES
+      reglasGrupoCategoria: GROUP_CATEGORY_RULES,
+      ultimoRespaldo
     });
   }
   __name(buildFullStateBlob, "buildFullStateBlob");
@@ -8725,6 +8752,7 @@
       }
     });
     setContacts(blob.contactos || []);
+    setUltimoRespaldo2(blob.ultimoRespaldo || null);
     setGroupCategoryRules(blob.reglasGrupoCategoria || {});
     setBudgets(blob.presupuestos || {});
     setMonthlyBudgetTotal(blob.monthlyBudgetTotal || 0);
@@ -11129,6 +11157,11 @@
     CONTACTS = v;
   }
   __name(setContacts, "setContacts");
+  var ultimoRespaldo = null;
+  function setUltimoRespaldo2(v) {
+    ultimoRespaldo = v;
+  }
+  __name(setUltimoRespaldo2, "setUltimoRespaldo");
   function setBudgets(v) {
     BUDGETS = v;
   }
@@ -11321,7 +11354,9 @@
     buildDetalleDivisionRows: buildDetalleDivisionRows, buildTransferenciasRows: buildTransferenciasRows,
     groupExportSheets: groupExportSheets, buildGroupExportWorkbookArrayBuffer: buildGroupExportWorkbookArrayBuffer,
     splitTypeLabel: splitTypeLabel,
-    esc: esc, toast: toast
+    esc: esc, toast: toast,
+    respaldoInfo: respaldoInfo, DIAS_PARA_RECORDAR_RESPALDO: DIAS_PARA_RECORDAR_RESPALDO,
+    get ultimoRespaldo(){ return ultimoRespaldo; }, set ultimoRespaldo(v){ ultimoRespaldo = v; }
   };
   render();
   initSupabaseAuth();
