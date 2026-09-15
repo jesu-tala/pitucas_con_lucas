@@ -1,3 +1,4 @@
+import { esc } from '../esc';
 import { GOAL_TERM, catInfo, aggregatedTxAmount, termChip } from '../helpers';
 import { categoriesCollidingWithHue, categoryColorVars, categoryFillCss } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
@@ -268,7 +269,7 @@ export function renderPlatformEditForm(id){
   return '<div class="card platform-card editing">'+
     '<div class="platform-head">'+
       '<span class="platform-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
-      '<span class="platform-name">'+cat.nombre+'</span>'+
+      '<span class="platform-name">'+esc(cat.nombre)+'</span>'+
     '</div>'+
     '<label class="draft-label">Valor actual aproximado</label>'+
     '<input type="text" inputmode="decimal" class="draft-input tabular" data-platform-field="valor" value="'+d.valor+'" placeholder="0">'+
@@ -338,7 +339,7 @@ export function renderNewPlatformForm(){
   return '<div class="card platform-card editing">'+
     '<div class="platform-head"><span class="platform-name">Nueva plataforma</span></div>'+
     '<label class="draft-label">Nombre</label>'+
-    '<input type="text" class="draft-input" data-newplatform-field="nombre" value="'+d.nombre+'" placeholder="Ej: Banco Santander">'+
+    '<input type="text" class="draft-input" data-newplatform-field="nombre" value="'+esc(d.nombre)+'" placeholder="Ej: Banco Santander">'+
     '<label class="draft-label" style="margin-top:12px;">Ícono</label>'+
     '<div class="icon-picker">'+CATEGORY_ICON_CHOICES.map(ic=>'<button type="button" data-newplatform-icon="'+ic+'" class="'+(d.icon===ic?'active':'')+'">'+ICONS[ic]+'</button>').join('')+'</div>'+
     '<label class="draft-label" style="margin-top:12px;">Color</label>'+
@@ -404,7 +405,7 @@ export function renderPlatformGroup(id){
     '<button class="platform-head-toggle" data-toggle-platform="'+id+'" aria-expanded="'+(open?'true':'false')+'">'+
       '<span class="platform-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
       '<span class="platform-head-body">'+
-        '<span class="platform-name">'+cat.nombre+'</span>'+
+        '<span class="platform-name">'+esc(cat.nombre)+'</span>'+
         (sinValuacion ? '' : '<span class="platform-update-tag'+(stale?' stale':'')+'">Actualizado hace '+dias+' '+(dias===1?'día':'días')+'</span>')+
       '</span>'+
       // For a sinValuacion platform, "valorActual" IS the aportado (see platformCurrentValue) --
@@ -426,7 +427,7 @@ export function renderPlatformGroup(id){
   const combinedSummary = (metas.length>0 && totalObjetivo>0) ? (
     '<div class="platform-meta-summary">'+
       '<div class="platform-meta-summary-head">'+
-        '<span>Tus metas en '+cat.nombre+'</span>'+
+        '<span>Tus metas en '+esc(cat.nombre)+'</span>'+
         (rachaCombinada>0 ? '<span class="meta-racha-badge">'+rachaCombinada+' 🔥</span>' : '')+
       '</div>'+
       '<div class="platform-meta-summary-figs tabular">'+money(totalAcumulado)+'<span class="of-text"> de '+money(totalObjetivo)+'</span><span class="budget-pct tabular">'+Math.round(combinedPct)+'%</span></div>'+
@@ -440,7 +441,7 @@ export function renderPlatformGroup(id){
     combinedSummary + metas.map(renderGoalCard).join('') +
     (addingHere
       ? renderGoalEditForm(null, id)
-      : '<button class="budget-add-link platform-add-meta-link" data-add-goal="'+id+'">+ Agregar meta a '+cat.nombre+'</button>')
+      : '<button class="budget-add-link platform-add-meta-link" data-add-goal="'+id+'">+ Agregar meta a '+esc(cat.nombre)+'</button>')
   );
 
   const body =
@@ -457,7 +458,7 @@ export function renderPlatformGroup(id){
         '<button class="budget-ver-mas" data-platform-see-more="'+id+'">Ver transacciones →</button>'+
         // Nothing to update on a sinValuacion platform (no valuation, no comision of its own) --
         // no pencil button.
-        (sinValuacion ? '' : '<button class="budget-edit-btn" data-edit-platform="'+id+'" aria-label="Actualizar valor de '+cat.nombre+'">'+ICONS.edit+'</button>')+
+        (sinValuacion ? '' : '<button class="budget-edit-btn" data-edit-platform="'+id+'" aria-label="Actualizar valor de '+esc(cat.nombre)+'">'+ICONS.edit+'</button>')+
       '</div>'+
       '<div class="platform-goal-nest">'+metasBody+'</div>'+
     '</div>';
@@ -477,8 +478,8 @@ export function renderArchivedPlatformsBlock(){
       return '<div class="card platform-card archived-card">'+
         '<div class="platform-head">'+
           '<span class="platform-icon" style="--fill:var(--surface-sunken);--ink:var(--text-tertiary)">'+catIconMarkup(cat.icon)+'</span>'+
-          '<span class="platform-name muted">'+cat.nombre+'</span>'+
-          '<button class="budget-edit-btn" data-reopen-platform="'+id+'" aria-label="Reabrir '+cat.nombre+'">'+ICONS.repeat+'</button>'+
+          '<span class="platform-name muted">'+esc(cat.nombre)+'</span>'+
+          '<button class="budget-edit-btn" data-reopen-platform="'+id+'" aria-label="Reabrir '+esc(cat.nombre)+'">'+ICONS.repeat+'</button>'+
         '</div>'+
         '<button class="budget-ver-mas" data-platform-see-more="'+id+'">Ver transacciones →</button>'+
       '</div>';
@@ -494,7 +495,7 @@ export function metasPorPlazo(plazo){
 export function planMetaRowHtml(meta){
   const pct = PLANNER.metaPcts[meta.id] || 0;
   return '<div class="plan-row">'+
-    '<div class="plan-name">'+meta.nombre+'<small>Meta de aporte: '+money(meta.aporteMensualMeta)+'/mes</small></div>'+
+    '<div class="plan-name">'+esc(meta.nombre)+'<small>Meta de aporte: '+money(meta.aporteMensualMeta)+'/mes</small></div>'+
     '<div class="plan-pctbox"><input type="text" inputmode="decimal" data-plan-goal-pct data-plan-goal-id="'+meta.id+'" value="'+pct+'"><span>%</span></div>'+
     '<div class="plan-amt tabular" data-plan-goal-amt="'+meta.id+'"></div>'+
   '</div>';

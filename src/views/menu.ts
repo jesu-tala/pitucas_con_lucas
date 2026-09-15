@@ -1,3 +1,4 @@
+import { esc } from '../esc';
 import { catInfo, dayLabel, txsOfMonth } from '../helpers';
 import { categoriesCollidingWithHue, categoryColorVars, categoryFillCss, nextCategoryHue } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
@@ -43,8 +44,9 @@ export function groupedRules(){
   }).sort((a,b)=>a.comercio.localeCompare(b.comercio));
 }
 
+// Igual que groupScreenHead: el título es texto plano, se escapa una vez acá.
 export function menuScreenHead(title){
-  return '<div class="menu-screen-head"><button class="menu-back-btn" data-menu-back aria-label="Volver al menú">'+ICONS.chevL+'</button><h2 class="menu-screen-title">'+title+'</h2></div>';
+  return '<div class="menu-screen-head"><button class="menu-back-btn" data-menu-back aria-label="Volver al menú">'+ICONS.chevL+'</button><h2 class="menu-screen-title">'+esc(title)+'</h2></div>';
 }
 
 /* ---------- actual downloads: CSV and JSON ---------- */
@@ -182,13 +184,13 @@ export function renderMenuCatEditForm(){
   const isNew = state.editingCategoryId==='nueva';
   return '<div class="card" style="padding:16px;">'+
     '<label class="draft-label">Nombre</label>'+
-    '<input type="text" class="draft-input" data-cat-draft-field="nombre" value="'+d.nombre+'" placeholder="Ej: Mascotas">'+
+    '<input type="text" class="draft-input" data-cat-draft-field="nombre" value="'+esc(d.nombre)+'" placeholder="Ej: Mascotas">'+
     '<label class="draft-label" style="margin-top:12px;">Tipo</label>'+
     segmentedHtml('cat-draft-tipo', [{id:'gasto',label:'Gasto'},{id:'ingreso',label:'Ingreso'}], d.tipo, !isNew)+
     (!isNew ? '<div class="platform-hint muted">El tipo no se puede cambiar una vez creada la categoría.</div>' : '')+
     '<label class="draft-label" style="margin-top:12px;">Ícono</label>'+
     '<div class="icon-picker emoji-icon-picker">'+CAT_EMOJI_CHOICES.map(em=>'<button type="button" data-cat-draft-icon="'+em+'" class="'+(d.icon===em?'active':'')+'">'+em+'</button>').join('')+'</div>'+
-    '<input type="text" class="draft-input" data-cat-draft-field="icon" value="'+d.icon+'" maxlength="8" placeholder="O escribe/pega cualquier otro emoji 😊" style="margin-top:8px;text-align:center;">'+
+    '<input type="text" class="draft-input" data-cat-draft-field="icon" value="'+esc(d.icon)+'" maxlength="8" placeholder="O escribe/pega cualquier otro emoji 😊" style="margin-top:8px;text-align:center;">'+
     '<label class="draft-label" style="margin-top:12px;">Color</label>'+
     '<div class="hue-picker-row">'+
       '<span class="hue-swatch" style="background:'+categoryFillCss(d.colorHue)+';color:'+categoryFillCss(d.colorHue)+';border-color:'+categoryFillCss(d.colorHue)+'"></span>'+
@@ -206,7 +208,7 @@ export function renderMenuCatEditForm(){
       '<button class="save-tx-btn" style="flex:1;" data-save-cat="'+(isNew?'nueva':state.editingCategoryId)+'">Guardar</button>'+
     '</div>'+
     (!isNew && !isCategoryInUse(state.editingCategoryId) ? (state.confirmDeleteCatId===state.editingCategoryId
-      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar la categoría "'+d.nombre+'"? No se puede deshacer.</div>'+
+      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar la categoría "'+esc(d.nombre)+'"? No se puede deshacer.</div>'+
         '<div style="display:flex;gap:10px;">'+
           '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-cat>Cancelar</button>'+
           '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-cat="'+state.editingCategoryId+'">Sí, eliminar</button>'+
@@ -225,15 +227,15 @@ export function renderMenuCategorias(){
     const c = CATEGORIES[id];
     return '<div class="card menu-item-card">'+
       '<span class="menu-item-card-icon" style="'+categoryColorVars(c)+'">'+catIconMarkup(c.icon)+'</span>'+
-      '<div class="menu-item-card-body"><div class="menu-item-card-name">'+c.nombre+'</div></div>'+
-      '<div class="menu-item-card-actions"><button class="budget-edit-btn" data-edit-cat="'+id+'" aria-label="Editar '+c.nombre+'">'+ICONS.edit+'</button></div>'+
+      '<div class="menu-item-card-body"><div class="menu-item-card-name">'+esc(c.nombre)+'</div></div>'+
+      '<div class="menu-item-card-actions"><button class="budget-edit-btn" data-edit-cat="'+id+'" aria-label="Editar '+esc(c.nombre)+'">'+ICONS.edit+'</button></div>'+
     '</div>';
   }
   function readonlyRowFor(id){
     const c = CATEGORIES[id];
     return '<div class="card menu-item-card">'+
       '<span class="menu-item-card-icon" style="'+categoryColorVars(c)+'">'+catIconMarkup(c.icon)+'</span>'+
-      '<div class="menu-item-card-body"><div class="menu-item-card-name">'+c.nombre+'</div><div class="menu-item-card-sub">Se administra desde Inversiones</div></div>'+
+      '<div class="menu-item-card-body"><div class="menu-item-card-name">'+esc(c.nombre)+'</div><div class="menu-item-card-sub">Se administra desde Inversiones</div></div>'+
     '</div>';
   }
   const gastoIds = Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo==='gasto');
@@ -257,9 +259,9 @@ export function renderMenuPaymentMethodEditForm(){
   const isNew = state.editingPaymentMethodId==='nueva';
   return '<div class="card" style="padding:16px;">'+
     '<label class="draft-label">Nombre</label>'+
-    '<input type="text" class="draft-input" data-payment-method-draft-field="nombre" value="'+d.nombre+'" placeholder="Ej: Mastercard Falabella">'+
+    '<input type="text" class="draft-input" data-payment-method-draft-field="nombre" value="'+esc(d.nombre)+'" placeholder="Ej: Mastercard Falabella">'+
     '<label class="draft-label" style="margin-top:12px;">Detalle (opcional)</label>'+
-    '<input type="text" class="draft-input" data-payment-method-draft-field="corto" value="'+d.corto+'" placeholder="Ej: •••• 1234">'+
+    '<input type="text" class="draft-input" data-payment-method-draft-field="corto" value="'+esc(d.corto)+'" placeholder="Ej: •••• 1234">'+
     '<label class="draft-label" style="margin-top:12px;">Ícono</label>'+
     '<div class="icon-picker" style="grid-template-columns:repeat(4,1fr);">'+MEDIO_ICON_CHOICES.map(ic=>'<button type="button" data-payment-method-draft-icon="'+ic+'" class="'+(d.icon===ic?'active':'')+'">'+ICONS[ic]+'</button>').join('')+'</div>'+
     '<div style="display:flex;gap:10px;margin-top:16px;">'+
@@ -267,7 +269,7 @@ export function renderMenuPaymentMethodEditForm(){
       '<button class="save-tx-btn" style="flex:1;" data-save-payment-method="'+(isNew?'nueva':state.editingPaymentMethodId)+'">Guardar</button>'+
     '</div>'+
     (!isNew && !isPaymentMethodInUse(state.editingPaymentMethodId) ? (state.confirmDeletePaymentMethodId===state.editingPaymentMethodId
-      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar el medio de pago "'+d.nombre+'"? No se puede deshacer.</div>'+
+      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar el medio de pago "'+esc(d.nombre)+'"? No se puede deshacer.</div>'+
         '<div style="display:flex;gap:10px;">'+
           '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-payment-method>Cancelar</button>'+
           '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-payment-method="'+state.editingPaymentMethodId+'">Sí, eliminar</button>'+
@@ -286,8 +288,8 @@ export function renderMenuMedios(){
     const m = PAYMENT_METHODS[id];
     return '<div class="card menu-item-card">'+
       '<span class="menu-item-card-icon" style="--fill:var(--surface-sunken);--ink:var(--text-secondary);">'+ICONS[m.icon]+'</span>'+
-      '<div class="menu-item-card-body"><div class="menu-item-card-name">'+m.nombre+'</div><div class="menu-item-card-sub">'+m.corto+'</div></div>'+
-      '<div class="menu-item-card-actions"><button class="budget-edit-btn" data-edit-payment-method="'+id+'" aria-label="Editar '+m.nombre+'">'+ICONS.edit+'</button></div>'+
+      '<div class="menu-item-card-body"><div class="menu-item-card-name">'+esc(m.nombre)+'</div><div class="menu-item-card-sub">'+esc(m.corto)+'</div></div>'+
+      '<div class="menu-item-card-actions"><button class="budget-edit-btn" data-edit-payment-method="'+id+'" aria-label="Editar '+esc(m.nombre)+'">'+ICONS.edit+'</button></div>'+
     '</div>';
   }).join('');
   document.getElementById('view-root').innerHTML = menuScreenHead('Medios de pago')+
@@ -306,17 +308,17 @@ export function renderMenuReglas(){
         const confirmando = state.confirmDeleteRuleComercio===r.comercio;
         return '<div class="card rule-card">'+
           '<div class="rule-card-head">'+
-            '<span class="rule-card-comercio">'+r.comercio+'</span>'+
+            '<span class="rule-card-comercio">'+esc(r.comercio)+'</span>'+
             '<span class="rule-card-count">'+r.count+' transac.</span>'+
-            (confirmando ? '' : '<button class="budget-edit-btn" data-ask-delete-rule="'+encodeURIComponent(r.comercio)+'" aria-label="Eliminar regla de '+r.comercio+'">'+ICONS.trash+'</button>')+
+            (confirmando ? '' : '<button class="budget-edit-btn" data-ask-delete-rule="'+encodeURIComponent(r.comercio)+'" aria-label="Eliminar regla de '+esc(r.comercio)+'">'+ICONS.trash+'</button>')+
           '</div>'+
           '<div class="rule-card-detail">'+
-            (cat ? '<span class="rule-card-catchip" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+' '+cat.nombre+'</span>' : '')+
+            (cat ? '<span class="rule-card-catchip" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+' '+esc(cat.nombre)+'</span>' : '')+
             '<span>'+(r.tipo==='gasto'?'Gasto':r.tipo==='ingreso'?'Ingreso':'Inversión')+'</span>'+
             '<span>·</span><span>'+(r.recurrencia==='mensual'?'Fijo mensual':'Variable')+'</span>'+
           '</div>'+
           (confirmando
-            ? '<div class="file-format-hint" style="margin:10px 0 8px;">¿Seguro que quieres eliminar la regla de "'+r.comercio+'"? Las transacciones ya clasificadas no cambian, pero las nuevas de este comercio dejarán de clasificarse solas.</div>'+
+            ? '<div class="file-format-hint" style="margin:10px 0 8px;">¿Seguro que quieres eliminar la regla de "'+esc(r.comercio)+'"? Las transacciones ya clasificadas no cambian, pero las nuevas de este comercio dejarán de clasificarse solas.</div>'+
               '<div style="display:flex;gap:10px;">'+
                 '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-rule>Cancelar</button>'+
                 '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-rule="'+encodeURIComponent(r.comercio)+'">Sí, eliminar</button>'+
@@ -343,16 +345,16 @@ function renderGroupCategoryRulesSection(){
       const confirmando = state.confirmDeleteGroupRuleCatId===catId;
       return '<div class="card rule-card">'+
         '<div class="rule-card-head">'+
-          '<span class="rule-card-comercio">'+cat.nombre+'</span>'+
-          (confirmando ? '' : '<button class="budget-edit-btn" data-ask-delete-group-rule="'+catId+'" aria-label="Eliminar regla de grupo para '+cat.nombre+'">'+ICONS.trash+'</button>')+
+          '<span class="rule-card-comercio">'+esc(cat.nombre)+'</span>'+
+          (confirmando ? '' : '<button class="budget-edit-btn" data-ask-delete-group-rule="'+catId+'" aria-label="Eliminar regla de grupo para '+esc(cat.nombre)+'">'+ICONS.trash+'</button>')+
         '</div>'+
         '<div class="rule-card-detail">'+
-          '<span class="rule-card-catchip" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+' '+cat.nombre+'</span>'+
-          '<span>→ '+(grupo?grupo.icono+' '+grupo.nombre:'grupo eliminado')+'</span>'+
+          '<span class="rule-card-catchip" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+' '+esc(cat.nombre)+'</span>'+
+          '<span>→ '+esc(grupo?grupo.icono+' '+grupo.nombre:'grupo eliminado')+'</span>'+
           '<span>·</span><span>'+(regla.divisionTipo==='iguales'?'Por partes':regla.divisionTipo==='pct'?'Por %':'Monto fijo')+'</span>'+
         '</div>'+
         (confirmando
-          ? '<div class="file-format-hint" style="margin:10px 0 8px;">¿Eliminar la regla de "'+cat.nombre+'" → '+(grupo?grupo.nombre:'ese grupo')+'? Las transacciones ya compartidas no cambian -- solo deja de sugerirse la próxima vez.</div>'+
+          ? '<div class="file-format-hint" style="margin:10px 0 8px;">¿Eliminar la regla de "'+esc(cat.nombre)+'" → '+(grupo?grupo.nombre:'ese grupo')+'? Las transacciones ya compartidas no cambian -- solo deja de sugerirse la próxima vez.</div>'+
             '<div style="display:flex;gap:10px;">'+
               '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-group-rule>Cancelar</button>'+
               '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-group-rule="'+catId+'">Sí, eliminar</button>'+
@@ -869,7 +871,7 @@ export function renderMenuReconciliar(){
         '</div>';
     return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;">'+
       '<div style="min-width:0;">'+
-        '<div style="font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(m.comercioSugerido||m.detalle)+'</div>'+
+        '<div style="font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(m.comercioSugerido||m.detalle)+'</div>'+
         '<div class="muted" style="font-size:12px;">'+dayLabel(m.fecha)+(m.esEspecial==='sueldo'?' · Sueldo':'')+'</div>'+
       '</div>'+
       '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">'+
@@ -916,7 +918,7 @@ export function renderReconcileDiffSection(R){
       diff.agregar.map(function(item){
         const m = item.movimiento;
         return '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--border);">'+
-          '<div style="min-width:0;"><div style="font-weight:600;font-size:13px;">'+(m.comercioSugerido||m.detalle)+'</div>'+
+          '<div style="min-width:0;"><div style="font-weight:600;font-size:13px;">'+esc(m.comercioSugerido||m.detalle)+'</div>'+
           '<div class="muted" style="font-size:11.5px;">'+dayLabel(m.fecha)+' · confianza '+item.confianza+'</div></div>'+
           '<span class="tabular" style="font-weight:600;flex-shrink:0;">'+(m.tipoMov==='ingreso'?'+':'')+money(Math.abs(m.monto))+'</span>'+
         '</div>';
@@ -933,7 +935,7 @@ export function renderReconcileDiffSection(R){
         const checked = R.eliminarSeleccionados.indexOf(t.id)!==-1;
         return '<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--border);cursor:pointer;">'+
           '<input type="checkbox" data-reconcile-diff-elim-check="'+t.id+'" '+(checked?'checked':'')+' style="margin-top:3px;">'+
-          '<div style="min-width:0;flex:1;"><div style="font-weight:600;font-size:13px;">'+t.comercio+' — '+money(t.monto)+'</div>'+
+          '<div style="min-width:0;flex:1;"><div style="font-weight:600;font-size:13px;">'+esc(t.comercio)+' — '+money(t.monto)+'</div>'+
           '<div class="muted" style="font-size:11.5px;">'+dayLabel(t.fecha)+'</div>'+
           '<div class="muted" style="font-size:11.5px;margin-top:2px;">'+item.motivo+'</div></div>'+
         '</label>';
@@ -948,9 +950,9 @@ export function renderReconcileDiffSection(R){
       '<p class="muted" style="margin-bottom:10px;">Coincidencia dudosa, o hay más de una candidata — no se toca nada automáticamente, decide tú.</p>'+
       diff.revisar.map(function(item){
         const m = item.movimiento;
-        const candidatosTxt = item.candidatos.map(function(t){ return t.comercio+' ('+dayLabel(t.fecha)+', '+money(t.monto)+')'; }).join(' · ');
+        const candidatosTxt = item.candidatos.map(function(t){ return esc(t.comercio)+' ('+dayLabel(t.fecha)+', '+money(t.monto)+')'; }).join(' · ');
         return '<div style="padding:8px 0;border-top:1px solid var(--border);">'+
-          '<div style="font-weight:600;font-size:13px;">'+(m.comercioSugerido||m.detalle)+' — '+money(Math.abs(m.monto))+' ('+dayLabel(m.fecha)+')</div>'+
+          '<div style="font-weight:600;font-size:13px;">'+esc(m.comercioSugerido||m.detalle)+' — '+money(Math.abs(m.monto))+' ('+dayLabel(m.fecha)+')</div>'+
           '<div class="muted" style="font-size:11.5px;">confianza '+item.confianza+' · posibles: '+candidatosTxt+'</div>'+
         '</div>';
       }).join('')+
@@ -964,7 +966,7 @@ export function renderReconcileDiffSection(R){
       diff.manualesIgnoradas.map(function(item){
         const t = item.tx;
         return '<div style="padding:6px 0;border-top:1px solid var(--border);">'+
-          '<div style="font-weight:600;font-size:12.5px;">'+t.comercio+' — '+money(t.monto)+' ('+dayLabel(t.fecha)+')</div>'+
+          '<div style="font-weight:600;font-size:12.5px;">'+esc(t.comercio)+' — '+money(t.monto)+' ('+dayLabel(t.fecha)+')</div>'+
           '<div class="muted" style="font-size:11px;">'+item.motivo+'</div>'+
         '</div>';
       }).join('')+
@@ -1044,17 +1046,17 @@ export function renderDatosTransferenciaCard(){
       '<div class="budget-total-label">Datos de transferencia</div>'+
       '<p class="cat-picker-hint" style="margin:6px 0 10px;">Se usan solo para armar el texto que copias al pedir un cobro pendiente — no se comparten con nadie más.</p>'+
       '<label class="draft-label">Nombre</label>'+
-      '<input type="text" class="draft-input" data-transfer-info-input="nombre" value="'+dr.nombre+'" placeholder="Nombre completo">'+
+      '<input type="text" class="draft-input" data-transfer-info-input="nombre" value="'+esc(dr.nombre)+'" placeholder="Nombre completo">'+
       '<label class="draft-label" style="margin-top:10px;">RUT</label>'+
-      '<input type="text" class="draft-input" data-transfer-info-input="rut" value="'+dr.rut+'" placeholder="12.345.678-9">'+
+      '<input type="text" class="draft-input" data-transfer-info-input="rut" value="'+esc(dr.rut)+'" placeholder="12.345.678-9">'+
       '<label class="draft-label" style="margin-top:10px;">Banco</label>'+
-      '<input type="text" class="draft-input" data-transfer-info-input="banco" value="'+dr.banco+'" placeholder="Ej: Banco Estado">'+
+      '<input type="text" class="draft-input" data-transfer-info-input="banco" value="'+esc(dr.banco)+'" placeholder="Ej: Banco Estado">'+
       '<label class="draft-label" style="margin-top:10px;">Tipo de cuenta</label>'+
-      '<input type="text" class="draft-input" data-transfer-info-input="tipoCuenta" value="'+dr.tipoCuenta+'" placeholder="Cuenta RUT, Vista, Corriente…">'+
+      '<input type="text" class="draft-input" data-transfer-info-input="tipoCuenta" value="'+esc(dr.tipoCuenta)+'" placeholder="Cuenta RUT, Vista, Corriente…">'+
       '<label class="draft-label" style="margin-top:10px;">Número de cuenta</label>'+
-      '<input type="text" class="draft-input" data-transfer-info-input="numeroCuenta" value="'+dr.numeroCuenta+'" placeholder="0000000000">'+
+      '<input type="text" class="draft-input" data-transfer-info-input="numeroCuenta" value="'+esc(dr.numeroCuenta)+'" placeholder="0000000000">'+
       '<label class="draft-label" style="margin-top:10px;">Email (opcional)</label>'+
-      '<input type="text" class="draft-input" data-transfer-info-input="email" value="'+dr.email+'" placeholder="tucorreo@ejemplo.cl">'+
+      '<input type="text" class="draft-input" data-transfer-info-input="email" value="'+esc(dr.email)+'" placeholder="tucorreo@ejemplo.cl">'+
       '<div style="display:flex;gap:10px;margin-top:14px;">'+
         '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-transfer-info>Cancelar</button>'+
         '<button class="save-tx-btn" style="flex:1;" data-save-transfer-info>Guardar</button>'+
@@ -1069,11 +1071,11 @@ export function renderDatosTransferenciaCard(){
     '</div>'+
     (completos
       ? '<div class="datos-transferencia-figs">'+
-          (d.nombre ? '<div>'+d.nombre+'</div>' : '')+
-          (d.rut ? '<div>RUT '+d.rut+'</div>' : '')+
+          (d.nombre ? '<div>'+esc(d.nombre)+'</div>' : '')+
+          (d.rut ? '<div>RUT '+esc(d.rut)+'</div>' : '')+
           ((d.banco||d.tipoCuenta) ? '<div>'+[d.banco,d.tipoCuenta].filter(Boolean).join(' · ')+'</div>' : '')+
-          (d.numeroCuenta ? '<div>Cuenta '+d.numeroCuenta+'</div>' : '')+
-          (d.email ? '<div>'+d.email+'</div>' : '')+
+          (d.numeroCuenta ? '<div>Cuenta '+esc(d.numeroCuenta)+'</div>' : '')+
+          (d.email ? '<div>'+esc(d.email)+'</div>' : '')+
         '</div>'
       : '<p class="cat-picker-hint" style="margin:6px 0 0;">Agrégalos para poder copiar, listo para pegar en WhatsApp, un cobro pendiente junto con cómo te pueden transferir.</p>')+
   '</div>';
@@ -1321,7 +1323,7 @@ export function syncSharedExpenses(){
       estado: mapeo ? 'confirmado' : 'pendiente',
       categorias: mapeo ? [{cat: mapeo.categoria_propia, monto: Math.round(miReparto.monto)}] : [],
       porCobrar: [], reglaAuto:false,
-      nota: 'Tu parte de "'+g.descripcion+'"'+(pagador?' — pagó '+pagador.nombre:'')+(grupo?' · grupo '+grupo.nombre:''),
+      nota: 'Tu parte de "'+esc(g.descripcion)+'"'+(pagador?' — pagó '+pagador.nombre:'')+(grupo?' · grupo '+grupo.nombre:''),
       groupId: g.grupo_id, sharedExpenseId: g.id, sharedByOthers:true,
       suggestedOriginCategory: mapeo ? null : (g.categoria_origen||null)
       // origen deliberately left unset: this is a derived, never-persisted entry (see the note

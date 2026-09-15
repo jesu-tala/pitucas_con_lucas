@@ -1,3 +1,4 @@
+import { esc } from '../esc';
 import { catInfo, catNetAmount, catTotalAmount, netExpenseTx, netIncomeFactor, lastSalaryTx } from '../helpers';
 import { categoryFillCss } from '../category-colors';
 import { ICONS, catIconMarkup, icon } from '../icons';
@@ -111,7 +112,7 @@ export function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro
         return '<button class="legend-row'+(enOtros?' legend-row-otros':'')+'" data-cat="'+e.id+'">'+
           '<span class="legend-dot" style="--fill:'+categoryFillCss(e.info.colorHue)+'"></span>'+
           '<span class="legend-icon">'+catIconMarkup(e.info.icon)+'</span>'+
-          '<span class="legend-name">'+e.info.nombre+(enOtros?' <span class="legend-otros-badge">Otros</span>':'')+'</span>'+
+          '<span class="legend-name">'+esc(e.info.nombre)+(enOtros?' <span class="legend-otros-badge">Otros</span>':'')+'</span>'+
           '<span class="legend-pct">'+pct+'%</span>'+
           '<span class="legend-value tabular">'+money(e.value)+'</span>'+
         '</button>';

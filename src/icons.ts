@@ -1,3 +1,4 @@
+import { esc } from './esc';
 /* ===================== ICONS ===================== */
 export const ICONS = {
   transacciones:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
@@ -51,5 +52,9 @@ export function icon(name,cls?){ return '<span class="icon-wrap'+(cls?(' '+cls):
 // bare emoji (e.g. '🛒') as the "icon" value — the latter is what the default categories use
 // and what can be picked/typed in the category editor. This helper decides which of the two
 // cases it is and builds the corresponding HTML.
-export function catIconMarkup(name){ return ICONS[name]!==undefined ? ICONS[name] : '<span class="emoji-icon">'+name+'</span>'; }
+// El nombre del ícono se escapa SOLO en la rama del emoji: ahí es texto que escribió una
+// persona (el editor de categorías deja escribir cualquier cosa, y un respaldo JSON restaurado
+// puede traer lo que sea), así que sin escapar se ejecutaría al dibujarse. La otra rama devuelve
+// un SVG de ICONS -- markup nuestro, de confianza, que escapar rompería.
+export function catIconMarkup(name){ return ICONS[name]!==undefined ? ICONS[name] : '<span class="emoji-icon">'+esc(name)+'</span>'; }
 

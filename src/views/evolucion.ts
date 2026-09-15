@@ -1,3 +1,4 @@
+import { esc } from '../esc';
 import { catInfo, aggregatedTxAmount, incomeNatureAmount, incomeNatureOf, termChip, txsOfMonth } from '../helpers';
 import { ICONS } from '../icons';
 import { monthLabelFor } from '../shared-expenses';
@@ -335,7 +336,7 @@ export function renderGoalEditForm(meta, plataformaId?){
   return '<div class="card meta-goal-card editing">'+
     (ctxNombre ? '<div class="meta-goal-ctx muted">'+(meta?'Meta en ':'Nueva meta en ')+ctxNombre+'</div>' : '')+
     '<label class="draft-label">Nombre de la meta</label>'+
-    '<input type="text" class="draft-input" data-goal-field="nombre" value="'+d.nombre.replace(/"/g,'&quot;')+'" placeholder="Ej: Fondo de emergencia">'+
+    '<input type="text" class="draft-input" data-goal-field="nombre" value="'+esc(d.nombre)+'" placeholder="Ej: Fondo de emergencia">'+
     '<label class="draft-label" style="margin-top:12px;">Monto objetivo (opcional)</label>'+
     '<input type="text" inputmode="decimal" class="draft-input tabular" data-goal-field="montoObjetivo" value="'+d.montoObjetivo+'" placeholder="Déjalo vacío si no juntas un total">'+
     '<div class="platform-hint muted">Ponlo solo si esta meta es juntar un total (ej. el pie de un depto) — muestra una barra de progreso hacia ese monto. Si es una meta de aporte mensual sin un total fijo, déjalo vacío.</div>'+
@@ -358,7 +359,7 @@ export function renderGoalEditForm(meta, plataformaId?){
       '<button class="save-tx-btn" style="flex:1;" data-save-goal="'+(meta?meta.id:'nueva')+'">Guardar</button>'+
     '</div>'+
     (meta ? (state.confirmDeleteGoalId===meta.id
-      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar la meta "'+meta.nombre+'"? No se puede deshacer.</div>'+
+      ? '<div class="file-format-hint" style="margin:12px 0 8px;">¿Seguro que quieres eliminar la meta "'+esc(meta.nombre)+'"? No se puede deshacer.</div>'+
         '<div style="display:flex;gap:10px;">'+
           '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-goal>Cancelar</button>'+
           '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-goal="'+meta.id+'">Sí, eliminar</button>'+
@@ -431,10 +432,10 @@ export function renderGoalCard(meta){
 
   return '<div class="card meta-goal-card">'+
     '<div class="meta-goal-head">'+
-      '<span class="meta-goal-name">'+meta.nombre+'</span>'+
+      '<span class="meta-goal-name">'+esc(meta.nombre)+'</span>'+
       termChip(meta.plazo)+
       (racha>0 ? '<span class="meta-racha-badge">'+racha+' 🔥</span>' : '')+
-      '<button class="budget-edit-btn" data-edit-goal="'+meta.id+'" aria-label="Editar '+meta.nombre+'">'+ICONS.edit+'</button>'+
+      '<button class="budget-edit-btn" data-edit-goal="'+meta.id+'" aria-label="Editar '+esc(meta.nombre)+'">'+ICONS.edit+'</button>'+
     '</div>'+
     stockBlock+
     comisionRow+
