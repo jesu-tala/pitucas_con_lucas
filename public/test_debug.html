@@ -11177,25 +11177,26 @@
   __name(setSuppressNextSubtabClick, "setSuppressNextSubtabClick");
 
   // src/app.ts
-  function setAppHeight() {
+  function clearAppHeight() {
+    document.documentElement.style.removeProperty("--app-height");
+  }
+  __name(clearAppHeight, "clearAppHeight");
+  function onViewportResize() {
     const vv = window.visualViewport;
-    if (vv && vv.height < window.innerHeight - 40) {
-      document.documentElement.style.setProperty("--app-height", vv.height + "px");
+    if (vv && vv.height < window.innerHeight - 150) {
+      document.documentElement.style.setProperty("--app-height", Math.round(vv.height) + "px");
     } else {
-      document.documentElement.style.removeProperty("--app-height");
+      clearAppHeight();
     }
   }
-  __name(setAppHeight, "setAppHeight");
-  setAppHeight();
-  ["resize", "orientationchange", "pageshow", "visibilitychange"].forEach(function(ev) {
-    window.addEventListener(ev, setAppHeight);
-  });
+  __name(onViewportResize, "onViewportResize");
+  clearAppHeight();
   if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", setAppHeight);
-    window.visualViewport.addEventListener("scroll", setAppHeight);
+    window.visualViewport.addEventListener("resize", onViewportResize);
+    window.visualViewport.addEventListener("scroll", onViewportResize);
   }
-  requestAnimationFrame(function() {
-    requestAnimationFrame(setAppHeight);
+  ["orientationchange", "pageshow", "visibilitychange"].forEach(function(ev) {
+    window.addEventListener(ev, clearAppHeight);
   });
   document.getElementById("fab-add").innerHTML = ICONS.plus;
   document.getElementById("auth-brand-icon").innerHTML = ICONS.lock;

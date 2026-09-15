@@ -52,41 +52,44 @@ import { initSupabaseAuth } from './supabase';
 // 100dvh is based on -- doesn't shrink for the keyboard, it just gets covered by it). Outside
 // of that, --app-height is left unset, so .phone's `height:var(--app-height, 100dvh)` uses
 // 100dvh directly.
-function setAppHeight(){
+function clearAppHeight(){ document.documentElement.style.removeProperty('--app-height'); }
+// Bug real reportado (segunda vuelta -- la primera ya sacó a .tabbar del flujo de .phone
+// haciéndola position:fixed contra el viewport real, pero eso no arregla que .phone MISMO se
+// dibuje más chico que la pantalla real, dejando un hueco entre su contenido y la barra):
+// window.innerHeight y visualViewport.height en iOS no siempre están ya asentados en el
+// primerísimo instante en que este script corre -- pueden diferir por más de unos pocos px sin
+// que haya ningún teclado abierto (no puede haberlo: recién está cargando, nada tiene foco
+// todavía). Con un margen de solo 40px, esa diferencia de arranque se leía como "el teclado está
+// abierto" -- un falso positivo que dejaba --app-height pegado en un valor más chico que la
+// pantalla real por el resto de la sesión, hasta el primer resize/orientation genuino (que sí
+// recalcula con métricas ya asentadas, por eso "se arreglaba solo al mover el teléfono").
+// Arreglo: al arrancar se asume DIRECTAMENTE que no hay teclado (es imposible que lo haya --
+// ningún campo tiene foco todavía) en vez de intentar medirlo con métricas que pueden no estar
+// asentadas; el único momento en que de verdad hace falta recalcular es cuando
+// visualViewport.resize dispara por una razón real (el teclado se abre/cierra de verdad), con un
+// margen bastante más generoso (150px -- un teclado real tapa varias veces eso) para no
+// confundirlo con jitter normal del viewport.
+function onViewportResize(){
   const vv = window.visualViewport;
-  // 40px of slack: a real keyboard covers way more than that; this avoids false positives from
-  // normal small viewport-height jitter (address bar showing/hiding isn't a factor in
-  // standalone PWA mode, but keep some margin regardless).
-  if(vv && vv.height < window.innerHeight - 40){
-    document.documentElement.style.setProperty('--app-height', vv.height + 'px');
+  if(vv && vv.height < window.innerHeight - 150){
+    document.documentElement.style.setProperty('--app-height', Math.round(vv.height) + 'px');
   } else {
-    document.documentElement.style.removeProperty('--app-height');
+    clearAppHeight();
   }
 }
-setAppHeight();
-['resize','orientationchange','pageshow','visibilitychange'].forEach(function(ev){
-  window.addEventListener(ev, setAppHeight);
-});
+clearAppHeight();
 if(window.visualViewport){
-  window.visualViewport.addEventListener('resize', setAppHeight);
-  window.visualViewport.addEventListener('scroll', setAppHeight);
+  window.visualViewport.addEventListener('resize', onViewportResize);
+  window.visualViewport.addEventListener('scroll', onViewportResize);
 }
-// Bug real reportado: la barra inferior se veía "despegada" del borde real al recién abrir la
-// app, y se corregía sola apenas se movía/inclinaba el teléfono (lo que dispara un resize real).
-// Eso confirma que el problema era de TIMING, no de fórmula: este script corre y llama a
-// setAppHeight() (arriba) antes de que iOS termine de asentar el viewport dinámico real (barra
-// de direcciones, safe-area) en el primerísimo pintado -- la medición de ESE instante puede no
-// ser la definitiva, y como nada disparaba un recálculo hasta el primer resize/orientation real
-// de la usuaria, la medición equivocada quedaba pegada mientras tanto. Un doble
-// requestAnimationFrame (space para que el navegador termine el layout/paint del frame actual
-// antes de volver a medir) agarra el valor ya asentado sin depender de que la usuaria mueva el
-// teléfono para "arreglarlo" ella misma. (El arreglo estructural, que esto no dependa de la
-// medición de .phone en absoluto, vive en CSS: .tabbar es position:fixed contra el viewport real
-// -- ver plata-clara.html, @media max-width:480px -- así que aunque esta medición llegara tarde
-// otra vez, la barra en sí ya no se vería afectada. Este recálculo extra igual se agrega porque
-// --app-height sigue siendo lo que usa .phone como respaldo de 100dvh mientras el teclado está
-// abierto, y merece el mismo cuidado.)
-requestAnimationFrame(function(){ requestAnimationFrame(setAppHeight); });
+// orientationchange/pageshow/visibilitychange ya no vuelven a intentar "adivinar" si hay teclado
+// abierto (esa adivinanza, con métricas recién asentándose, es exactamente la causa del bug de
+// arriba) -- un teclado no puede seguir abierto después de rotar la pantalla o de que la app
+// vuelva de segundo plano, así que estos simplemente vuelven al estado por defecto (100dvh
+// nativo) y dejan que el próximo visualViewport.resize real, si corresponde, lo recalcule bien.
+['orientationchange','pageshow','visibilitychange'].forEach(function(ev){
+  window.addEventListener(ev, clearAppHeight);
+});
 
 document.getElementById('fab-add').innerHTML = ICONS.plus;
 document.getElementById('auth-brand-icon').innerHTML = ICONS.lock;
