@@ -122,7 +122,18 @@ export function buildFullStateBlob(){
 // PLATFORM_DATA, PLANNER and TOTAL_GOAL_CHECKS are let — those do get reassigned directly.
 export function applyStateBlob(blob){
   Object.keys(CATEGORIES).forEach(function(k){ delete CATEGORIES[k]; });
-  Object.assign(CATEGORIES, blob.categorias || {});
+  // Red de seguridad: una cuenta real nunca debería cargar con categorías vacías (toda cuenta
+  // arranca sembrada con las por defecto, y de ahí solo se agregan o renombran, nunca hay un
+  // camino legítimo a "cero categorías") -- si el blob trae un objeto vacío (el incidente real
+  // que motivó esto: un bug de modo demo ya corregido que alcanzó a guardar categorías/medios de
+  // pago vacíos en Supabase antes del fix), se siembra con las por defecto en vez de dejar la
+  // cuenta en blanco para siempre. deepClone() es obligatorio acá -- CATEGORY_SEED_DEFAULTS es
+  // una constante COMPARTIDA por toda la app (emptyAppStateBlob la usa para cuentas nuevas
+  // también): asignarla por referencia, sin copiar, dejaría que renombrar una categoría de ESTA
+  // cuenta corrompiera la semilla de TODAS las cuentas nuevas futuras -- el mismo bug de fondo
+  // que ya corrompió esta cuenta, dos veces.
+  const categoriasBlob = (blob.categorias && Object.keys(blob.categorias).length) ? blob.categorias : deepClone(CATEGORY_SEED_DEFAULTS);
+  Object.assign(CATEGORIES, categoriasBlob);
   // Accounts saved before colores-únicos stored `color: '<palette-name>'` instead of a hue --
   // migrate them in place so every category always has a usable colorHue from here on.
   Object.keys(CATEGORIES).forEach(function(k){
@@ -130,7 +141,10 @@ export function applyStateBlob(blob){
     delete (CATEGORIES[k] as any).color;
   });
   Object.keys(PAYMENT_METHODS).forEach(function(k){ delete PAYMENT_METHODS[k]; });
-  Object.assign(PAYMENT_METHODS, blob.mediosPago || {});
+  // Misma red de seguridad que arriba, para medios de pago -- una cuenta real siempre tiene al
+  // menos "Efectivo" (lo que emptyAppStateBlob() ya siembra para una cuenta nueva).
+  const mediosBlob = (blob.mediosPago && Object.keys(blob.mediosPago).length) ? blob.mediosPago : {efectivo:{nombre:'Efectivo', corto:'Efectivo', icon:'cash'}};
+  Object.assign(PAYMENT_METHODS, mediosBlob);
 
   setTransactions(blob.transacciones || []);
   // Repara datos viejos que hayan quedado "pendiente" con categoría ya asignada -- antes de que

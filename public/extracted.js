@@ -7351,7 +7351,8 @@
     Object.keys(CATEGORIES).forEach(function(k) {
       delete CATEGORIES[k];
     });
-    Object.assign(CATEGORIES, blob.categorias || {});
+    const categoriasBlob = blob.categorias && Object.keys(blob.categorias).length ? blob.categorias : deepClone(CATEGORY_SEED_DEFAULTS);
+    Object.assign(CATEGORIES, categoriasBlob);
     Object.keys(CATEGORIES).forEach(function(k) {
       CATEGORIES[k].colorHue = migrateLegacyCategoryColor(CATEGORIES[k]);
       delete CATEGORIES[k].color;
@@ -7359,7 +7360,8 @@
     Object.keys(PAYMENT_METHODS).forEach(function(k) {
       delete PAYMENT_METHODS[k];
     });
-    Object.assign(PAYMENT_METHODS, blob.mediosPago || {});
+    const mediosBlob = blob.mediosPago && Object.keys(blob.mediosPago).length ? blob.mediosPago : { efectivo: { nombre: "Efectivo", corto: "Efectivo", icon: "cash" } };
+    Object.assign(PAYMENT_METHODS, mediosBlob);
     setTransactions(blob.transacciones || []);
     TRANSACTIONS.forEach(function(t) {
       if (t.estado === "pendiente" && t.categorias.length > 0) t.estado = "confirmado";
