@@ -4163,6 +4163,7 @@
   }
   __name(ensureSharedExpensePaymentMethod, "ensureSharedExpensePaymentMethod");
   function syncSharedExpenses() {
+    const previas = TRANSACTIONS.filter((t) => t.sharedByOthers).map((t) => Object.assign({}, t));
     for (let i = TRANSACTIONS.length - 1; i >= 0; i--) {
       if (TRANSACTIONS[i].sharedByOthers) TRANSACTIONS.splice(i, 1);
     }
@@ -4173,6 +4174,7 @@
       if (g.pagado_por === miParticipanteId) return;
       const miReparto = (g.reparto || []).find((r) => r.participante_id === miParticipanteId);
       if (!miReparto || miReparto.monto <= 0) return;
+      if (TRANSACTIONS.some((t) => t.id === "compartido-" + g.id)) return;
       const registradorParticipanteId = participantIdForUser(g.grupo_id, g.registrado_por);
       const mapeo = registradorParticipanteId ? CATEGORY_MAPPINGS.find(
         (m) => m.user_id === currentUser.id && m.de_participante === registradorParticipanteId && m.categoria_ajena === g.categoria_origen
@@ -4205,8 +4207,30 @@
       TRANSACTIONS.push(tx);
       ensureMonthExists(tx.fecha.slice(0, 7));
     });
+    materializarPartesDeGruposQueYaNoEstan(previas);
   }
   __name(syncSharedExpenses, "syncSharedExpenses");
+  function materializarPartesDeGruposQueYaNoEstan(previas) {
+    previas.forEach((prev) => {
+      if (TRANSACTIONS.some((t) => t.id === prev.id)) return;
+      const grupoSigue = !!(prev.groupId && GROUPS.some((g) => g.id === prev.groupId) && participantIdForUser(prev.groupId, currentUser.id));
+      if (grupoSigue) return;
+      const tx = Object.assign({}, prev, {
+        sharedByOthers: false,
+        groupId: void 0,
+        sharedExpenseId: void 0,
+        divisionTipo: void 0,
+        // Pasa a ser un movimiento tuyo de verdad: 'manual' (y no el origen vacío de las
+        // derivadas) deja explícito que no vino de ninguna importación automática -- reconcile.ts
+        // ya trata ambos como protegidos, así que una cartola nunca va a proponer borrarla.
+        origen: "manual",
+        nota: (prev.nota ? prev.nota + " \u2014 " : "") + "El grupo ya no est\xE1: se conserv\xF3 tu parte como movimiento propio."
+      });
+      TRANSACTIONS.push(tx);
+      ensureMonthExists(tx.fecha.slice(0, 7));
+    });
+  }
+  __name(materializarPartesDeGruposQueYaNoEstan, "materializarPartesDeGruposQueYaNoEstan");
   async function classifySharedExpenseFromOthers(txId, catId) {
     const tx = getTx(txId);
     if (!tx || !tx.sharedByOthers || !tx.sharedExpenseId) return false;

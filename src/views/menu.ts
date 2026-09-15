@@ -1293,6 +1293,10 @@ export function ensureSharedExpensePaymentMethod(){
 // undo" something: it always starts by deleting the old entries and rebuilds them all from
 // scratch.
 export function syncSharedExpenses(){
+  // Se anotan ANTES de borrarlas: las que no vuelvan a construirse abajo son las que
+  // desaparecieron del servidor, y hay un caso donde eso NO puede significar "bórrala y ya"
+  // (ver materializarPartesDeGruposQueYaNoEstan, más abajo).
+  const previas = TRANSACTIONS.filter(t=>t.sharedByOthers).map(t=>Object.assign({}, t));
   // Mutates TRANSACTIONS in place (splice), never reassigns it -- TRANSACTIONS is exposed
   // on window.__debug (and anywhere else that has saved a reference to the array) as the
   // array itself, not as a copy recalculated each time; reassigning it here would leave
@@ -1305,6 +1309,11 @@ export function syncSharedExpenses(){
     if(g.pagado_por===miParticipanteId) return;       // I paid: my share is already in MY real transaction (porCobrar)
     const miReparto = (g.reparto||[]).find(r=>r.participante_id===miParticipanteId);
     if(!miReparto || miReparto.monto<=0) return;       // none of this expense is mine
+    // Si este gasto ya se había conservado como movimiento propio (porque el grupo desapareció y
+    // después volvió: te sacaron y te re-agregaron, por ejemplo), no se vuelve a construir la
+    // versión derivada encima -- si no, quedaría duplicado. Se prefiere dejar la copia que ya
+    // está guardada antes que borrarla para reemplazarla.
+    if(TRANSACTIONS.some(t=>t.id==='compartido-'+g.id)) return;
 
     const registradorParticipanteId = participantIdForUser(g.grupo_id, g.registrado_por);
     const mapeo = registradorParticipanteId ? CATEGORY_MAPPINGS.find(m=>
@@ -1331,6 +1340,45 @@ export function syncSharedExpenses(){
       // something a cartola of yours could ever back or contradict -- reconcile.ts's
       // isProtectedOrigin() already treats "no origen" as protected, which is exactly right here.
     };
+    TRANSACTIONS.push(tx);
+    ensureMonthExists(tx.fecha.slice(0,7));
+  });
+  materializarPartesDeGruposQueYaNoEstan(previas);
+}
+
+// Tu parte de un gasto que registró otra persona es una entrada DERIVADA: no se guarda nunca, se
+// recalcula entera desde SHARED_EXPENSES en cada sincronización (ver arriba). Eso es deliberado y
+// casi siempre es lo correcto -- si quien lo registró lo edita o lo borra, tu vista lo sigue sin
+// quedar nunca desincronizada.
+//
+// Pero tiene un agujero: si el GRUPO COMPLETO desaparece de tu vista (alguien lo eliminó, o te
+// sacaron de él), no hay nada desde donde reconstruir, y tu parte de todo lo que ya había pasado
+// se borra sola de tu historial -- sin que vos hicieras nada y sin copia local, porque nunca se
+// persistió. La app ya había decidido que eso no debe pasar: deleteGroup() llama a
+// preserveGroupTransactionsBeforeUnlink() justo para conservarlas. El problema es que eso corre
+// SOLO en el navegador de quien aprieta el botón; para los demás miembros, la eliminación llega
+// por realtime y se llevaba su historial en silencio.
+//
+// Esto cierra ese caso, y SOLO ese: si la entrada no se reconstruyó porque el grupo entero ya no
+// está (o ya no sos parte), se conserva como transacción propia, real y persistida -- mismo
+// criterio, mismos datos (monto, fecha, categoría), solo que desvinculada. Si el grupo SIGUE ahí
+// y seguís adentro, que un gasto puntual haya desaparecido significa que quien lo registró lo
+// borró a propósito: ahí se respeta el comportamiento derivado de siempre y la entrada se va,
+// como corresponde a una corrección.
+function materializarPartesDeGruposQueYaNoEstan(previas){
+  previas.forEach(prev=>{
+    if(TRANSACTIONS.some(t=>t.id===prev.id)) return;              // se reconstruyó: nada que hacer
+    const grupoSigue = !!(prev.groupId && GROUPS.some(g=>g.id===prev.groupId) && participantIdForUser(prev.groupId, currentUser.id));
+    if(grupoSigue) return;                                        // borraron ese gasto puntual, no el grupo
+    const tx = Object.assign({}, prev, {
+      sharedByOthers: false,
+      groupId: undefined, sharedExpenseId: undefined, divisionTipo: undefined,
+      // Pasa a ser un movimiento tuyo de verdad: 'manual' (y no el origen vacío de las
+      // derivadas) deja explícito que no vino de ninguna importación automática -- reconcile.ts
+      // ya trata ambos como protegidos, así que una cartola nunca va a proponer borrarla.
+      origen: 'manual',
+      nota: (prev.nota ? prev.nota+' — ' : '')+'El grupo ya no está: se conservó tu parte como movimiento propio.'
+    });
     TRANSACTIONS.push(tx);
     ensureMonthExists(tx.fecha.slice(0,7));
   });
