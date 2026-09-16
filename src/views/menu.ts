@@ -6,7 +6,7 @@ import { render } from '../render';
 import { buildReconcileDiff, movementLineId } from '../reconcile';
 import { ensureMonthExists, participantHasHistory, participantIdForUser } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
-import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO } from '../state';
+import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO, ultimoRespaldo, setUltimoRespaldo} from '../state';
 import { OCR_WORKER_URL, PUSH_WORKER_URL, VAPID_PUBLIC_KEY, boletaWorkerConfigured, buildFullStateBlob, currentHouseholdId, currentUser, saveTimer, sb, translateAuthError, writeStateToSupabase } from '../supabase';
 import { CategoryMapping, Transaction } from '../types';
 import { toast } from '../ui/toasts';
@@ -152,6 +152,28 @@ export function importStatementRows(rows){
 }
 
 /* ---------- main screen ---------- */
+// Cuánto hace que no se descarga un respaldo. Existe porque el respaldo de esta app es manual y
+// nadie lo recuerda solo -- y ya se vio lo caro que sale: un bug del modo demo dejó una cuenta
+// real con las categorías y los medios de pago vacíos, y sin una copia previa no hubo forma de
+// devolver los nombres que la persona había puesto.
+// No molesta a una cuenta recién creada (sin transacciones todavía no hay nada que perder).
+export const DIAS_PARA_RECORDAR_RESPALDO = 30;
+export function respaldoInfo(){
+  const hayDatos = TRANSACTIONS.length > 0;
+  if(!ultimoRespaldo) return {nunca:true, dias:null, vencido:hayDatos, hayDatos};
+  const hoy = new Date(todayISO()+'T12:00:00').getTime();
+  const ult = new Date(ultimoRespaldo+'T12:00:00').getTime();
+  const dias = Math.max(0, Math.round((hoy-ult)/86400000));
+  return {nunca:false, dias, vencido: hayDatos && dias >= DIAS_PARA_RECORDAR_RESPALDO, hayDatos};
+}
+function respaldoSubtitulo(){
+  const r = respaldoInfo();
+  if(r.nunca) return r.hayDatos ? 'Nunca descargaste uno — hazlo ahora' : 'Descarga una copia completa de tus datos';
+  if(r.dias===0) return 'Último respaldo: hoy';
+  if(r.dias===1) return 'Último respaldo: ayer';
+  return 'Último respaldo: hace '+r.dias+' días'+(r.vencido ? ' — conviene bajar uno nuevo' : '');
+}
+
 export function renderMenuMain(){
   const nReglas = groupedRules().length;
   const items = [
@@ -160,7 +182,7 @@ export function renderMenuMain(){
     {section:'medios', icon:'card', label:'Medios de pago', sub: Object.keys(PAYMENT_METHODS).length+' medios de pago'},
     {section:'reglas', icon:'lockSmall', label:'Reglas de clasificación', sub: nReglas+' regla'+(nReglas===1?'':'s')+' automática'+(nReglas===1?'':'s')},
     {section:'exportar', icon:'trending', label:'Exportar a Excel', sub:'Descarga tus transacciones en un CSV'},
-    {section:'respaldo', icon:'inbox', label:'Respaldo en JSON', sub:'Descarga una copia completa de tus datos'},
+    {section:'respaldo', icon:'inbox', label:'Respaldo en JSON', sub: respaldoSubtitulo(), alerta: respaldoInfo().vencido},
     {section:'importar', icon:'plusCircle', label:'Importar CSV de cartola', sub:'Sube movimientos desde un archivo de tu banco'},
     {section:'importarcorreo', icon:'inbox', label:'Importar desde tu correo', sub:'Automático, vía Gmail'},
     {section:'notificaciones', icon:'bell', label:'Notificaciones', sub: state.notifSubscribed ? 'Activadas en este dispositivo' : 'Avísame de transacciones y presupuesto'},
@@ -172,7 +194,7 @@ export function renderMenuMain(){
     '<ul class="menu-list">'+items.map(i=>
       '<li><button class="menu-list-item" data-menu-open="'+i.section+'">'+
         '<span class="menu-item-icon">'+ICONS[i.icon]+'</span>'+
-        '<span class="menu-item-label">'+i.label+'<span class="menu-item-sub">'+i.sub+'</span></span>'+
+        '<span class="menu-item-label">'+esc(i.label)+'<span class="menu-item-sub'+((i as any).alerta?' menu-item-sub-alerta':'')+'">'+esc(i.sub)+'</span></span>'+
         '<span class="menu-item-chev">'+ICONS.chevL+'</span>'+
       '</button></li>'
     ).join('')+'</ul>';
@@ -377,14 +399,27 @@ export function renderMenuExportar(){
     '</div>';
 }
 export function renderMenuRespaldo(){
+  const r = respaldoInfo();
+  // El aviso solo aparece cuando de verdad hay algo que perder y pasó tiempo (o nunca se hizo):
+  // una cuenta recién creada no necesita que la reten por no haber respaldado cero transacciones.
+  const aviso = !r.vencido ? '' :
+    '<div class="card" style="padding:14px 16px;margin-bottom:12px;border-color:var(--expense-ink);">'+
+      '<div style="font-weight:700;font-size:13.5px;color:var(--expense-ink);margin-bottom:4px;">'+
+        (r.nunca ? 'Todavía no tienes ningún respaldo' : 'Tu último respaldo es de hace '+r.dias+' días')+
+      '</div>'+
+      '<div class="muted" style="font-size:12.5px;">Este archivo es tu única copia fuera de la app. Si algo se corrompe o se borra por error, es lo único que permite recuperar tus categorías, medios de pago y transacciones tal como los tenías.</div>'+
+    '</div>';
   document.getElementById('view-root').innerHTML = menuScreenHead('Respaldo en JSON')+
+    aviso+
     '<div class="card" style="padding:16px;">'+
       '<div class="menu-item-card" style="padding:0;margin-bottom:16px;">'+
         '<span class="menu-item-card-icon" style="--fill:var(--cat-sky-fill);--ink:var(--cat-sky-ink)">'+ICONS.inbox+'</span>'+
         '<div class="menu-item-card-body"><div class="menu-item-card-name">Copia completa de tus datos</div><div class="menu-item-card-sub">Transacciones, categorías, medios, presupuestos, metas y plataformas</div></div>'+
       '</div>'+
       '<button class="save-tx-btn" data-export-json style="width:100%;">Descargar JSON</button>'+
-      '<div class="file-format-hint">Pensado para guardar una copia de respaldo o migrarla más adelante — no se puede volver a importar desde esta maqueta.</div>'+
+      '<div class="file-format-hint">'+
+        (r.nunca ? 'Todavía no has descargado ninguno.' : 'Último descargado: '+dayLabel(ultimoRespaldo)+'.')+
+        ' Pensado para guardar una copia de respaldo o migrarla más adelante — no se puede volver a importar desde esta maqueta.</div>'+
     '</div>';
 }
 export function renderMenuImportar(){

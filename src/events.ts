@@ -5,7 +5,7 @@ import { navClearType, navDepth, navPeek, navPop, navPush, NavFrame } from './na
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter, defaultAssignAmount } from './sheet';
-import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO } from './state';
+import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO, setUltimoRespaldo} from './state';
 import { buildGroupExportWorkbookArrayBuffer } from './group-export';
 import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
@@ -1995,7 +1995,11 @@ phone.addEventListener('click', function(e: any){
   const exportJsonBtn = e.target.closest('[data-export-json]');
   if(exportJsonBtn){
     downloadFile('pitucas-sin-lucas-respaldo-'+todayISO()+'.json', buildBackupJSON(), 'application/json;charset=utf-8;');
+    // Queda anotado en el blob (o sea, se guarda y viaja entre dispositivos) para poder
+    // recordarte cuando pase demasiado tiempo sin bajar uno -- ver respaldoInfo() en menu.ts.
+    setUltimoRespaldo(todayISO());
     toast('Respaldo JSON descargado');
+    renderMenuView();
     return;
   }
   const exportGroupBtn = e.target.closest('[data-export-group]');

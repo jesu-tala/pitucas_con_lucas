@@ -548,6 +548,11 @@ export function normalize(s){
    refilled in the same object/array (a plain old const). */
 export function setTransactions(v: Transaction[]){ TRANSACTIONS = v; }
 export function setContacts(v: string[]){ CONTACTS = v; }
+// Fecha (YYYY-MM-DD) del último respaldo JSON que se descargó, o null si nunca se hizo uno.
+// Viaja en el blob como cualquier otro dato, así que el recordatorio es el mismo en todos tus
+// dispositivos y no se reinicia al cambiar de navegador.
+export let ultimoRespaldo: string | null = null;
+export function setUltimoRespaldo(v: string | null){ ultimoRespaldo = v; }
 export function setBudgets(v){ BUDGETS = v; }
 export function setMonthlyBudgetTotal(v){ monthlyBudgetTotal = v; }
 export function setSpendingGoalPct(v){ SPENDING_GOAL_PCT = v; }
