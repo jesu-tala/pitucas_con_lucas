@@ -1192,6 +1192,31 @@
     display:flex;flex-direction:column;justify-content:center;padding:38px 26px;overflow-y:auto;
   }
   .auth-gate[hidden]{display:none;}
+  /* Bug reportado con foto: en la pantalla de carga se veía una franja más clara pegada al borde
+     inferior, del alto de la barra de tabs. Era la barra misma asomando por debajo del gate.
+     El z-index del gate (60, muy por encima del 10 de .tabbar) no tenía nada que ver: el
+     problema es GEOMÉTRICO. .tabbar es position:fixed contra el viewport real (ver el bloque
+     @media de más arriba, el arreglo de la barra despegada), mientras que .auth-gate es
+     position:absolute dentro de .phone. Cuando .phone queda más corto que la pantalla real --
+     que es exactamente lo que pasa en un iPhone por el safe-area del home indicator -- el gate
+     termina ANTES que la barra y no la alcanza para taparla, por más alto que esté en la pila.
+     Peor: el fondo del body es --surface a propósito (la red de seguridad para que lo que asome
+     bajo .phone sea del color de la barra y no se note), pero el gate es --bg, así que en esta
+     pantalla esa misma red hace que la franja se note MÁS, no menos.
+     Se cierra por los dos lados:
+       1. Mientras el gate está arriba no hay nada que navegar, así que la barra se oculta. Es
+          un selector de hermano (.auth-gate va antes que .tabbar dentro de .phone), sin :has()
+          ni JS: no hay forma de que quede desincronizado con el estado real del gate.
+       2. Y el gate se ancla al viewport real igual que la barra, para que cubra toda la
+          pantalla aunque .phone se mida corto -- el mismo criterio estructural que se usó con
+          .tabbar: no depender de que el alto de .phone haya terminado de asentarse. */
+  #auth-gate:not([hidden]) ~ .tabbar{ display:none; }
+  @media (max-width:480px){
+    /* Punto 2 de arriba: en el teléfono el gate se fija al viewport real (hereda inset:0 de la
+       regla base, que con position:fixed se resuelve contra la pantalla y no contra .phone).
+       Así cubre hasta el borde de abajo aunque .phone se mida corto por el safe-area. */
+    .auth-gate{ position:fixed; }
+  }
   .auth-brand{text-align:center;margin-bottom:28px;}
   .auth-brand-icon{
     width:54px;height:54px;border-radius:18px;background:var(--accent-soft);color:var(--accent-ink);
