@@ -707,6 +707,12 @@ public/icons/icon-512-maskable.png
   — "framework preset: None", directorio de salida = la raíz donde estén estos archivos.
 - `pdf.js` y `@supabase/supabase-js` se cargan desde CDN (`cdnjs.cloudflare.com` /
   `cdn.jsdelivr.net`) — no son archivos propios, no hay que subirlos.
+- **El Worker es un despliegue aparte de Pages.** `backend/cloudflare-worker/worker.js` no se
+  sube acá: va en Cloudflare > Workers & Pages > el Worker, y hay que volver a desplegarlo cuando
+  ese archivo cambia. Subir `public/` no lo actualiza. El Worker tiene además un binding
+  *opcional* de KV llamado `RATE_LIMIT_KV` (Settings > Bindings): si existe, el tope de uso por
+  hogar se cuenta compartido entre instancias; si no existe, el Worker funciona igual con un
+  contador en memoria, sin configurar nada.
 
 ## 9. Convenciones de diseño (para mantener consistencia si se agregan vistas nuevas)
 
