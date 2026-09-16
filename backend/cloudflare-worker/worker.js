@@ -576,6 +576,63 @@ const CORS_HEADERS_ = {
   'Access-Control-Allow-Headers': 'Content-Type'
 };
 
+/* ---------- tope de uso por hogar ----------
+ * Por qué existe: los dos endpoints se autentican con household_id + import_token, que es un
+ * secreto de larga vida (se ve en Menú > Importar desde tu correo y se reusa siempre). Si alguna
+ * vez se filtra -- una captura de pantalla, un teléfono perdido, un log -- quien lo tenga podía
+ * llamar /leer-boleta en un bucle sin límite, y cada llamada gasta cuota PAGA de Gemini. El daño
+ * no es robo de datos: es la cuenta de la tarjeta.
+ *
+ * Dos capas, ninguna de las cuales requiere configurar nada para funcionar:
+ *
+ *  1. Tope de tamaño de la imagen. Antes el cuerpo del POST era ilimitado, y una imagen enorme
+ *     cuesta más en Gemini que una normal. Esto solo se rechaza, no depende de nada externo.
+ *
+ *  2. Tope de llamadas por hogar y por hora. Si existe un KV namespace atado como RATE_LIMIT_KV,
+ *     el conteo es compartido entre todas las instancias del Worker (lo que de verdad frena un
+ *     bucle). Si NO existe -- que es el caso por defecto, sin tocar nada en Cloudflare -- se usa
+ *     un contador en memoria del isolate: es más débil (Cloudflare recicla y reparte isolates,
+ *     así que un atacante decidido puede conseguir cupos nuevos), pero corta en seco el caso
+ *     realista de un script golpeando en loop, y nunca puede fallar ni bloquear a nadie de más.
+ *
+ * Para subir a la versión fuerte, sin cambiar este archivo: Cloudflare > Workers & Pages > tu
+ * Worker > Settings > Bindings > add KV namespace, nombre de la variable RATE_LIMIT_KV.
+ *
+ * Nota honesta: con KV el conteo es leer-y-después-escribir, así que dos llamadas simultáneas
+ * pueden leer el mismo número y colarse una de más. No importa: esto es un tope de gasto, no una
+ * barrera de seguridad -- lo que tiene que evitar es un bucle de miles de llamadas, no una.
+ */
+const MAX_IMAGE_BASE64_CHARS = 8 * 1024 * 1024;   // ~6 MB de imagen real ya codificada
+const LIMITE_OCR_POR_HORA = 30;                    // leer boletas a mano no pasa de unas pocas por día
+const LIMITE_NOTIFY_POR_HORA = 60;                 // el Apps Script corre cada 30-60 min
+const cuotaEnMemoria_ = new Map();
+
+async function dentroDeLaCuota_(env, clave, limite) {
+  const ventana = Math.floor(Date.now() / 3600000);  // se reinicia cada hora
+  const k = 'rl:' + clave + ':' + ventana;
+  if (env.RATE_LIMIT_KV) {
+    try {
+      const actual = parseInt((await env.RATE_LIMIT_KV.get(k)) || '0', 10) || 0;
+      if (actual >= limite) return false;
+      await env.RATE_LIMIT_KV.put(k, String(actual + 1), { expirationTtl: 7200 });
+      return true;
+    } catch (e) {
+      // Si KV falla, no se deja a la usuaria sin servicio: se cae al contador en memoria.
+      console.error('Pitucas sin lucas — KV no disponible, usando contador en memoria:', String(e));
+    }
+  }
+  const actual = cuotaEnMemoria_.get(k) || 0;
+  if (actual >= limite) return false;
+  cuotaEnMemoria_.set(k, actual + 1);
+  if (cuotaEnMemoria_.size > 500) {
+    const sufijo = ':' + ventana;
+    for (const key of Array.from(cuotaEnMemoria_.keys())) {
+      if (!key.endsWith(sufijo)) cuotaEnMemoria_.delete(key);
+    }
+  }
+  return true;
+}
+
 function jsonResponse_(obj, status) {
   return new Response(JSON.stringify(obj), {
     status: status || 200,
@@ -604,6 +661,13 @@ async function handleNotify_(request, env) {
     const detail = await subsRes.text();
     return jsonResponse_({ error: 'No se pudo validar el hogar/código de importación', detail: detail }, 401);
   }
+  // Mismo tope que en /leer-boleta, con el hogar ya validado por la llamada de arriba (que falla
+  // con 401 si el token no calza). Acá no hay costo por llamada, pero sí un canal para inundar de
+  // notificaciones el teléfono de alguien cuyo token se filtró.
+  if (!(await dentroDeLaCuota_(env, 'notify:' + householdId, LIMITE_NOTIFY_POR_HORA))) {
+    return jsonResponse_({ error: 'Demasiadas notificaciones seguidas para este hogar.' }, 429);
+  }
+
   const subs = await subsRes.json();
   if (!Array.isArray(subs) || subs.length === 0) {
     return jsonResponse_({ delivered: 0, gone: 0, failed: 0, note: 'Sin dispositivos suscritos a notificaciones en este hogar todavía.' });
@@ -717,6 +781,11 @@ async function handleLeerBoleta_(request, env) {
   if (!householdId || !token || !imageBase64) {
     return jsonResponse_({ error: 'Faltan household_id, token o image_base64' }, 400);
   }
+  // Antes el cuerpo del POST no tenía tope: una imagen enorme cuesta más en Gemini que una foto
+  // normal de una boleta, así que se rechaza acá, sin llamar a nadie.
+  if (typeof imageBase64 !== 'string' || imageBase64.length > MAX_IMAGE_BASE64_CHARS) {
+    return jsonResponse_({ error: 'La imagen es demasiado grande. Saca la foto de nuevo con menos resolución.' }, 413);
+  }
 
   const validacion = await callSupabaseRpc_(env, 'verificar_household', {
     p_household_id: householdId, p_token: token
@@ -727,6 +796,12 @@ async function handleLeerBoleta_(request, env) {
   const esValido = await validacion.json();
   if (esValido !== true) {
     return jsonResponse_({ error: 'Código de importación inválido para ese hogar' }, 401);
+  }
+
+  // El tope se cobra recién acá, con el hogar ya validado: así un token inválido no puede gastarle
+  // la cuota a un hogar real, y sobre todo, se corta ANTES de llamar (y pagar) a Gemini.
+  if (!(await dentroDeLaCuota_(env, 'ocr:' + householdId, LIMITE_OCR_POR_HORA))) {
+    return jsonResponse_({ error: 'Demasiadas boletas seguidas. Espera un rato y vuelve a intentar.' }, 429);
   }
 
   let data;
