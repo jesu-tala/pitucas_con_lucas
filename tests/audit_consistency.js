@@ -299,5 +299,48 @@ function checkClose(label, a, b, tol){
   checkClose('Proyeccion promedio de los últimos 3 meses', pm(proyeccionAportePlaceholder), Math.round(truth.avgLast3));
   checkClose('Planificador base default', planBaseVal, truth.defaultPlanBase);
 
+  // ---- Invariante: vincular un depósito a un pendiente NO puede subir los ingresos del mes ----
+  // Un depósito que salda un cobro o un reembolso no es plata nueva: es la recuperación de algo
+  // que ya habías adelantado o gastado, y ese gasto ya se contabilizó en su momento. Contarlo otra
+  // vez del lado de los ingresos sería contar lo mismo dos veces, e inflaría la tasa de ahorro.
+  //
+  // Se verifica sobre el MISMO depósito antes y después de vincularlo, no comparando dos
+  // transacciones distintas: así la única variable que cambia es el vínculo. Y el depósito va
+  // categorizado como sueldo a propósito, para que ANTES de vincular sí cuente como ingreso real
+  // -- si no, "no suma" saldría verde sin que el vínculo tuviera nada que ver.
+  const vinculo = await page.evaluate(() => {
+    const D = window.__debug;
+    const mes = D.MONTHS[0];
+    const f = d => mes + '-' + String(d).padStart(2, '0');
+    D.TRANSACTIONS.push({ id: 'inv-g', fecha: f(3), hora: '10:00', comercio: 'Gasto con pendiente', monto: 20000,
+      medio: 'efectivo', tipo: 'gasto', recurrencia: 'variable', estado: 'por_cobrar',
+      categorias: [{ cat: 'restoranes', monto: 20000 }],
+      porCobrar: [{ persona: 'Fran', monto: 12000, pagado: false, tipo: 'persona', montoRecibido: null, linkedTxId: null }],
+      reglaAuto: false, nota: '' });
+    D.TRANSACTIONS.push({ id: 'inv-d', fecha: f(6), hora: '11:00', comercio: 'Depósito', monto: 12000,
+      medio: 'efectivo', tipo: 'ingreso', recurrencia: 'variable', estado: 'confirmado',
+      categorias: [{ cat: 'sueldo', monto: 12000 }], porCobrar: [], reglaAuto: false, nota: '' });
+
+    const antes = D.monthTotals(mes);
+    const contabaComoIngreso = D.netIncomeTx(D.TRANSACTIONS.find(t => t.id === 'inv-d'));
+    const ok = D.assignIncomeToReceivable('inv-g', 0, 'inv-d', 12000);
+    const despues = D.monthTotals(mes);
+
+    // Se deja el estado como estaba, para no contaminar nada que corra después.
+    D.TRANSACTIONS.splice(D.TRANSACTIONS.findIndex(t => t.id === 'inv-d'), 1);
+    D.TRANSACTIONS.splice(D.TRANSACTIONS.findIndex(t => t.id === 'inv-g'), 1);
+    D.render();
+    return { ok, contabaComoIngreso,
+      antes: { ingresos: antes.ingresos, entradas: antes.entradas, cobros: antes.cobros },
+      despues: { ingresos: despues.ingresos, entradas: despues.entradas, cobros: despues.cobros } };
+  });
+  check('(control) el vínculo se creó y el depósito SÍ contaba como ingreso antes',
+    vinculo.ok === true && vinculo.contabaComoIngreso === 12000, vinculo);
+  check('Vincular un cobro/reembolso NO sube los ingresos del mes (no se cuenta dos veces)',
+    vinculo.despues.ingresos === vinculo.antes.ingresos - 12000, vinculo);
+  check('   esa plata pasa a "cobros", no desaparece', vinculo.despues.cobros === vinculo.antes.cobros + 12000, vinculo);
+  check('   y "Entradas" no cambia: el dinero entró a la cuenta igual (tiene que cuadrar con el banco)',
+    vinculo.despues.entradas === vinculo.antes.entradas, vinculo);
+
   await finish({ context, browser, errors });
 })();
