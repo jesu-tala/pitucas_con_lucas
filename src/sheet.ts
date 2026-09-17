@@ -1,5 +1,5 @@
 import { esc } from './esc';
-import { allCollected, catInfo, dayLabel, incomeNatureOf, paymentMethodInfo, pendingEffectiveAmount, pendingLinkedTo, allPendingReceivables, receivableTotal, hasReceivableType, receivableAssignedTotal, incomeAssignedTotal, receivablesLinkedFrom, receivableEstado } from './helpers';
+import { allCollected, catInfo, dayLabel, incomeNatureOf, netIncomeTx, paymentMethodInfo, pendingEffectiveAmount, pendingLinkedTo, allPendingReceivables, receivableTotal, hasReceivableType, receivableAssignedTotal, incomeAssignedTotal, receivablesLinkedFrom, receivableEstado } from './helpers';
 import { navPopIfTop, navPush } from './nav';
 import { categoryColorVars } from './category-colors';
 import { ICONS, catIconMarkup } from './icons';
@@ -382,7 +382,38 @@ export function renderSheetContent(t){
   // Phase 4") and, conversely, one imported as an expense/income couldn't be switched to an
   // investment — for example a transfer to Fintual that arrives on its own from email. Now all 3 options
   // are always available here, same as when creating a new transaction.
-  const tipoSelector = segmentedHtml('tipo', [{id:'gasto',label:'Gasto'},{id:'ingreso',label:'Ingreso'},{id:'inversion',label:'Inversión'}], t.tipo);
+  // Un depósito vinculado a un pendiente NO es un ingreso, y el selector de Tipo con "Ingreso"
+  // marcado decía exactamente lo contrario de lo que hace la contabilidad: incomeNatureOf() ya lo
+  // trata como 'cobro'/'reembolso' y no suma a los ingresos del mes (ver netIncomeTx y monthTotals
+  // en evolucion.ts). La representación decía una cosa y los números otra, que es justo lo que
+  // confunde. Peor: renderIncomeNatureBlock se oculta a propósito para estas dos naturalezas, así
+  // que no había NINGUNA tarjeta que explicara lo que estaba pasando.
+  //
+  // Va como afirmación de solo lectura y NO como una cuarta opción del selector, a propósito: acá
+  // la naturaleza es DERIVADA del vínculo, no elegible. Una opción más sugeriría que se puede
+  // fijar por separado, y quedaría desincronizada del vínculo apenas alguien la tocara -- el mismo
+  // criterio que ya toma incomeNatureOf, donde el vínculo manda por sobre naturalezaEntrada. La
+  // salida existe y está en esta misma hoja, un par de tarjetas más abajo: "Quitar vínculo".
+  const naturalezaDelDeposito = t.tipo==='ingreso' ? incomeNatureOf(t) : null;
+  const esDepositoVinculado = naturalezaDelDeposito==='cobro' || naturalezaDelDeposito==='reembolso';
+  const tipoSelector = esDepositoVinculado
+    ? (function(){
+        const esCobro = naturalezaDelDeposito==='cobro';
+        // Lo que de verdad cuenta como ingreso: 0 en el caso normal, y solo el sobre-reembolso
+        // cuando te devolvieron más de lo que gastaste. Ese número aparece en Balance y sin
+        // explicarlo parece un error.
+        const excedente = netIncomeTx(t);
+        return '<div class="cobro-banner-done">'+ICONS.checkCircle+'<span>'+(esCobro?'Cobro recibido':'Reembolso recibido')+'</span></div>'+
+          '<p class="cat-picker-hint" style="margin:8px 0 0;">'+
+            (esCobro
+              ? 'No suma a tus ingresos: es plata que habías adelantado y te devolvieron. El gasto original ya se contabilizó cuando ocurrió.'
+              : 'No suma a tus ingresos: el gasto original ya se contabilizó cuando ocurrió, y este reembolso se descuenta de ahí.')+
+          '</p>'+
+          (!esCobro && excedente>0
+            ? '<p class="cat-picker-hint" style="margin:8px 0 0;">Te devolvieron '+money(excedente)+' más de lo que habías gastado, así que <b>solo esa diferencia</b> cuenta como ingreso.</p>'
+            : '');
+      })()
+    : segmentedHtml('tipo', [{id:'gasto',label:'Gasto'},{id:'ingreso',label:'Ingreso'},{id:'inversion',label:'Inversión'}], t.tipo);
 
   const recurrenciaSelector = segmentedHtml('recurrencia', [
     {id:'variable',label:'Variable'},{id:'mensual',label:'Mensual'},{id:'anual',label:'Anual'}

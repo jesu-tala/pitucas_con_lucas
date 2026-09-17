@@ -8371,7 +8371,13 @@
     const cats = t.categorias;
     const needsClassifying = cats.length === 0 && t.estado === "pendiente";
     const categoriaSection = isInvest && INVESTMENT_GOALS.length === 0 ? renderInvestGoalEmptyState() : needsClassifying ? (t.sharedByOthers ? '<p class="cat-picker-hint">Este es tu parte de un gasto de grupo' + (t.suggestedOriginCategory ? ' que la otra persona anot\xF3 como "' + t.suggestedOriginCategory + '"' : "") + ". Elige tu categor\xEDa y la pr\xF3xima vez que registre algo as\xED se va a clasificar sola.</p>" : '<p class="cat-picker-hint">Todav\xEDa no le has puesto categor\xEDa. Elige una para clasificarla (y luego puedes activar el candado para que se repita sola).</p>') + (isInvest ? investCatPickerGrid() : catPickerGrid(t.tipo, "pick-cat")) : renderCategoryRows(t, !isInvest);
-    const tipoSelector = segmentedHtml("tipo", [{ id: "gasto", label: "Gasto" }, { id: "ingreso", label: "Ingreso" }, { id: "inversion", label: "Inversi\xF3n" }], t.tipo);
+    const naturalezaDelDeposito = t.tipo === "ingreso" ? incomeNatureOf(t) : null;
+    const esDepositoVinculado = naturalezaDelDeposito === "cobro" || naturalezaDelDeposito === "reembolso";
+    const tipoSelector = esDepositoVinculado ? (function() {
+      const esCobro = naturalezaDelDeposito === "cobro";
+      const excedente = netIncomeTx(t);
+      return '<div class="cobro-banner-done">' + ICONS.checkCircle + "<span>" + (esCobro ? "Cobro recibido" : "Reembolso recibido") + '</span></div><p class="cat-picker-hint" style="margin:8px 0 0;">' + (esCobro ? "No suma a tus ingresos: es plata que hab\xEDas adelantado y te devolvieron. El gasto original ya se contabiliz\xF3 cuando ocurri\xF3." : "No suma a tus ingresos: el gasto original ya se contabiliz\xF3 cuando ocurri\xF3, y este reembolso se descuenta de ah\xED.") + "</p>" + (!esCobro && excedente > 0 ? '<p class="cat-picker-hint" style="margin:8px 0 0;">Te devolvieron ' + money(excedente) + " m\xE1s de lo que hab\xEDas gastado, as\xED que <b>solo esa diferencia</b> cuenta como ingreso.</p>" : "");
+    })() : segmentedHtml("tipo", [{ id: "gasto", label: "Gasto" }, { id: "ingreso", label: "Ingreso" }, { id: "inversion", label: "Inversi\xF3n" }], t.tipo);
     const recurrenciaSelector = segmentedHtml("recurrencia", [
       { id: "variable", label: "Variable" },
       { id: "mensual", label: "Mensual" },
