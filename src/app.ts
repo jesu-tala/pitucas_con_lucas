@@ -54,10 +54,22 @@ import { initSupabaseAuth } from './supabase';
 // 100dvh directly.
 function setAppHeight(){
   const vv = window.visualViewport;
-  // 40px of slack: a real keyboard covers way more than that; this avoids false positives from
-  // normal small viewport-height jitter (address bar showing/hiding isn't a factor in
-  // standalone PWA mode, but keep some margin regardless).
-  if(vv && vv.height < window.innerHeight - 40){
+  // Cuánto tiene que achicarse el visual viewport para creerle que es el teclado y no ruido.
+  //
+  // Empezó en 40px y eso resultó ser MUY poco. Con dos capturas del mismo minuto en un iPhone se
+  // vio la barra inferior saltando ~48pt entre una y otra, con espacio muerto debajo: iOS reportó
+  // un visual viewport ~48px más corto que window.innerHeight sin ningún teclado abierto (pasa al
+  // hacer scroll/rubber-band), 48 > 40 disparó la condición, --app-height quedó corto, .phone se
+  // encogió y la barra se fue con él. Y quedaba pegado así, porque nada volvía a recalcular hasta
+  // el siguiente evento.
+  //
+  // 150px es la distancia correcta para lo que se quiere distinguir: el teclado de iOS tapa del
+  // orden de 300px, así que sigue detectándose sin problema, mientras que cualquier jitter de
+  // decenas de píxeles (que es lo que se observó) deja de contar como teclado. El riesgo de
+  // pasarse para el otro lado es bajo y además acotado: si alguna vez un teclado muy chico no
+  // superara el umbral, --app-height simplemente no se define y .phone usa el 100dvh nativo, que
+  // es el mismo comportamiento que tiene el 99% del tiempo.
+  if(vv && vv.height < window.innerHeight - 150){
     document.documentElement.style.setProperty('--app-height', vv.height + 'px');
   } else {
     document.documentElement.style.removeProperty('--app-height');

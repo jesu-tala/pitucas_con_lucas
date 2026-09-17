@@ -54,6 +54,42 @@ const { openApp, check, finish } = require('./lib/test_kit');
     await page.waitForTimeout(100);
     const appHeightTrasCerrar = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--app-height').trim());
     check('(c) Al "cerrarse el teclado", --app-height vuelve a quedar sin definir (no se queda pegado)', appHeightTrasCerrar === '', appHeightTrasCerrar);
+
+    // (d) El bug que motivó subir el umbral de 40px a 150px. Con 40px bastaba que iOS reportara
+    // un visual viewport unas decenas de píxeles más corto -- lo que pasa al hacer scroll o
+    // rubber-band, SIN ningún teclado -- para que --app-height quedara corto, .phone se encogiera
+    // y la barra inferior se fuera con él, dejando espacio muerto abajo. Se vio en dos capturas
+    // del mismo minuto con la barra saltando ~48pt. Estos achiques chicos NO son un teclado.
+    for(const jitter of [48, 100, 149]){
+      await page.evaluate((px) => {
+        Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: window.innerHeight - px });
+        window.visualViewport.dispatchEvent(new Event('resize'));
+      }, jitter);
+      await page.waitForTimeout(60);
+      const v = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--app-height').trim());
+      check('(d) Un achique de ' + jitter + 'px NO se confunde con el teclado (--app-height sigue sin definir)', v === '', { jitter, appHeight: v });
+    }
+
+    // (e) Y el otro lado del umbral: un teclado de verdad (iOS tapa del orden de 300px) se sigue
+    // detectando. Sin esto, subir el umbral podría haber roto en silencio el caso que setAppHeight
+    // existe para resolver.
+    await page.evaluate(() => {
+      Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: window.innerHeight - 300 });
+      window.visualViewport.dispatchEvent(new Event('resize'));
+    });
+    await page.waitForTimeout(60);
+    const conTecladoReal = await page.evaluate(() => ({
+      appHeight: getComputedStyle(document.documentElement).getPropertyValue('--app-height').trim(),
+      esperado: (window.innerHeight - 300) + 'px'
+    }));
+    check('(e) Un teclado de verdad (300px) se sigue detectando después de subir el umbral',
+      conTecladoReal.appHeight === conTecladoReal.esperado, conTecladoReal);
+
+    // Se deja el viewport como estaba, para no arrastrar el estado al chequeo de consola final.
+    await page.evaluate(() => {
+      Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: window.innerHeight });
+      window.visualViewport.dispatchEvent(new Event('resize'));
+    });
   }
 
   await finish({ context, browser, errors });

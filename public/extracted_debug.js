@@ -9920,7 +9920,7 @@
   // src/app.ts
   function setAppHeight() {
     const vv = window.visualViewport;
-    if (vv && vv.height < window.innerHeight - 40) {
+    if (vv && vv.height < window.innerHeight - 150) {
       document.documentElement.style.setProperty("--app-height", vv.height + "px");
     } else {
       document.documentElement.style.removeProperty("--app-height");
