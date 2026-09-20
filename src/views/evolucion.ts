@@ -239,6 +239,44 @@ export function metaRacha(meta){
 export function goalsForPlatform(id){
   return INVESTMENT_GOALS.filter(m=>m.plataformaId===id);
 }
+/* ---------- fuente única de "qué metas cuentan" ----------
+ * Bug reportado: en pantalla convivían un "total invertido" en $0 y un avance del objetivo del
+ * año mayor que cero. Los dos números se contradecían.
+ *
+ * No era que leyeran datos distintos -- los dos salen de TRANSACTIONS; el historial manual de las
+ * metas ya no existe. Era que recorrían los MISMOS datos por caminos distintos:
+ *
+ *   annualInvestmentGoalProgress  ->  iteraba INVESTMENT_GOALS directo
+ *   todo lo de "invertido"        ->  activePlatformIds() -> goalsForPlatform()
+ *
+ * Así, una meta cuya plataforma estaba archivada (o cuyo plataformaId ya no existía en
+ * CATEGORIES) desaparecía de un recorrido y seguía contando en el otro. Se reprodujo por los dos
+ * caminos: archivando la plataforma (total 300.000 -> 0 con el avance intacto en 300.000) y con
+ * una meta huérfana (que inflaba avance y objetivo sin aportar al total).
+ *
+ * Esta función es el único lugar donde se decide qué metas entran, y la usan los dos lados. Es el
+ * mismo criterio de fuente única que ya usa incomeNatureOf() para la naturaleza de las entradas.
+ *
+ * Decisión de producto: cerrar una plataforma la saca de TODO, no solo del total invertido. El
+ * costo aceptado es que la barra del objetivo del año retrocede al cerrar una plataforma; a
+ * cambio, los dos números no pueden contradecirse nunca.
+ */
+export function metasContables(){
+  const activas = new Set(activePlatformIds());
+  return INVESTMENT_GOALS.filter(m=>activas.has(m.plataformaId));
+}
+// Si una categoría de inversión pertenece o no a una plataforma que sigue contando. Una categoría
+// de tipo inversión es el id de una meta, o el bucket '<plataformaId>__general' de una plataforma
+// (ver la nota sobre `categorias` en types.ts). Cualquier otra cosa -- una meta huérfana, el
+// bucket de una plataforma cerrada -- no cuenta, por la misma decisión de arriba.
+export function catDeInversionCuenta(catId){
+  const activas = new Set(activePlatformIds());
+  const meta = INVESTMENT_GOALS.find(m=>m.id===catId);
+  if(meta) return activas.has(meta.plataformaId);
+  const corte = String(catId||'').lastIndexOf('__general');
+  if(corte>0) return activas.has(String(catId).slice(0, corte));
+  return false;
+}
 // Combined summary of the goals of ONE platform: sum of target/accumulated, and a combined
 // streak that only lights up if ALL of that platform's goals have an active streak today — in
 // that case the number is the shortest streak (the months in which you met ALL of them at
@@ -274,7 +312,9 @@ export function platformGoalsSummary(id){
 //     'no_es_gasto' write-off, same exclusion aggregatedTxAmount/aportadoAcumuladoHastaMesONull
 //     already apply) lands in exactly one of aporteAnio/otrosAporteAnio.
 export function annualInvestmentGoalProgress(year){
-  const fixedGoals = INVESTMENT_GOALS.filter(m=>m.aporteMensualMeta!=null);
+  // metasContables(), no INVESTMENT_GOALS: ese era exactamente el segundo recorrido que hacía
+  // que este número se separara del total invertido (ver la nota sobre la fuente única arriba).
+  const fixedGoals = metasContables().filter(m=>m.aporteMensualMeta!=null);
   const fixedGoalIds = new Set(fixedGoals.map(m=>m.id));
   const objetivoAnual = fixedGoals.reduce((s,m)=>s+(m.aporteMensualMeta||0), 0) * 12;
   const aporteAnio = fixedGoals.reduce((s,m)=>
@@ -285,7 +325,11 @@ export function annualInvestmentGoalProgress(year){
   let otrosAporteAnio = 0;
   TRANSACTIONS.forEach(t=>{
     if(t.tipo!=='inversion' || t.estado==='no_es_gasto' || t.fecha.slice(0,4)!==year) return;
-    t.categorias.forEach(c=>{ if(!fixedGoalIds.has(c.cat)) otrosAporteAnio += c.monto; });
+    t.categorias.forEach(c=>{
+      if(fixedGoalIds.has(c.cat)) return;              // ya contado en aporteAnio
+      if(!catDeInversionCuenta(c.cat)) return;         // plataforma cerrada o categoría huérfana
+      otrosAporteAnio += c.monto;
+    });
   });
   return {objetivoAnual, aporteAnio, otrosAporteAnio};
 }

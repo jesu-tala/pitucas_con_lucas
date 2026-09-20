@@ -950,6 +950,20 @@
     return INVESTMENT_GOALS.filter((m) => m.plataformaId === id);
   }
   __name(goalsForPlatform, "goalsForPlatform");
+  function metasContables() {
+    const activas = new Set(activePlatformIds());
+    return INVESTMENT_GOALS.filter((m) => activas.has(m.plataformaId));
+  }
+  __name(metasContables, "metasContables");
+  function catDeInversionCuenta(catId) {
+    const activas = new Set(activePlatformIds());
+    const meta = INVESTMENT_GOALS.find((m) => m.id === catId);
+    if (meta) return activas.has(meta.plataformaId);
+    const corte = String(catId || "").lastIndexOf("__general");
+    if (corte > 0) return activas.has(String(catId).slice(0, corte));
+    return false;
+  }
+  __name(catDeInversionCuenta, "catDeInversionCuenta");
   function platformGoalsSummary(id) {
     const metas = goalsForPlatform(id);
     const totalObjetivo = metas.reduce((s, m) => s + (m.montoObjetivo || 0), 0);
@@ -960,7 +974,7 @@
   }
   __name(platformGoalsSummary, "platformGoalsSummary");
   function annualInvestmentGoalProgress(year) {
-    const fixedGoals = INVESTMENT_GOALS.filter((m) => m.aporteMensualMeta != null);
+    const fixedGoals = metasContables().filter((m) => m.aporteMensualMeta != null);
     const fixedGoalIds = new Set(fixedGoals.map((m) => m.id));
     const objetivoAnual = fixedGoals.reduce((s, m) => s + (m.aporteMensualMeta || 0), 0) * 12;
     const aporteAnio = fixedGoals.reduce(
@@ -971,7 +985,9 @@
     TRANSACTIONS.forEach((t) => {
       if (t.tipo !== "inversion" || t.estado === "no_es_gasto" || t.fecha.slice(0, 4) !== year) return;
       t.categorias.forEach((c) => {
-        if (!fixedGoalIds.has(c.cat)) otrosAporteAnio += c.monto;
+        if (fixedGoalIds.has(c.cat)) return;
+        if (!catDeInversionCuenta(c.cat)) return;
+        otrosAporteAnio += c.monto;
       });
     });
     return { objetivoAnual, aporteAnio, otrosAporteAnio };

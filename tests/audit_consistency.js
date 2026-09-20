@@ -38,15 +38,29 @@ function checkClose(label, a, b, tol){
     // TRANSACTIONS/INVESTMENT_GOALS (never by calling the app's own function and comparing it to
     // itself) so this audit can actually catch a stock-vs-flow mislabeling bug, the exact kind
     // the old totalGoalProgress()-based check would never have noticed.
+    // Solo cuentan las metas que viven en una plataforma que sigue abierta: cerrar una plataforma
+    // la saca de TODO, no solo del total invertido (ver metasContables en views/evolucion.ts). El
+    // conjunto de plataformas activas se arma acá desde CATEGORIES/PLATFORM_DATA en crudo, no
+    // llamando a activePlatformIds(), para que esta verdad siga siendo independiente de la app.
     const anio = D.todayISO().slice(0,4);
-    const fixedGoalIdsTruth = new Set(D.INVESTMENT_GOALS.filter(m => m.aporteMensualMeta != null).map(m => m.id));
-    const objetivoAnualTruth = D.INVESTMENT_GOALS.reduce((s,m) => s + (m.aporteMensualMeta || 0), 0) * 12;
+    const activasTruth = new Set(Object.keys(D.CATEGORIES).filter(k =>
+      D.CATEGORIES[k].tipo === 'inversion' && !(D.PLATFORM_DATA[k] && D.PLATFORM_DATA[k].archivada)));
+    const plataformaDeCat = (catId) => {
+      const meta = D.INVESTMENT_GOALS.find(m => m.id === catId);
+      if (meta) return meta.plataformaId;
+      const corte = String(catId || '').lastIndexOf('__general');
+      return corte > 0 ? String(catId).slice(0, corte) : null;
+    };
+    const metasContablesTruth = D.INVESTMENT_GOALS.filter(m => activasTruth.has(m.plataformaId));
+    const fixedGoalIdsTruth = new Set(metasContablesTruth.filter(m => m.aporteMensualMeta != null).map(m => m.id));
+    const objetivoAnualTruth = metasContablesTruth.reduce((s,m) => s + (m.aporteMensualMeta || 0), 0) * 12;
     let aporteAnioTruth = 0, otrosAporteAnioTruth = 0;
     D.TRANSACTIONS.forEach(t => {
       if (t.tipo !== 'inversion' || t.estado === 'no_es_gasto' || t.fecha.slice(0,4) !== anio) return;
       t.categorias.forEach(c => {
-        if (fixedGoalIdsTruth.has(c.cat)) aporteAnioTruth += c.monto;
-        else otrosAporteAnioTruth += c.monto;
+        if (fixedGoalIdsTruth.has(c.cat)) { aporteAnioTruth += c.monto; return; }
+        const plat = plataformaDeCat(c.cat);
+        if (plat && activasTruth.has(plat)) otrosAporteAnioTruth += c.monto;
       });
     });
     const annualGoalProgress = { objetivoAnualTruth, aporteAnioTruth, otrosAporteAnioTruth };
@@ -334,6 +348,46 @@ function checkClose(label, a, b, tol){
       antes: { ingresos: antes.ingresos, entradas: antes.entradas, cobros: antes.cobros },
       despues: { ingresos: despues.ingresos, entradas: despues.entradas, cobros: despues.cobros } };
   });
+  // ---- Invariante: el avance del objetivo del año y el total invertido no pueden divergir ----
+  // No se exige que sean IGUALES -- no lo son ni pueden serlo: el total invertido es un stock
+  // (todo lo acumulado, incluyendo años anteriores y el startingAmount cargado a mano) y el
+  // avance del año es un flujo (solo lo aportado este año). Lo que se exige es que salgan del
+  // MISMO conjunto de metas, que era la causa real del bug: al cerrar una plataforma el total
+  // caía a 0 mientras el avance seguía mostrando el monto completo.
+  const fuenteUnica = await page.evaluate(() => {
+    const D = window.__debug;
+    const anio = D.todayISO().slice(0,4);
+    const total = () => D.activePlatformIds().reduce((s,id)=>s+D.platformAportadoNeto(id),0);
+    const plataformasConMeta = Array.from(new Set(D.INVESTMENT_GOALS.map(m=>m.plataformaId)))
+      .filter(id => D.CATEGORIES[id] && D.CATEGORIES[id].tipo==='inversion');
+    const pasos = [];
+    // Se van cerrando las plataformas una por una: en CADA paso los dos números tienen que
+    // moverse juntos (o quedarse quietos juntos), nunca uno sin el otro.
+    plataformasConMeta.forEach(id => {
+      const antes = { total: total(), anual: D.annualInvestmentGoalProgress(anio) };
+      D.PLATFORM_DATA[id].archivada = true;
+      const despues = { total: total(), anual: D.annualInvestmentGoalProgress(anio) };
+      pasos.push({ id,
+        bajoTotal: despues.total < antes.total,
+        bajoAvance: despues.anual.aporteAnio < antes.anual.aporteAnio,
+        bajoObjetivo: despues.anual.objetivoAnual < antes.anual.objetivoAnual });
+    });
+    const finalTotal = total(), finalAnual = D.annualInvestmentGoalProgress(anio);
+    plataformasConMeta.forEach(id => { delete D.PLATFORM_DATA[id].archivada; });
+    D.render();
+    return { pasos, finalTotal, finalAnual, huboPasos: plataformasConMeta.length > 0 };
+  });
+  check('(control) hay plataformas con metas que cerrar (si no, lo de abajo no probaría nada)',
+    fuenteUnica.huboPasos === true, fuenteUnica);
+  check('Cerrar una plataforma nunca baja el total invertido sin bajar también el avance del año',
+    fuenteUnica.pasos.every(p => !p.bajoTotal || p.bajoAvance) === true, fuenteUnica.pasos);
+  check('   ni baja el avance del año dejando intacto el objetivo del año',
+    fuenteUnica.pasos.every(p => !p.bajoAvance || p.bajoObjetivo) === true, fuenteUnica.pasos);
+  check('   con TODAS las plataformas cerradas, los tres números quedan en 0 a la vez',
+    fuenteUnica.finalTotal === 0 && fuenteUnica.finalAnual.aporteAnio === 0 &&
+    fuenteUnica.finalAnual.objetivoAnual === 0 && fuenteUnica.finalAnual.otrosAporteAnio === 0,
+    { total: fuenteUnica.finalTotal, anual: fuenteUnica.finalAnual });
+
   check('(control) el vínculo se creó y el depósito SÍ contaba como ingreso antes',
     vinculo.ok === true && vinculo.contabaComoIngreso === 12000, vinculo);
   check('Vincular un cobro/reembolso NO sube los ingresos del mes (no se cuenta dos veces)',
