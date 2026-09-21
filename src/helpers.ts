@@ -1,6 +1,6 @@
 import { ensureMonthExists } from './shared-expenses';
 import { getTx } from './sheet';
-import { CATEGORIES, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, todayISO } from './state';
+import { CATEGORIES, INVESTMENT_GOALS, PAYMENT_METHODS, PLATFORM_DATA, TRANSACTIONS, todayISO } from './state';
 import { GoalTerm, IncomeNature, Transaction } from './types';
 /* ===================== HELPERS ===================== */
 export function txsOfMonth(m){ return TRANSACTIONS.filter(t=>t.fecha.slice(0,7)===m); }
@@ -10,7 +10,50 @@ export function txsOfMonth(m){ return TRANSACTIONS.filter(t=>t.fecha.slice(0,7)=
 // shapes (plain category, Goal, General bucket) so every existing caller (Transactions list,
 // Balance/Budget donuts, the classification-rules editor, filters...) keeps working without
 // having to know which kind of id it got.
+// Id centinela del drill-down de "Objetivo de inversión [año]": no es una categoría real, es
+// "todas las metas con aporte mensual fijo que siguen contando" -- exactamente las que componen
+// el avance del año. Existe porque ese número no sale de UNA categoría sino de un conjunto, y el
+// drill-down por categoría (state.categoryFilter) solo sabía filtrar por una. Ver
+// FILTRO_APORTE_FIJO en categoryFilterMatches más abajo y el handler data-drill-aporte-anio.
+export const FILTRO_APORTE_FIJO = '__aporte_fijo';
+
+/* ---------- fuente única de "qué cuenta" en inversiones ----------
+ * Bug reportado: convivían en pantalla un "total invertido" en $0 y un avance del objetivo del
+ * año mayor que cero. Los dos salen de TRANSACTIONS (el historial manual de las metas ya no
+ * existe), pero recorrían los mismos datos por caminos distintos: el avance iteraba
+ * INVESTMENT_GOALS directo y todo lo de "invertido" iba por activePlatformIds() ->
+ * goalsForPlatform(). Una meta cuya plataforma estaba archivada, o cuyo plataformaId ya no
+ * existía, caía de un recorrido y seguía contando en el otro.
+ *
+ * Esto vive en helpers y no en una vista a propósito: es una regla del modelo, no de una
+ * pantalla, y desde acá la pueden usar tanto las vistas como el filtro de transacciones sin
+ * crear un ciclo de imports (helpers nunca importa de views/).
+ *
+ * Decisión de producto: cerrar una plataforma la saca de TODO, no solo del total invertido.
+ */
+export function platformIdForInvestmentCat(catId){
+  if(!catId) return null;
+  const goal = INVESTMENT_GOALS.find(g=>g.id===catId);
+  if(goal) return goal.plataformaId;
+  const SUF = '__general';
+  return String(catId).slice(-SUF.length)===SUF ? String(catId).slice(0, -SUF.length) : null;
+}
+// Mismo criterio exacto que activePlatformIds() en views/inversiones.ts: una categoría de tipo
+// inversión que no esté archivada.
+export function esPlataformaContable(platId){
+  const cat = CATEGORIES[platId];
+  return !!cat && cat.tipo==='inversion' && !(PLATFORM_DATA[platId] && PLATFORM_DATA[platId].archivada);
+}
+export function metasContables(){
+  return INVESTMENT_GOALS.filter(m=>esPlataformaContable(m.plataformaId));
+}
+export function catDeInversionCuenta(catId){
+  const plat = platformIdForInvestmentCat(catId);
+  return !!plat && esPlataformaContable(plat);
+}
+
 export function catInfo(id){
+  if(id===FILTRO_APORTE_FIJO) return {nombre:'Aportes a metas con aporte fijo', tipo:'inversion', colorHue:265, icon:'trending'};
   if(CATEGORIES[id]) return CATEGORIES[id];
   const goal = INVESTMENT_GOALS.find(m=>m.id===id);
   if(goal){
@@ -31,6 +74,13 @@ export function catInfo(id){
 // platform id, from data-platform-see-more, or a Goal/General id, from a donut legend click).
 export function categoryFilterMatches(catId, filterId){
   if(catId===filterId) return true;
+  // El desglose del avance del objetivo del año: las mismas metas que suman a ese número, ni una
+  // más. Se deja acá y no en una lista armada en la vista para que el filtro no pueda quedar
+  // desincronizado de annualInvestmentGoalProgress si mañana cambia el criterio.
+  if(filterId===FILTRO_APORTE_FIJO){
+    const goal = INVESTMENT_GOALS.find(m=>m.id===catId);
+    return !!goal && goal.aporteMensualMeta!=null && catDeInversionCuenta(catId);
+  }
   if(CATEGORIES[filterId] && CATEGORIES[filterId].tipo==='inversion'){
     if(catId===filterId+'__general') return true;
     const goal = INVESTMENT_GOALS.find(m=>m.id===catId);

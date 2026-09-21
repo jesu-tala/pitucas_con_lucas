@@ -1007,6 +1007,16 @@
   .platform-total-card{padding:18px;margin-bottom:16px;}
   .platform-total-label{font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;}
   .platform-total-value{font-size:24px;font-weight:500;margin-bottom:8px;}
+  /* Un monto que se puede tocar para ver su desglose. Se dibuja como el número que ya era (misma
+     tipografía, tamaño y color heredados) y no como un botón: lo único que lo delata es el
+     subrayado punteado, suficiente para invitar al toque sin romper la lectura de la cifra.
+     El área táctil se agranda con padding negativo-compensado para cumplir el mínimo de 44px sin
+     mover el layout. */
+  button.drill-num{
+    font:inherit;color:inherit;background:none;border:none;padding:6px 2px;margin:-6px -2px;
+    cursor:pointer;border-bottom:1px dashed var(--text-tertiary);border-radius:4px;
+  }
+  button.drill-num:active{background:var(--surface-sunken);}
   .platform-total-sub{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--text-secondary);}
   .platform-total-sub .pos{color:var(--income-ink);font-weight:700;}
   .platform-total-sub .neg{color:var(--expense-ink);font-weight:700;}

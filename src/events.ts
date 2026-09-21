@@ -1,4 +1,4 @@
-import { allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, receivableTotal, hasReceivableType, receivablesLinkedFrom, removeIncomeAssignment, assignIncomeToReceivable } from './helpers';
+import { FILTRO_APORTE_FIJO, allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, receivableTotal, hasReceivableType, receivablesLinkedFrom, removeIncomeAssignment, assignIncomeToReceivable } from './helpers';
 import { categoryFillCss, nextCategoryHue } from './category-colors';
 import { enterDemoMode, exitDemoMode } from './demo';
 import { navClearType, navDepth, navPeek, navPop, navPush, NavFrame } from './nav';
@@ -149,6 +149,21 @@ phone.addEventListener('click', function(e: any){
 
   const filterBtn = e.target.closest('[data-filter]');
   if(filterBtn){ state.filter = filterBtn.getAttribute('data-filter'); render(); return; }
+
+  // Drill-down del avance del "Objetivo de inversión [año]": tocar el monto lleva al desglose
+  // real de esa cifra. Reusa el mismo mecanismo que el drill-down del donut de Balance
+  // (categoryFilter + categoryFilterMonth, con su pill descartable), con un id centinela porque
+  // el número no sale de UNA categoría sino del conjunto de metas con aporte fijo que cuentan
+  // -- ver FILTRO_APORTE_FIJO en helpers.ts.
+  const drillAporte = e.target.closest('[data-drill-aporte-anio]');
+  if(drillAporte){
+    state.categoryFilter = FILTRO_APORTE_FIJO;
+    state.categoryFilterMonth = drillAporte.getAttribute('data-drill-aporte-anio');
+    state.filter = 'todas';
+    state.tab = 'transacciones';
+    render();
+    return;
+  }
 
   const dismissSueldo = e.target.closest('[data-dismiss-salary-suggestion]');
   if(dismissSueldo){ state.salaryBannerDismissedMonth = todayISO().slice(0,7); renderTransactionsView(); return; }

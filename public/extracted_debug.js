@@ -70,7 +70,31 @@
     return TRANSACTIONS.filter((t) => t.fecha.slice(0, 7) === m);
   }
   __name(txsOfMonth, "txsOfMonth");
+  var FILTRO_APORTE_FIJO = "__aporte_fijo";
+  function platformIdForInvestmentCat(catId) {
+    if (!catId) return null;
+    const goal = INVESTMENT_GOALS.find((g) => g.id === catId);
+    if (goal) return goal.plataformaId;
+    const SUF = "__general";
+    return String(catId).slice(-SUF.length) === SUF ? String(catId).slice(0, -SUF.length) : null;
+  }
+  __name(platformIdForInvestmentCat, "platformIdForInvestmentCat");
+  function esPlataformaContable(platId) {
+    const cat = CATEGORIES[platId];
+    return !!cat && cat.tipo === "inversion" && !(PLATFORM_DATA[platId] && PLATFORM_DATA[platId].archivada);
+  }
+  __name(esPlataformaContable, "esPlataformaContable");
+  function metasContables() {
+    return INVESTMENT_GOALS.filter((m) => esPlataformaContable(m.plataformaId));
+  }
+  __name(metasContables, "metasContables");
+  function catDeInversionCuenta(catId) {
+    const plat = platformIdForInvestmentCat(catId);
+    return !!plat && esPlataformaContable(plat);
+  }
+  __name(catDeInversionCuenta, "catDeInversionCuenta");
   function catInfo(id) {
+    if (id === FILTRO_APORTE_FIJO) return { nombre: "Aportes a metas con aporte fijo", tipo: "inversion", colorHue: 265, icon: "trending" };
     if (CATEGORIES[id]) return CATEGORIES[id];
     const goal = INVESTMENT_GOALS.find((m) => m.id === id);
     if (goal) {
@@ -87,6 +111,10 @@
   __name(catInfo, "catInfo");
   function categoryFilterMatches(catId, filterId) {
     if (catId === filterId) return true;
+    if (filterId === FILTRO_APORTE_FIJO) {
+      const goal = INVESTMENT_GOALS.find((m) => m.id === catId);
+      return !!goal && goal.aporteMensualMeta != null && catDeInversionCuenta(catId);
+    }
     if (CATEGORIES[filterId] && CATEGORIES[filterId].tipo === "inversion") {
       if (catId === filterId + "__general") return true;
       const goal = INVESTMENT_GOALS.find((m) => m.id === catId);
@@ -950,20 +978,6 @@
     return INVESTMENT_GOALS.filter((m) => m.plataformaId === id);
   }
   __name(goalsForPlatform, "goalsForPlatform");
-  function metasContables() {
-    const activas = new Set(activePlatformIds());
-    return INVESTMENT_GOALS.filter((m) => activas.has(m.plataformaId));
-  }
-  __name(metasContables, "metasContables");
-  function catDeInversionCuenta(catId) {
-    const activas = new Set(activePlatformIds());
-    const meta = INVESTMENT_GOALS.find((m) => m.id === catId);
-    if (meta) return activas.has(meta.plataformaId);
-    const corte = String(catId || "").lastIndexOf("__general");
-    if (corte > 0) return activas.has(String(catId).slice(0, corte));
-    return false;
-  }
-  __name(catDeInversionCuenta, "catDeInversionCuenta");
   function platformGoalsSummary(id) {
     const metas = goalsForPlatform(id);
     const totalObjetivo = metas.reduce((s, m) => s + (m.montoObjetivo || 0), 0);
@@ -1464,14 +1478,6 @@
     return months.length ? PLATFORM_DATA[id].valorHistorial[months[months.length - 1]] : 0;
   }
   __name(platformCurrentValue, "platformCurrentValue");
-  function platformIdForInvestmentCat(catId) {
-    if (!catId) return null;
-    const goal = INVESTMENT_GOALS.find((g) => g.id === catId);
-    if (goal) return goal.plataformaId;
-    const GENERAL_SUFFIX = "__general";
-    return catId.slice(-GENERAL_SUFFIX.length) === GENERAL_SUFFIX ? catId.slice(0, -GENERAL_SUFFIX.length) : null;
-  }
-  __name(platformIdForInvestmentCat, "platformIdForInvestmentCat");
   function bumpPlatformValueForContribution(platformId, deltaMonto) {
     if (!platformId || !deltaMonto) return;
     const plat = PLATFORM_DATA[platformId];
@@ -1693,12 +1699,13 @@
   }
   __name(round1, "round1");
   function metasPorPlazo(plazo) {
-    return INVESTMENT_GOALS.filter((m) => (m.plazo || null) === plazo);
+    return metasContables().filter((m) => (m.plazo || null) === plazo);
   }
   __name(metasPorPlazo, "metasPorPlazo");
   function planMetaRowHtml(meta) {
     const pct = PLANNER.metaPcts[meta.id] || 0;
-    return '<div class="plan-row"><div class="plan-name">' + esc(meta.nombre) + "<small>Meta de aporte: " + money(meta.aporteMensualMeta) + '/mes</small></div><div class="plan-pctbox"><input type="text" inputmode="decimal" data-plan-goal-pct data-plan-goal-id="' + meta.id + '" value="' + pct + '"><span>%</span></div><div class="plan-amt tabular" data-plan-goal-amt="' + meta.id + '"></div></div>';
+    const sub = meta.aporteMensualMeta != null ? "Meta de aporte: " + money(meta.aporteMensualMeta) + "/mes" : "Sin monto fijo \u2014 aporta lo que puedas";
+    return '<div class="plan-row"><div class="plan-name">' + esc(meta.nombre) + "<small>" + sub + '</small></div><div class="plan-pctbox"><input type="text" inputmode="decimal" data-plan-goal-pct data-plan-goal-id="' + meta.id + '" value="' + pct + '"><span>%</span></div><div class="plan-amt tabular" data-plan-goal-amt="' + meta.id + '"></div></div>';
   }
   __name(planMetaRowHtml, "planMetaRowHtml");
   function planGroupBlock(plazoKey) {
@@ -1794,7 +1801,7 @@
     const { objetivoAnual, aporteAnio, otrosAporteAnio } = annualInvestmentGoalProgress(anio);
     const anualPct = objetivoAnual > 0 ? aporteAnio / objetivoAnual * 100 : 0;
     const otrosAporteLine = otrosAporteAnio > 0 ? '<div class="platform-total-sub" style="margin-top:2px;">+ ' + money(otrosAporteAnio) + " en aportes sin objetivo fijo este a\xF1o</div>" : "";
-    const goalBlock = !INVESTMENT_GOALS.length ? "" : objetivoAnual > 0 ? '<div class="platform-total-goal-block"><div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversi\xF3n ' + anio + ' (aporte fijo mensual \xD7 12)</div><div class="platform-total-value tabular" style="font-size:20px;">' + money(aporteAnio) + '<span class="of-text"> de ' + money(objetivoAnual) + '</span></div><div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, anualPct)) + '%;background:var(--accent);"></div></div><div class="platform-total-sub"><span>' + Math.round(anualPct) + "% completado este a\xF1o</span></div>" + otrosAporteLine + // Small detail: how much "all your fixed-aporte goals" add up to per month, in money — and
+    const goalBlock = !INVESTMENT_GOALS.length ? "" : objetivoAnual > 0 ? '<div class="platform-total-goal-block"><div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversi\xF3n ' + anio + ' (aporte fijo mensual \xD7 12)</div><div class="platform-total-value tabular" style="font-size:20px;"><button type="button" class="drill-num" data-drill-aporte-anio="' + anio + '">' + money(aporteAnio) + '</button><span class="of-text"> de ' + money(objetivoAnual) + '</span></div><div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:' + Math.max(0, Math.min(100, anualPct)) + '%;background:var(--accent);"></div></div><div class="platform-total-sub"><span>' + Math.round(anualPct) + "% completado este a\xF1o</span></div>" + otrosAporteLine + // Small detail: how much "all your fixed-aporte goals" add up to per month, in money — and
     // along the way makes clear that this same number is what defines your Investment goal %
     // in Balance.
     '<div class="platform-total-sub" style="margin-top:2px;color:var(--text-tertiary);font-size:11.5px;">Aporte mensual objetivo: <b class="tabular">' + money(monthlyInvestmentGoalCLP()) + "</b> \xB7 " + Math.round(investmentGoalPct()) + "% de tus ingresos</div>" + renderTotalChecksGrid() + "</div>" : (
@@ -4421,6 +4428,15 @@
     const filterBtn = e.target.closest("[data-filter]");
     if (filterBtn) {
       state.filter = filterBtn.getAttribute("data-filter");
+      render();
+      return;
+    }
+    const drillAporte = e.target.closest("[data-drill-aporte-anio]");
+    if (drillAporte) {
+      state.categoryFilter = FILTRO_APORTE_FIJO;
+      state.categoryFilterMonth = drillAporte.getAttribute("data-drill-aporte-anio");
+      state.filter = "todas";
+      state.tab = "transacciones";
       render();
       return;
     }

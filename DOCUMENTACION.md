@@ -208,6 +208,28 @@ Supabase (ver sección 5) o a un respaldo JSON descargable (Menú → Respaldo e
   desde `startMonth` en adelante — así una meta que en la vida real partió antes de que se creara
   en la app puede hacerse retroceder sin inventar transacciones. `checks` sigue siendo 100% manual
   (el hábito de "cumplí mi aporte este mes"), no se puede inferir de una transacción.
+- **Qué metas "cuentan" — fuente única (`metasContables()` en `helpers.ts`).** Una meta cuenta si
+  su `plataformaId` apunta a una plataforma que existe y **no está archivada**. Todo lo que suma
+  plata en Inversiones pasa por ahí: el objetivo del año y su avance
+  (`annualInvestmentGoalProgress`), los rollups por plataforma, y los destinos del planificador de
+  sueldo (`metasPorPlazo`). **Esto existe porque hubo un bug real**: el avance del año iteraba
+  `INVESTMENT_GOALS` directo mientras los totales iban por `activePlatformIds() →
+  goalsForPlatform()`, así que una meta en una plataforma archivada (o huérfana) caía de un
+  recorrido y seguía contando en el otro — en pantalla convivían un "total invertido" en $0 y un
+  avance mayor que cero. Vive en `helpers.ts` y no en una vista a propósito: es una regla del
+  modelo, y desde ahí la usan las vistas *y* el filtro de transacciones sin ciclos de import.
+  **Decisión de producto: cerrar una plataforma la saca de TODO**, no solo del total invertido —
+  el costo asumido es que la barra del objetivo del año retrocede al cerrarla, a cambio de que los
+  números no puedan contradecirse. Ojo: "avance del año" y "total invertido" **no son iguales ni
+  deberían serlo** (uno es flujo del año, el otro es stock de toda la vida incluyendo
+  `startingAmount`); lo que la invariante de `audit_consistency` fija es que salgan del mismo
+  conjunto de metas y no puedan divergir.
+- **Drill-down del objetivo anual.** El monto de "lo que llevas" es tocable y navega a las
+  transacciones que lo componen, reusando el mecanismo de `state.categoryFilter` +
+  `state.categoryFilterMonth` (con su pill descartable) que ya usaba el donut de Balance. Como esa
+  cifra no sale de *una* categoría sino de un conjunto, se filtra con el id centinela
+  `FILTRO_APORTE_FIJO` (`helpers.ts`), resuelto dentro de `categoryFilterMatches` para que el
+  filtro no pueda quedar desincronizado del criterio de `annualInvestmentGoalProgress`.
 - **`PLATFORM_DATA`** (objeto tipado `Record<string, PlatformData>`, `id → {valorHistorial:{mes:monto},
   fechaActualizacion, tasaAnual, comision, plazo, archivada?, sinValuacion?}`): valor aproximado
   que la usuaria actualiza a mano de vez en cuando. El "aportado neto" de una plataforma
