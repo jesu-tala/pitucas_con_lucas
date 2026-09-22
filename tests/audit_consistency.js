@@ -342,5 +342,52 @@ function checkClose(label, a, b, tol){
   check('   y "Entradas" no cambia: el dinero entró a la cuenta igual (tiene que cuadrar con el banco)',
     vinculo.despues.entradas === vinculo.antes.entradas, vinculo);
 
+  // ---- Invariante: clasificar una transacción no hace aparecer ni desaparecer plata ----
+  // Por diseño, una transacción sin clasificar NO cuenta en los totales: no se cuenta algo que
+  // todavía no se revisó (mismo criterio que el chequeo de "no cuenta de más lo sin clasificar"
+  // en audit_gastos_compartidos.js). Se consideró contarlas y se descartó a propósito: haría que
+  // el total se moviera solo cada vez que llegan correos importados.
+  //
+  // Lo que sí tiene que cumplirse es que el traspaso sea limpio: al clasificarla, entra por su
+  // monto EXACTO, ni más ni menos. Se mide sobre la MISMA transacción antes y después, así que lo
+  // único que cambia es la categoría. El control positivo evita el falso verde: sin él, "entró por
+  // su monto" también sería cierto si la transacción no contara en ninguno de los dos casos.
+  const sinClasificar = await page.evaluate(() => {
+    const D = window.__debug;
+    const mes = D.MONTHS[0];
+    const antesDeTodo = D.monthTotals(mes).gastos;
+    D.TRANSACTIONS.push({ id: 'inv-sincat', fecha: mes + '-05', hora: '10:00', comercio: 'Sin clasificar',
+      monto: 33000, medio: 'efectivo', tipo: 'gasto', recurrencia: 'variable', estado: 'pendiente',
+      categorias: [], porCobrar: [], reglaAuto: false, nota: '' });
+    const sinCategoria = D.monthTotals(mes).gastos;
+    const tx = D.TRANSACTIONS.find(t => t.id === 'inv-sincat');
+    tx.categorias = [{ cat: 'supermercado', monto: 33000 }];
+    tx.estado = 'confirmado';
+    const yaClasificada = D.monthTotals(mes).gastos;
+    D.TRANSACTIONS.splice(D.TRANSACTIONS.findIndex(t => t.id === 'inv-sincat'), 1);
+    D.render();
+    return { antesDeTodo, sinCategoria, yaClasificada };
+  });
+  check('una transacción sin clasificar no mueve el total de gastos del mes',
+    sinClasificar.sinCategoria === sinClasificar.antesDeTodo, sinClasificar);
+  check('(control) al clasificarla entra por su monto EXACTO, ni más ni menos',
+    sinClasificar.yaClasificada === sinClasificar.antesDeTodo + 33000, sinClasificar);
+
+  // ---- Invariante: un solo balde "sin categoría" ----
+  // catInfo() devuelve el mismo objeto de respaldo para cualquier id que no resuelva, así que
+  // agrupar por el id crudo generaba un segmento por cada id roto distinto, todos rotulados
+  // "Sin categoría". catBucketId() los manda a uno solo.
+  const baldes = await page.evaluate(() => {
+    const D = window.__debug;
+    const ids = ['cat_que_no_existe', null, undefined, 'otra_borrada', ''];
+    return {
+      canonicos: Array.from(new Set(ids.map(id => D.catBucketId(id)))),
+      unaReal: D.catBucketId('supermercado')
+    };
+  });
+  check('todo id que no resuelve cae en UN único balde canónico',
+    baldes.canonicos.length === 1 && baldes.canonicos[0] === '__sin_categoria', baldes);
+  check('   y una categoría real no se toca', baldes.unaReal === 'supermercado', baldes);
+
   await finish({ context, browser, errors });
 })();

@@ -88,7 +88,7 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  referenceMonthlyIncome: referenceMonthlyIncome, sumSpendingGoalPct: sumSpendingGoalPct,
 """ + indent + """  monthlyBudgetTotal: monthlyBudgetTotal, sumaPresupuestosCategorias: sumaPresupuestosCategorias,
 """ + indent + """  pgBytesToArrayBuffer: pgBytesToArrayBuffer, hasReceivableType: hasReceivableType,
-""" + indent + """  netExpenseTx: netExpenseTx, aggregatedTxAmount: aggregatedTxAmount,
+""" + indent + """  netExpenseTx: netExpenseTx, aggregatedTxAmount: aggregatedTxAmount, catBucketId: catBucketId,
 """ + indent + """  reimbursementTotalForMonths: reimbursementTotalForMonths,
 """ + indent + """  incomeNatureOf: incomeNatureOf, incomeNatureAmount: incomeNatureAmount,
 """ + indent + """  netIncomeTx: netIncomeTx, catNetAmount: catNetAmount, resolvePending: resolvePending,

@@ -916,7 +916,16 @@
   .budget-fill{height:100%;border-radius:6px;transition:width .2s ease;}
 
   .budget-cat-card{padding:16px;margin-bottom:12px;}
-  .budget-cat-card.empty{display:flex;align-items:center;gap:12px;padding:12px 14px;}
+  /* Sin presupuesto, la tarjeta sigue siendo una fila compacta (ícono · nombre · "+ Agregar"),
+     pero ahora además muestra el gasto del mes y el promedio de 3 meses -- datos que no dependen
+     de que haya meta. flex-wrap + flex-basis:100% los baja a su propia línea en vez de apretarlos
+     dentro de la fila. La barra de progreso y las alertas NO se muestran acá: las dos se miden
+     contra la meta, así que sin meta no querrían decir nada. */
+  .budget-cat-card.empty{display:flex;align-items:center;gap:12px;padding:12px 14px;flex-wrap:wrap;}
+  .budget-cat-card.empty .budget-cat-figs-sinmeta{flex-basis:100%;margin:2px 0 0;gap:5px;}
+  .budget-cat-card.empty .budget-cat-figs-sinmeta .gastado-sinmeta{font-size:15px;font-weight:500;}
+  .budget-cat-card.empty .budget-cat-figs-sinmeta .of-text{font-size:12.5px;color:var(--text-secondary);}
+  .budget-cat-card.empty .budget-context{flex-basis:100%;margin-top:2px;}
   .budget-cat-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
   .budget-cat-card.empty .budget-cat-head{display:contents;}
   .budget-cat-icon{
@@ -1430,7 +1439,7 @@
       const plat = CATEGORIES[platId];
       if (plat) return { nombre: plat.nombre + " \xB7 General", tipo: "inversion", colorHue: plat.colorHue, icon: plat.icon, plataformaId: platId, general: true };
     }
-    return { nombre: "Sin categor\xEDa", colorHue: 265, icon: "more", tipo: "gasto" };
+    return { nombre: "Sin categor\xEDa", colorHue: 265, icon: "more", tipo: "gasto", sinResolver: true };
   }
   __name(catInfo, "catInfo");
   function categoryFilterMatches(catId, filterId) {
@@ -1560,6 +1569,15 @@
     return receivablesLinkedFrom(incomeTxId).reduce((s, l) => s + l.montoAsignado, 0);
   }
   __name(incomeAssignedTotal, "incomeAssignedTotal");
+  var SIN_CATEGORIA_ID = "__sin_categoria";
+  function catBucketId(catId) {
+    return catResuelve(catId) ? catId : SIN_CATEGORIA_ID;
+  }
+  __name(catBucketId, "catBucketId");
+  function catResuelve(catId) {
+    return !catInfo(catId).sinResolver;
+  }
+  __name(catResuelve, "catResuelve");
   function netExpenseTx(t) {
     if (t.tipo !== "gasto") return catTotalAmount(t);
     const deboRow = (t.porCobrar || []).find((p) => p.tipo === "persona" && p.direccion === "debo");
@@ -2457,7 +2475,8 @@
     monthTx.filter((t) => t.tipo === tipo && t.estado !== "no_es_gasto").forEach((t) => {
       t.categorias.forEach((c) => {
         const v = tipo === "gasto" ? catNetAmount(t, c) : tipo === "ingreso" ? c.monto * netIncomeFactor(t) : c.monto;
-        byCat[c.cat] = (byCat[c.cat] || 0) + v;
+        const key = catBucketId(c.cat);
+        byCat[key] = (byCat[key] || 0) + v;
       });
     });
     const entries = Object.keys(byCat).map((id) => ({ id, value: byCat[id], info: catInfo(id) })).sort((a, b) => b.value - a.value);
@@ -2630,7 +2649,11 @@
       return renderBudgetEditForm(catId, cfg);
     }
     if (!cfg) {
-      return '<div class="card budget-cat-card empty"><span class="budget-cat-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + esc(cat.nombre) + '</span><button class="budget-add-link" data-edit-budget="' + catId + '">+ Agregar presupuesto</button></div>';
+      const gastadoSinMeta = catMonthExpense(catId, month);
+      const promedioSinMeta = catPromedio3Meses(catId, month);
+      const hayAlgoQueMostrar = gastadoSinMeta > 0 || promedioSinMeta !== null && promedioSinMeta > 0;
+      const cifrasSinMeta = !hayAlgoQueMostrar ? "" : '<div class="budget-cat-figs budget-cat-figs-sinmeta"><span class="tabular gastado-sinmeta">' + money(gastadoSinMeta) + '</span><span class="of-text"> este mes</span></div><div class="budget-context muted">Prom. 3 meses: ' + (promedioSinMeta === null ? "sin datos" : money(Math.round(promedioSinMeta))) + "</div>";
+      return '<div class="card budget-cat-card empty"><span class="budget-cat-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + esc(cat.nombre) + '</span><button class="budget-add-link" data-edit-budget="' + catId + '">+ Agregar presupuesto</button>' + cifrasSinMeta + "</div>";
     }
     const gastado = catMonthExpense(catId, month);
     const meta = cfg.meta;
@@ -4166,7 +4189,13 @@
       categorias: catId ? [{ cat: catId, monto: Math.round(row.monto) }] : [],
       porCobrar: [],
       reglaAuto: !!(regla && regla.cat),
-      nota: "Importado autom\xE1ticamente desde tu correo",
+      // La nota nace VACÍA a propósito. Antes traía 'Importado automáticamente desde tu correo' como valor real, así que para
+      // escribir algo propio había que borrarlo primero -- una transacción importada llegaba
+      // con el campo ya ocupado por texto que la persona no escribió. Ese dato no se pierde:
+      // importadoEmail/origen de acá abajo son los que lo registran, y el detalle ya muestra
+      // su propia tarjeta "Importada desde tu correo". Ahora ese texto vive como placeholder
+      // del campo (ver renderSheetContent en sheet.ts), o sea guía en gris que no hay que borrar.
+      nota: "",
       importadoEmail: true,
       // Arrived by itself from the Apps Script email import -- reconcile.ts is allowed to later
       // propose deleting it (e.g. if a card statement shows the underlying charge was reversed).
@@ -5449,7 +5478,7 @@
   __name(applyCommonFilters, "applyCommonFilters");
   function filteredTx() {
     let list = TRANSACTIONS.slice().sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
-    if (state.filter === "entradas") list = list.filter((t) => t.tipo === "ingreso");
+    if (state.filter === "entradas") list = list.filter((t) => t.tipo === "ingreso" && t.estado !== "no_es_gasto");
     else if (state.filter === "porcobrar") list = list.filter((t) => t.estado === "por_cobrar" && hasReceivableType(t, "persona") && !allCollected(t));
     else if (state.filter === "reembolso") list = list.filter((t) => t.estado === "por_cobrar" && hasReceivableType(t, "reembolso") && !allCollected(t));
     else if (state.filter === "pendientes") list = list.filter((t) => t.estado === "pendiente");
@@ -5459,7 +5488,7 @@
   function renderFilterSummary() {
     const base = applyCommonFilters(TRANSACTIONS.slice());
     if (state.filter === "entradas") {
-      const ingresos = base.filter((t) => t.tipo === "ingreso").reduce((s, t) => s + netIncomeTx(t), 0);
+      const ingresos = base.filter((t) => t.tipo === "ingreso" && t.estado !== "no_es_gasto").reduce((s, t) => s + netIncomeTx(t), 0);
       const reembolsos = base.reduce((s, t) => s + t.porCobrar.filter((p) => p.pagado && p.tipo === "reembolso").reduce((ss, p) => ss + pendingEffectiveAmount(p), 0), 0);
       return '<div class="stat-grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px;"><div class="card stat-tile stat-ingresos"><div class="stat-label">Entradas</div><div class="stat-value tabular">' + money(ingresos) + '</div></div><div class="card stat-tile" style="background:var(--surface);border:1px solid var(--border);"><div class="stat-label">Reembolsos</div><div class="stat-value tabular">' + money(reembolsos) + "</div></div></div>";
     }
@@ -8768,6 +8797,10 @@
     TRANSACTIONS.forEach(function(t) {
       if (t.estado === "pendiente" && t.categorias.length > 0) t.estado = "confirmado";
     });
+    const NOTA_IMPORT_LEGADA = "Importado autom\xE1ticamente desde tu correo";
+    TRANSACTIONS.forEach(function(t) {
+      if (t.importadoEmail && t.nota === NOTA_IMPORT_LEGADA) t.nota = "";
+    });
     TRANSACTIONS.forEach(function(t) {
       if (t.cuotas && t.cuotas.montoTotal == null) {
         const montoTotal = t.monto;
@@ -9742,7 +9775,7 @@
       const hayAlgoQueVincular = allPendingReceivables().length > 0 || TRANSACTIONS.some((g) => g.tipo === "gasto" && g.estado !== "no_es_gasto");
       if (t.estado === "no_es_gasto" || !vinculo && (t.categorias.length > 0 || !hayAlgoQueVincular)) return "";
       return '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Cobros y reembolsos</div>' + (vinculo ? '<div class="cobro-banner-done">' + ICONS.checkCircle + "<span>Vinculado a " + (vinculo.persona || "un pendiente") + " \xB7 " + esc(vinculo.comercio) + '</span></div><button class="split-toggle-link" data-unlink-income="' + t.id + '">Quitar v\xEDnculo</button>' : '<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Si este dep\xF3sito corresponde a un cobro o reembolso pendiente, vinc\xFAlalo para tacharlo de la lista.</p><button class="action-btn" data-open-link-income="' + t.id + '">' + ICONS.inbox + " Vincular a un pendiente</button>") + "</div>";
-    })() : renderQuickActionsBlock(t)) + renderShareGroupSection(t) + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nota</div><input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="' + t.id + '" value="' + esc(t.nota || "") + '" placeholder="Agregar notas personales"></div>' + importedBlock + (state.confirmDeleteTxId === t.id ? '<div class="sheet-delete-confirm"><p class="muted" style="font-size:12.5px;margin:0 0 10px;">\xBFSeguro que quieres eliminar esta transacci\xF3n? No se puede deshacer.</p><div style="display:flex;gap:8px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="' + t.id + '">Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="' + t.id + '">S\xED, eliminar</button></div></div>' : '<div class="sheet-bottom-actions"><button class="sheet-delete-btn" data-ask-delete-tx="' + t.id + '" aria-label="Eliminar transacci\xF3n">' + ICONS.trash + '</button><button class="sheet-done-btn" data-close-sheet-done>' + ICONS.check + " Listo</button></div>");
+    })() : renderQuickActionsBlock(t)) + renderShareGroupSection(t) + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nota</div><input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="' + t.id + '" value="' + esc(t.nota || "") + '" placeholder="' + esc(t.importadoEmail ? "Importado autom\xE1ticamente desde tu correo" : "Agregar notas personales") + '"></div>' + importedBlock + (state.confirmDeleteTxId === t.id ? '<div class="sheet-delete-confirm"><p class="muted" style="font-size:12.5px;margin:0 0 10px;">\xBFSeguro que quieres eliminar esta transacci\xF3n? No se puede deshacer.</p><div style="display:flex;gap:8px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="' + t.id + '">Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="' + t.id + '">S\xED, eliminar</button></div></div>' : '<div class="sheet-bottom-actions"><button class="sheet-delete-btn" data-ask-delete-tx="' + t.id + '" aria-label="Eliminar transacci\xF3n">' + ICONS.trash + '</button><button class="sheet-done-btn" data-close-sheet-done>' + ICONS.check + " Listo</button></div>");
   }
   __name(renderSheetContent, "renderSheetContent");
   function openSheetOverlay() {

@@ -916,7 +916,16 @@
   .budget-fill{height:100%;border-radius:6px;transition:width .2s ease;}
 
   .budget-cat-card{padding:16px;margin-bottom:12px;}
-  .budget-cat-card.empty{display:flex;align-items:center;gap:12px;padding:12px 14px;}
+  /* Sin presupuesto, la tarjeta sigue siendo una fila compacta (ícono · nombre · "+ Agregar"),
+     pero ahora además muestra el gasto del mes y el promedio de 3 meses -- datos que no dependen
+     de que haya meta. flex-wrap + flex-basis:100% los baja a su propia línea en vez de apretarlos
+     dentro de la fila. La barra de progreso y las alertas NO se muestran acá: las dos se miden
+     contra la meta, así que sin meta no querrían decir nada. */
+  .budget-cat-card.empty{display:flex;align-items:center;gap:12px;padding:12px 14px;flex-wrap:wrap;}
+  .budget-cat-card.empty .budget-cat-figs-sinmeta{flex-basis:100%;margin:2px 0 0;gap:5px;}
+  .budget-cat-card.empty .budget-cat-figs-sinmeta .gastado-sinmeta{font-size:15px;font-weight:500;}
+  .budget-cat-card.empty .budget-cat-figs-sinmeta .of-text{font-size:12.5px;color:var(--text-secondary);}
+  .budget-cat-card.empty .budget-context{flex-basis:100%;margin-top:2px;}
   .budget-cat-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
   .budget-cat-card.empty .budget-cat-head{display:contents;}
   .budget-cat-icon{

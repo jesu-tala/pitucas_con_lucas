@@ -1,5 +1,5 @@
 import { esc } from '../esc';
-import { catInfo, catNetAmount, catTotalAmount, netExpenseTx, netIncomeFactor, lastSalaryTx } from '../helpers';
+import { catInfo, catBucketId, catNetAmount, catTotalAmount, netExpenseTx, netIncomeFactor, lastSalaryTx } from '../helpers';
 import { categoryFillCss } from '../category-colors';
 import { ICONS, catIconMarkup, icon } from '../icons';
 import { SPENDING_GOAL_PCT, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, money, moneyPlainMasked, state, todayISO } from '../state';
@@ -68,12 +68,21 @@ export const DONUT_OTROS_THRESHOLD_PCT = 3;
 export function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro?){
   const byCat = {};
   monthTx.filter(t=>t.tipo===tipo && t.estado!=='no_es_gasto').forEach(t=>{
+    // Una transacción sin NINGUNA categoría no aparece acá, a propósito: el mismo criterio que
+    // usan los totales, donde lo que todavía no se revisó no cuenta hasta que se clasifique (ver
+    // el chequeo de "no cuenta de más lo sin clasificar" en audit_gastos_compartidos.js). Si el
+    // donut las dibujara, sumaría más que el total del período y los dos números se contradirían.
     t.categorias.forEach(c=>{
       // netIncomeFactor(t) is 1 for an ordinary income (nothing to net), 0 for one that just
       // settles a pending item (persona split, or a reembolso with no sobre-reembolso), and
       // somewhere in between for a reembolso whose sobre-reembolso only partially counts.
       const v = tipo==='gasto' ? catNetAmount(t,c) : tipo==='ingreso' ? c.monto*netIncomeFactor(t) : c.monto;
-      byCat[c.cat] = (byCat[c.cat]||0) + v;
+      // Se agrupa por el id CANÓNICO, no por el crudo: catInfo() devuelve el mismo "Sin categoría"
+      // para cualquier id que no resuelva, así que agrupar por el crudo dibujaba un segmento por
+      // cada id roto distinto (una categoría borrada, un null, un id viejo), todos con la misma
+      // etiqueta. Se veían dos o tres "Sin categoría" en el mismo donut.
+      const key = catBucketId(c.cat);
+      byCat[key] = (byCat[key]||0) + v;
     });
   });
   const entries = Object.keys(byCat).map(id=>({id, value:byCat[id], info:catInfo(id)}))
