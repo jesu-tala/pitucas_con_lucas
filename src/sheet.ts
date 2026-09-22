@@ -540,7 +540,12 @@ export function renderSheetContent(t){
     + renderShareGroupSection(t)
 
     + '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Nota</div>'+
-        '<input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="'+t.id+'" value="'+esc(t.nota||'')+'" placeholder="Agregar notas personales">'+
+        // En una transacción importada del correo, el texto "importado automáticamente" va como
+        // PLACEHOLDER y no como valor: antes venía guardado como nota real, así que para escribir
+        // algo propio había que borrarlo primero. Como placeholder, el campo está efectivamente
+        // vacío y se escribe directo. Que la transacción vino del mail no se pierde -- lo dicen
+        // importadoEmail/origen y la tarjeta "Importada desde tu correo" de más abajo.
+        '<input type="text" class="draft-input nota-input" data-tx-field="nota" data-tx="'+t.id+'" value="'+esc(t.nota||'')+'" placeholder="'+esc(t.importadoEmail?'Importado automáticamente desde tu correo':'Agregar notas personales')+'">'+
       '</div>'
 
     + importedBlock

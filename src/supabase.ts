@@ -158,6 +158,17 @@ export function applyStateBlob(blob){
   TRANSACTIONS.forEach(function(t){
     if(t.estado==='pendiente' && t.categorias.length>0) t.estado='confirmado';
   });
+  // Repara las transacciones importadas del correo ANTES de que ese texto pasara a ser
+  // placeholder (ver createTxFromImportRow en views/menu.ts): la nota venía guardada con
+  // 'Importado automáticamente desde tu correo' como VALOR real, así que para escribir algo
+  // propio había que borrarlo a mano primero. Acá se vacía, para que esas transacciones queden
+  // igual que las nuevas. Se compara con el texto EXACTO a propósito: si la persona editó la
+  // nota (aunque sea agregándole algo), deja de calzar y no se toca -- esto solo borra el texto
+  // que puso la app, nunca algo escrito por ella.
+  const NOTA_IMPORT_LEGADA = 'Importado automáticamente desde tu correo';
+  TRANSACTIONS.forEach(function(t){
+    if(t.importadoEmail && t.nota===NOTA_IMPORT_LEGADA) t.nota='';
+  });
   // Repara compras en cuotas guardadas ANTES del arreglo de applyCuotaMonto (events.ts/helpers.ts):
   // el monto de la transacción quedaba en el precio TOTAL de la compra en vez de en la cuota de
   // ese mes (cuotas.montoTotal ni siquiera existía todavía), así que cada mes proyectado repetía

@@ -1268,7 +1268,14 @@ export function txFromEmailImport(row): Transaction {
     recurrencia: regla ? regla.recurrencia : 'variable',
     estado: catId ? 'confirmado' : 'pendiente',
     categorias: catId ? [{cat:catId, monto:Math.round(row.monto)}] : [],
-    porCobrar:[], reglaAuto: !!(regla && regla.cat), nota:'Importado automáticamente desde tu correo',
+    porCobrar:[], reglaAuto: !!(regla && regla.cat),
+    // La nota nace VACÍA a propósito. Antes traía 'Importado automáticamente desde tu correo' como valor real, así que para
+    // escribir algo propio había que borrarlo primero -- una transacción importada llegaba
+    // con el campo ya ocupado por texto que la persona no escribió. Ese dato no se pierde:
+    // importadoEmail/origen de acá abajo son los que lo registran, y el detalle ya muestra
+    // su propia tarjeta "Importada desde tu correo". Ahora ese texto vive como placeholder
+    // del campo (ver renderSheetContent en sheet.ts), o sea guía en gris que no hay que borrar.
+    nota:'',
     importadoEmail:true,
     // Arrived by itself from the Apps Script email import -- reconcile.ts is allowed to later
     // propose deleting it (e.g. if a card statement shows the underlying charge was reversed).
