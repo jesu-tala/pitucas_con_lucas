@@ -241,6 +241,24 @@ export function incomeAssignedTotal(incomeTxId): number {
 //    it's equally wrong to count catTotalAmount(t) in full (that's the whole bill, not what you
 //    owe). The debo row's amount IS the answer directly -- a 'debo' transaction never has
 //    'reembolso' rows of its own either (you don't get reimbursed for someone else's bill).
+// Id canónico del balde "sin categoría". catInfo() devuelve el mismo objeto de respaldo para
+// CUALQUIER id que no resuelva (una categoría borrada, un null, un id viejo), así que agrupar por
+// el id crudo generaba un segmento distinto por cada uno, todos rotulados igual. Todo lo que no
+// resuelve se mapea acá para que sea un solo balde.
+export const SIN_CATEGORIA_ID = '__sin_categoria';
+export function catBucketId(catId){
+  return catResuelve(catId) ? catId : SIN_CATEGORIA_ID;
+}
+// ¿Este id corresponde a algo real (categoría, meta o bucket General de una plataforma)?
+export function catResuelve(catId){
+  if(catId===FILTRO_APORTE_FIJO) return true;
+  if(CATEGORIES[catId]) return true;
+  if(INVESTMENT_GOALS.some(m=>m.id===catId)) return true;
+  if(typeof catId==='string' && catId.endsWith('__general')){
+    return !!CATEGORIES[catId.slice(0, -'__general'.length)];
+  }
+  return false;
+}
 export function netExpenseTx(t){
   if(t.tipo!=='gasto') return catTotalAmount(t);
   const deboRow = (t.porCobrar||[]).find(p=>p.tipo==='persona' && p.direccion==='debo');
