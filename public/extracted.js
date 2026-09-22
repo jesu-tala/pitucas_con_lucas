@@ -212,6 +212,21 @@
     return receivablesLinkedFrom(incomeTxId).reduce((s, l) => s + l.montoAsignado, 0);
   }
   __name(incomeAssignedTotal, "incomeAssignedTotal");
+  var SIN_CATEGORIA_ID = "__sin_categoria";
+  function catBucketId(catId) {
+    return catResuelve(catId) ? catId : SIN_CATEGORIA_ID;
+  }
+  __name(catBucketId, "catBucketId");
+  function catResuelve(catId) {
+    if (catId === FILTRO_APORTE_FIJO) return true;
+    if (CATEGORIES[catId]) return true;
+    if (INVESTMENT_GOALS.some((m) => m.id === catId)) return true;
+    if (typeof catId === "string" && catId.endsWith("__general")) {
+      return !!CATEGORIES[catId.slice(0, -"__general".length)];
+    }
+    return false;
+  }
+  __name(catResuelve, "catResuelve");
   function netExpenseTx(t) {
     if (t.tipo !== "gasto") return catTotalAmount(t);
     const deboRow = (t.porCobrar || []).find((p) => p.tipo === "persona" && p.direccion === "debo");
@@ -1109,7 +1124,8 @@
     monthTx.filter((t) => t.tipo === tipo && t.estado !== "no_es_gasto").forEach((t) => {
       t.categorias.forEach((c) => {
         const v = tipo === "gasto" ? catNetAmount(t, c) : tipo === "ingreso" ? c.monto * netIncomeFactor(t) : c.monto;
-        byCat[c.cat] = (byCat[c.cat] || 0) + v;
+        const key = catBucketId(c.cat);
+        byCat[key] = (byCat[key] || 0) + v;
       });
     });
     const entries = Object.keys(byCat).map((id) => ({ id, value: byCat[id], info: catInfo(id) })).sort((a, b) => b.value - a.value);
@@ -1282,7 +1298,11 @@
       return renderBudgetEditForm(catId, cfg);
     }
     if (!cfg) {
-      return '<div class="card budget-cat-card empty"><span class="budget-cat-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + esc(cat.nombre) + '</span><button class="budget-add-link" data-edit-budget="' + catId + '">+ Agregar presupuesto</button></div>';
+      const gastadoSinMeta = catMonthExpense(catId, month);
+      const promedioSinMeta = catPromedio3Meses(catId, month);
+      const hayAlgoQueMostrar = gastadoSinMeta > 0 || promedioSinMeta !== null && promedioSinMeta > 0;
+      const cifrasSinMeta = !hayAlgoQueMostrar ? "" : '<div class="budget-cat-figs budget-cat-figs-sinmeta"><span class="tabular gastado-sinmeta">' + money(gastadoSinMeta) + '</span><span class="of-text"> este mes</span></div><div class="budget-context muted">Prom. 3 meses: ' + (promedioSinMeta === null ? "sin datos" : money(Math.round(promedioSinMeta))) + "</div>";
+      return '<div class="card budget-cat-card empty"><span class="budget-cat-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + esc(cat.nombre) + '</span><button class="budget-add-link" data-edit-budget="' + catId + '">+ Agregar presupuesto</button>' + cifrasSinMeta + "</div>";
     }
     const gastado = catMonthExpense(catId, month);
     const meta = cfg.meta;

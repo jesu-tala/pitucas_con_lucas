@@ -93,10 +93,27 @@ export function renderBudgetCatCard(catId){
   }
 
   if(!cfg){
+    // Sin presupuesto fijado, esta tarjeta mostraba SOLO el nombre y el link para agregar uno --
+    // o sea que para saber cuánto llevabas gastado en una categoría había que ponerle una meta
+    // primero, aunque el dato ya existiera. Ahora muestra las mismas dos cifras que la tarjeta
+    // con meta (gasto del mes y promedio de los últimos 3), que no dependen de que haya una.
+    // Lo que sí queda fuera es la barra de progreso y las alertas: ambas se miden CONTRA la meta,
+    // así que sin meta no significan nada.
+    const gastadoSinMeta = catMonthExpense(catId, month);
+    const promedioSinMeta = catPromedio3Meses(catId, month);
+    // Solo se muestran las cifras si hay ALGO que contar. Una categoría sin presupuesto, sin
+    // gasto este mes y sin historial no gana nada con un "$0 este mes · Prom. 3 meses: sin datos"
+    // -- y como la lista trae todas las categorías de gasto existentes, eso llenaba la pantalla
+    // de tarjetas repitiendo cero. Con gasto en el mes O historial previo, sí aparecen.
+    const hayAlgoQueMostrar = gastadoSinMeta>0 || (promedioSinMeta!==null && promedioSinMeta>0);
+    const cifrasSinMeta = !hayAlgoQueMostrar ? '' :
+      '<div class="budget-cat-figs budget-cat-figs-sinmeta"><span class="tabular gastado-sinmeta">'+money(gastadoSinMeta)+'</span><span class="of-text"> este mes</span></div>'+
+      '<div class="budget-context muted">Prom. 3 meses: '+(promedioSinMeta===null?'sin datos':money(Math.round(promedioSinMeta)))+'</div>';
     return '<div class="card budget-cat-card empty">'+
       '<span class="budget-cat-icon" style="'+categoryColorVars(cat)+'">'+catIconMarkup(cat.icon)+'</span>'+
       '<span class="budget-cat-name">'+esc(cat.nombre)+'</span>'+
       '<button class="budget-add-link" data-edit-budget="'+catId+'">+ Agregar presupuesto</button>'+
+      cifrasSinMeta+
     '</div>';
   }
 
