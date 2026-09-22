@@ -82,7 +82,7 @@
       const plat = CATEGORIES[platId];
       if (plat) return { nombre: plat.nombre + " \xB7 General", tipo: "inversion", colorHue: plat.colorHue, icon: plat.icon, plataformaId: platId, general: true };
     }
-    return { nombre: "Sin categor\xEDa", colorHue: 265, icon: "more", tipo: "gasto" };
+    return { nombre: "Sin categor\xEDa", colorHue: 265, icon: "more", tipo: "gasto", sinResolver: true };
   }
   __name(catInfo, "catInfo");
   function categoryFilterMatches(catId, filterId) {
@@ -218,13 +218,7 @@
   }
   __name(catBucketId, "catBucketId");
   function catResuelve(catId) {
-    if (catId === FILTRO_APORTE_FIJO) return true;
-    if (CATEGORIES[catId]) return true;
-    if (INVESTMENT_GOALS.some((m) => m.id === catId)) return true;
-    if (typeof catId === "string" && catId.endsWith("__general")) {
-      return !!CATEGORIES[catId.slice(0, -"__general".length)];
-    }
-    return false;
+    return !catInfo(catId).sinResolver;
   }
   __name(catResuelve, "catResuelve");
   function netExpenseTx(t) {

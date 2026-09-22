@@ -22,7 +22,12 @@ export function catInfo(id){
     const plat = CATEGORIES[platId];
     if(plat) return {nombre:plat.nombre+' · General', tipo:'inversion', colorHue:plat.colorHue, icon:plat.icon, plataformaId:platId, general:true};
   }
-  return {nombre:'Sin categoría', colorHue:265, icon:'more', tipo:'gasto'};
+  // sinResolver marca que esto es el RESPALDO, no una categoría real. catResuelve() (más
+  // abajo) se apoya en esa marca en vez de repetir la cadena de ifs de esta función: cuando
+  // acá se agrega una forma nueva de id que sí resuelve, catResuelve la hereda sola. Duplicar
+  // la lógica ya falló una vez -- una copia quedó mirando una constante que solo existía en
+  // otra rama, y el build se cayó al separarlas.
+  return {nombre:'Sin categoría', colorHue:265, icon:'more', tipo:'gasto', sinResolver:true};
 }
 // "Ver transacciones →" on a platform card wants every transaction that rolls up into that
 // platform -- any of its goals, or its General bucket -- not just an exact id match (a bare
@@ -249,15 +254,11 @@ export const SIN_CATEGORIA_ID = '__sin_categoria';
 export function catBucketId(catId){
   return catResuelve(catId) ? catId : SIN_CATEGORIA_ID;
 }
-// ¿Este id corresponde a algo real (categoría, meta o bucket General de una plataforma)?
+// ¿Este id corresponde a algo real (una categoría, una meta, el bucket General de una
+// plataforma)? Se le pregunta a catInfo en vez de repetir su cadena de ifs, para que las dos
+// nunca puedan discrepar sobre qué cuenta como "resuelto".
 export function catResuelve(catId){
-  if(catId===FILTRO_APORTE_FIJO) return true;
-  if(CATEGORIES[catId]) return true;
-  if(INVESTMENT_GOALS.some(m=>m.id===catId)) return true;
-  if(typeof catId==='string' && catId.endsWith('__general')){
-    return !!CATEGORIES[catId.slice(0, -'__general'.length)];
-  }
-  return false;
+  return !(catInfo(catId) as any).sinResolver;
 }
 export function netExpenseTx(t){
   if(t.tipo!=='gasto') return catTotalAmount(t);
