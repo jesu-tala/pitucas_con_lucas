@@ -4107,7 +4107,7 @@
   __name(applyCommonFilters, "applyCommonFilters");
   function filteredTx() {
     let list = TRANSACTIONS.slice().sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora));
-    if (state.filter === "entradas") list = list.filter((t) => t.tipo === "ingreso");
+    if (state.filter === "entradas") list = list.filter((t) => t.tipo === "ingreso" && t.estado !== "no_es_gasto");
     else if (state.filter === "porcobrar") list = list.filter((t) => t.estado === "por_cobrar" && hasReceivableType(t, "persona") && !allCollected(t));
     else if (state.filter === "reembolso") list = list.filter((t) => t.estado === "por_cobrar" && hasReceivableType(t, "reembolso") && !allCollected(t));
     else if (state.filter === "pendientes") list = list.filter((t) => t.estado === "pendiente");
@@ -4117,7 +4117,7 @@
   function renderFilterSummary() {
     const base = applyCommonFilters(TRANSACTIONS.slice());
     if (state.filter === "entradas") {
-      const ingresos = base.filter((t) => t.tipo === "ingreso").reduce((s, t) => s + netIncomeTx(t), 0);
+      const ingresos = base.filter((t) => t.tipo === "ingreso" && t.estado !== "no_es_gasto").reduce((s, t) => s + netIncomeTx(t), 0);
       const reembolsos = base.reduce((s, t) => s + t.porCobrar.filter((p) => p.pagado && p.tipo === "reembolso").reduce((ss, p) => ss + pendingEffectiveAmount(p), 0), 0);
       return '<div class="stat-grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px;"><div class="card stat-tile stat-ingresos"><div class="stat-label">Entradas</div><div class="stat-value tabular">' + money(ingresos) + '</div></div><div class="card stat-tile" style="background:var(--surface);border:1px solid var(--border);"><div class="stat-label">Reembolsos</div><div class="stat-value tabular">' + money(reembolsos) + "</div></div></div>";
     }

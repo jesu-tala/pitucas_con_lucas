@@ -53,7 +53,14 @@ export function filteredTx(){
   // View 1 shows all transactions (not filtered by month, unlike Balance),
   // except when arriving via a category "drill-down" from Balance (which does bring a month).
   let list = TRANSACTIONS.slice().sort((a,b)=> (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
-  if(state.filter==='entradas') list = list.filter(t=>t.tipo==='ingreso');
+  // 'no_es_gasto' es el estado que marca "esto no es un gasto/ingreso de verdad" (un traspaso
+  // entre cuentas propias, una devolución que ya se anuló). Una entrada marcada así ya quedó
+  // RESUELTA: mostrarla igual bajo el chip "Entradas" la hacía ver como plata que entró, que es
+  // exactamente lo contrario de lo que la persona acaba de decir. Los otros chips ya lo excluían
+  // solos porque filtran por estados concretos ('pendiente', 'por_cobrar'); este filtraba solo
+  // por tipo, sin mirar el estado, así que era el único por donde se colaba. monthTotals ya la
+  // excluye de todos los agregados, o sea que la lista era lo único que seguía contándola.
+  if(state.filter==='entradas') list = list.filter(t=>t.tipo==='ingreso' && t.estado!=='no_es_gasto');
   else if(state.filter==='porcobrar') list = list.filter(t=>t.estado==='por_cobrar' && hasReceivableType(t,'persona') && !allCollected(t));
   else if(state.filter==='reembolso') list = list.filter(t=>t.estado==='por_cobrar' && hasReceivableType(t,'reembolso') && !allCollected(t));
   else if(state.filter==='pendientes') list = list.filter(t=>t.estado==='pendiente');
@@ -69,7 +76,12 @@ export function renderFilterSummary(){
   // cuenta más abajo, con sus propias reglas.
   const base = applyCommonFilters(TRANSACTIONS.slice());
   if(state.filter==='entradas'){
-    const ingresos = base.filter(t=>t.tipo==='ingreso').reduce((s,t)=>s+netIncomeTx(t),0);
+    // Mismo criterio que el filtro de la lista (ver filteredTx): una entrada marcada
+    // "no es ingreso" no cuenta. Hoy daría 0 igual porque marcarla le vacía las categorías
+    // y netIncomeTx leería $0, pero se excluye explícito para que el total no dependa de ese
+    // efecto secundario -- si mañana el marcado dejara de limpiar categorías, este cuadro
+    // volvería a contar plata que la persona dijo que no era suya.
+    const ingresos = base.filter(t=>t.tipo==='ingreso' && t.estado!=='no_es_gasto').reduce((s,t)=>s+netIncomeTx(t),0);
     const reembolsos = base.reduce((s,t)=> s + t.porCobrar.filter(p=>p.pagado && p.tipo==='reembolso').reduce((ss,p)=>ss+pendingEffectiveAmount(p),0), 0);
     return '<div class="stat-grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px;">'+
       '<div class="card stat-tile stat-ingresos"><div class="stat-label">Entradas</div><div class="stat-value tabular">'+money(ingresos)+'</div></div>'+
