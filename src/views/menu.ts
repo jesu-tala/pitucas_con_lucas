@@ -644,13 +644,39 @@ export function parseTarjetaNacionalMovs(pagesWords){
     const filaCompleta = (r.codigo+' '+r.detalle).toUpperCase();
     let esEspecial = null;
     if(/MONTO CANCELADO/.test(filaCompleta)) esEspecial = 'pago_recibido'; // a payment made to the card, not a purchase
+
+    // ---- compras en cuotas ----
+    // Una compra en cuotas aparece en la cartola con el monto de la OPERACIÓN completa (los
+    // $360.000 de la compra) en monto_op, y la cuota que se cobra ESTE mes ($30.000) en
+    // valor_cuota, con "03/12" en ncuota. Hasta acá se usaba monto_op siempre, y eso rompía la
+    // reconciliación de la peor forma posible: la app guarda cada cuota proyectada por el monto
+    // de la CUOTA, así que la línea de $360.000 no calzaba con nada y el diff proponía las dos
+    // cosas a la vez -- agregar un gasto nuevo de $360.000 (que no es plata que salió este mes)
+    // y ELIMINAR la cuota proyectada correcta de $30.000, por "no estar respaldada". Aceptar ese
+    // diff borraba el dato bueno y dejaba uno inflado 12 veces, todos los meses.
+    //
+    // Con valor_cuota la línea calza sola contra la cuota proyectada por monto+fecha+comercio,
+    // que es exactamente como regenerateInstallmentsFor (shared-expenses.ts) dejó pensado que se
+    // respaldaran. Por eso reconcile.ts no necesita cambiar nada: el problema era el número que
+    // le llegaba, no cómo lo comparaba.
+    const cuotaMatch = (r.ncuota || '').match(/(\d{1,2})\s*(?:\/|\s+DE\s+|-)\s*(\d{1,2})/i);
+    const valorCuota = parseMontoCLP(r.valor_cuota);
+    const esCuota = !!cuotaMatch && valorCuota !== null && valorCuota !== 0;
+    const montoFinal = esCuota ? valorCuota : monto;
+
     movimientos.push({
       fecha: fechaISO,
       detalle: detalleCompleto,
       comercioSugerido: detalleCompleto,
-      monto: monto<0 ? monto : -Math.abs(monto), // on a card statement, every purchase is an expense
+      monto: montoFinal<0 ? montoFinal : -Math.abs(montoFinal), // on a card statement, every purchase is an expense
       tipoMov: 'gasto',
-      esEspecial: esEspecial
+      esEspecial: esEspecial,
+      // Se arrastran para que el diff pueda decir "cuota 3 de 12" en pantalla y, sobre todo, para
+      // desempatar cuando dos cuotas del mismo comercio caen en el mismo período con igual monto
+      // (ver matchConfidence en reconcile.ts).
+      cuotaNumero: esCuota ? parseInt(cuotaMatch[1], 10) : undefined,
+      cuotaTotal: esCuota ? parseInt(cuotaMatch[2], 10) : undefined,
+      montoOperacion: esCuota ? Math.abs(monto) : undefined
     });
   });
   return movimientos;

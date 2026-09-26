@@ -32,6 +32,12 @@ export interface StatementMovement {
   tipoMov: 'gasto' | 'ingreso';
   esEspecial?: string | null;
   fuenteLineaId?: string;
+  // Presentes solo en una línea de compra en cuotas de una cartola de tarjeta (ver
+  // parseTarjetaNacionalMovs en views/menu.ts). `monto` ya viene siendo el valor de la CUOTA de
+  // este mes, no el de la operación completa -- montoOperacion queda aparte, solo informativo.
+  cuotaNumero?: number;
+  cuotaTotal?: number;
+  montoOperacion?: number;
   __match?: Transaction | null;
 }
 
@@ -119,6 +125,13 @@ function daysBetween(fechaA: string, fechaB: string): number {
 // working exactly as before; this is a separate, richer function for the new diff.
 export function matchConfidence(mov: StatementMovement, tx: Transaction): MatchConfidence | null {
   if(tx.tipo !== mov.tipoMov) return null;
+  // Desempate por número de cuota. Doce cuotas de la misma compra tienen el MISMO monto y el
+  // mismo comercio, y solo se distinguen por su fecha -- que en una cuota proyectada es una
+  // estimación (ver dateForInstallment), no un dato del banco. Si la cartola dice "03/12" y la
+  // transacción dice que es otra cuota, no son la misma por mucho que todo lo demás coincida.
+  // Solo se exige cuando AMBOS lados lo traen: la cuota 1 es la compra original y no lleva
+  // cuotaNumero, así que pedirlo siempre la dejaría sin poder calzar nunca.
+  if(mov.cuotaNumero != null && tx.cuotaNumero != null && mov.cuotaNumero !== tx.cuotaNumero) return null;
   const montoAbs = Math.abs(mov.monto);
   const montoDiff = Math.abs(tx.monto - montoAbs);
   const diffDias = daysBetween(tx.fecha, mov.fecha);
