@@ -7162,7 +7162,10 @@
           if (state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = state.draftTx.monto;
         }
         liveFormatThousands(draftField);
-        if (state.draftTx.moneda === "USD") renderSheet();
+        if (state.draftTx.moneda === "USD") {
+          const cont = document.querySelector("[data-conversion]");
+          if (cont) cont.innerHTML = conversionInnerHtml(state.draftTx);
+        }
       }
       const saveBtn = document.querySelector("[data-save-draft]");
       if (saveBtn) saveBtn.disabled = !(state.draftTx.comercio.trim().length > 0 && state.draftTx.monto > 0);
@@ -8566,13 +8569,17 @@
     return '<div class="segmented moneda-seg" data-seg="draft-moneda"><button data-draft-moneda="CLP" class="' + (esUSD(d) ? "" : "active") + '">$ CLP</button><button data-draft-moneda="USD" class="' + (esUSD(d) ? "active" : "") + '">US$</button></div>';
   }
   __name(monedaSelectorHtml, "monedaSelectorHtml");
-  function conversionHtml(d) {
+  function conversionInnerHtml(d) {
     if (!esUSD(d)) return "";
     if (d.tipoCambioCargando) return '<p class="cat-picker-hint" style="margin:8px 0 0;">Buscando el d\xF3lar del ' + dayLabel(d.fecha) + "\u2026</p>";
     if (d.tipoCambio) {
       return '<p class="cat-picker-hint" style="margin:8px 0 0;">US$' + (d.montoOriginal || 0).toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " = <b>" + money(d.monto || 0) + "</b><br>D\xF3lar observado del " + dayLabel(d.fecha) + ": $" + String(d.tipoCambio).replace(".", ",") + ' \xB7 <button class="split-toggle-link" data-editar-tipocambio style="padding:0;">cambiarlo</button></p>';
     }
     return '<div style="margin-top:8px;"><p class="cat-picker-hint" style="margin:0 0 6px;">No se pudo conseguir el d\xF3lar de ese d\xEDa. Escr\xEDbelo a mano para poder guardar.</p><input type="text" inputmode="decimal" class="draft-input tabular" data-draft-tipocambio placeholder="Ej: 965,71" value=""></div>';
+  }
+  __name(conversionInnerHtml, "conversionInnerHtml");
+  function conversionHtml(d) {
+    return "<div data-conversion>" + conversionInnerHtml(d) + "</div>";
   }
   __name(conversionHtml, "conversionHtml");
   function openNewTxSheet(tipoInicial) {

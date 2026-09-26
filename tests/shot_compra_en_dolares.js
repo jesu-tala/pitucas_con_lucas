@@ -122,5 +122,35 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('   y el registro deja de estar bloqueado (la API caída no impide anotar el gasto)',
     conManual.guardarDeshabilitado === false, conManual);
 
+  // ---------- 6) Escribir en dólares no puede sacarle el foco al campo ----------
+  // Bug reportado desde el teléfono: "cada vez que aprieto se cierra el teclado". La línea de
+  // conversión se actualizaba llamando a renderSheet() en cada tecla, lo que recreaba el input;
+  // al perder el foco, el teclado del teléfono se cierra y hay que volver a tocar el campo para
+  // escribir el dígito siguiente. Ahora se reescribe solo el texto de la conversión.
+  await page.evaluate(() => { window.__fetchDebeFallar = false; });
+  await page.keyboard.press('Escape');   // la hoja del paso anterior sigue abierta y tapa el botón +
+  await page.waitForTimeout(300);
+  await abrirNueva();
+  await page.click('[data-draft-moneda="USD"]');
+  await page.waitForTimeout(400);
+  await page.focus('[data-draft-field="monto"]');
+  const foco = [];
+  for(const ch of ['1','2','3','4']){
+    await page.keyboard.type(ch);
+    await page.waitForTimeout(120);
+    foco.push(await page.evaluate(() => {
+      const a = document.activeElement;
+      return !!(a && a.getAttribute && a.getAttribute('data-draft-field') === 'monto');
+    }));
+  }
+  check('escribir el monto en dólares NO le saca el foco al campo (el teclado no se cierra)',
+    foco.every(Boolean), foco);
+  const trasEscribir = await page.evaluate(() => ({
+    valor: document.querySelector('[data-draft-field="monto"]').value,
+    conversion: (document.querySelector('[data-conversion]') || {}).textContent || ''
+  }));
+  check('   y la conversión igual se actualiza mientras se escribe',
+    /=/.test(trasEscribir.conversion) && trasEscribir.valor.length > 0, trasEscribir);
+
   await finish({ context, browser, errors });
 })();

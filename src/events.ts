@@ -4,7 +4,7 @@ import { enterDemoMode, exitDemoMode } from './demo';
 import { navClearType, navDepth, navPeek, navPop, navPush, NavFrame } from './nav';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
-import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter, defaultAssignAmount } from './sheet';
+import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter, defaultAssignAmount, conversionInnerHtml} from './sheet';
 import { convertirUSDaCLP, tipoCambioUSDCLP, tipoCambioCacheado } from './currency';
 import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO, setUltimoRespaldo} from './state';
 import { buildGroupExportWorkbookArrayBuffer } from './group-export';
@@ -2828,7 +2828,13 @@ phone.addEventListener('input', function(e: any){
         if(state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = state.draftTx.monto;
       }
       liveFormatThousands(draftField);
-      if(state.draftTx.moneda==='USD') renderSheet();
+      // Se reescribe SOLO la línea de conversión, no la hoja entera: un renderSheet() acá recreaba
+      // el input en cada tecla y al perder el foco el teléfono cerraba el teclado, así que había
+      // que volver a tocar el campo para escribir cada dígito.
+      if(state.draftTx.moneda==='USD'){
+        const cont = document.querySelector('[data-conversion]');
+        if(cont) cont.innerHTML = conversionInnerHtml(state.draftTx);
+      }
     }
     const saveBtn = document.querySelector<HTMLButtonElement>('[data-save-draft]');
     if(saveBtn) saveBtn.disabled = !(state.draftTx.comercio.trim().length>0 && state.draftTx.monto>0);

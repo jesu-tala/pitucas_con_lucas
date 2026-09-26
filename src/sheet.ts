@@ -611,7 +611,12 @@ function monedaSelectorHtml(d){
 // La línea bajo el campo cuando se está en dólares. Tres estados, y ninguno deja guardar un
 // número ambiguo: mientras se consulta, cuando hay valor, y cuando no se pudo conseguir -- ahí
 // se ofrece escribirlo a mano, porque no tener el dato NUNCA puede impedir registrar un gasto.
-function conversionHtml(d){
+// El contenido de la línea, sin su contenedor. Se separa de conversionHtml() para poder
+// reescribir SOLO este texto mientras se escribe el monto, sin volver a dibujar la hoja: un
+// renderSheet() por tecla recreaba el input, le sacaba el foco y en el teléfono eso CIERRA EL
+// TECLADO en cada dígito. El repo ya usa este mismo criterio para monto/fecha/comercio de una
+// transacción ya guardada (ver el listener de 'input' en events.ts).
+export function conversionInnerHtml(d){
   if(!esUSD(d)) return '';
   if(d.tipoCambioCargando) return '<p class="cat-picker-hint" style="margin:8px 0 0;">Buscando el dólar del '+dayLabel(d.fecha)+'…</p>';
   if(d.tipoCambio){
@@ -626,6 +631,9 @@ function conversionHtml(d){
     '<p class="cat-picker-hint" style="margin:0 0 6px;">No se pudo conseguir el dólar de ese día. Escríbelo a mano para poder guardar.</p>'+
     '<input type="text" inputmode="decimal" class="draft-input tabular" data-draft-tipocambio placeholder="Ej: 965,71" value="">'+
   '</div>';
+}
+function conversionHtml(d){
+  return '<div data-conversion>'+conversionInnerHtml(d)+'</div>';
 }
 
 export function openNewTxSheet(tipoInicial?){
