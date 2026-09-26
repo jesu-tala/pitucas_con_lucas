@@ -285,6 +285,19 @@ phone.addEventListener('click', function(e: any){
     closeSheet(); return;
   }
 
+  const editarTC = e.target.closest('[data-editar-tipocambio]');
+  if(editarTC && state.draftTx){
+    // Faltaba este handler: el botón "cambiarlo" se dibujaba pero no estaba enganchado a nada, así
+    // que no hacía absolutamente nada al tocarlo. Ahora abre el mismo campo manual que aparece
+    // cuando la API falla, precargado con el valor actual.
+    state.draftTx.editandoTipoCambio = true;
+    renderSheet();
+    setTimeout(function(){
+      const el = document.querySelector('[data-draft-tipocambio]') as HTMLInputElement | null;
+      if(el){ el.focus(); el.select(); }
+    }, 50);
+    return;
+  }
   const monedaBtn = e.target.closest('[data-draft-moneda]');
   if(monedaBtn && state.draftTx){
     const nueva = monedaBtn.getAttribute('data-draft-moneda');
@@ -294,6 +307,7 @@ phone.addEventListener('click', function(e: any){
       // "51" significa cosas muy distintas en cada una, y adivinar cuál quiso decir sería
       // exactamente el tipo de silencio que causó el problema original.
       state.draftTx.monto = 0; state.draftTx.montoOriginal = 0; state.draftTx.tipoCambio = null;
+      state.draftTx.editandoTipoCambio = false;
       if(state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = 0;
       if(nueva === 'USD') pedirTipoCambio();
       renderSheet();
@@ -2812,6 +2826,8 @@ phone.addEventListener('input', function(e: any){
     // hubiera venido de mindicador. Coma o punto como decimal, porque acá se escribe "965,71".
     const v = parseFloat(String(tcManual.value).replace(/\./g,'').replace(',','.'));
     state.draftTx.tipoCambio = (isFinite(v) && v>0) ? v : null;
+    // Se sale del modo "editando" recién al guardar o cerrar: si se saliera acá, el campo
+    // desaparecería bajo los dedos mientras se está escribiendo el número.
     state.draftTx.monto = state.draftTx.tipoCambio
       ? convertirUSDaCLP(state.draftTx.montoOriginal||0, state.draftTx.tipoCambio) : 0;
     if(state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = state.draftTx.monto;

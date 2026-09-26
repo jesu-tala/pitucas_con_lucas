@@ -152,5 +152,46 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('   y la conversión igual se actualiza mientras se escribe',
     /=/.test(trasEscribir.conversion) && trasEscribir.valor.length > 0, trasEscribir);
 
+  // ---------- 7) El botón "cambiarlo" del tipo de cambio ----------
+  // Reportado desde el teléfono: "no sirve el botón de cambiar el valor del dólar". El botón se
+  // dibujaba pero nunca se le escribió handler, así que no hacía absolutamente nada. Ahora abre
+  // el mismo campo manual que aparece cuando la API falla, precargado con el valor actual para
+  // corregir un dígito en vez de escribirlo entero de nuevo.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await abrirNueva();
+  await escribir('[data-draft-field="comercio"]', 'Hotel Miami');
+  await page.click('[data-draft-moneda="USD"]');
+  await page.waitForTimeout(400);
+  await escribir('[data-draft-field="fecha"]', '2026-09-25');
+  await escribir('[data-draft-field="monto"]', '100');
+
+  const antesDeCambiar = await page.evaluate(() => ({
+    hayBoton: !!document.querySelector('[data-editar-tipocambio]'),
+    hayCampo: !!document.querySelector('[data-draft-tipocambio]'),
+    monto: window.__debug.state.draftTx.monto
+  }));
+  check('(control) con tipo de cambio de la API se ofrece "cambiarlo" y NO el campo manual',
+    antesDeCambiar.hayBoton === true && antesDeCambiar.hayCampo === false && antesDeCambiar.monto === 96571, antesDeCambiar);
+
+  await page.click('[data-editar-tipocambio]');
+  await page.waitForTimeout(300);
+  const trasCambiar = await page.evaluate(() => {
+    const el = document.querySelector('[data-draft-tipocambio]');
+    return { hayCampo: !!el, precargado: el ? el.value : null };
+  });
+  check('"cambiarlo" abre el campo para editar el tipo de cambio (antes no hacía nada)',
+    trasCambiar.hayCampo === true, trasCambiar);
+  check('   precargado con el valor actual, para corregirlo y no reescribirlo entero',
+    trasCambiar.precargado === '965,71', trasCambiar);
+
+  await escribir('[data-draft-tipocambio]', '1000');
+  const conNuevoTC = await page.evaluate(() => {
+    const d = window.__debug.state.draftTx;
+    return { monto: d.monto, tipoCambio: d.tipoCambio };
+  });
+  check('   y el monto se recalcula con el valor nuevo (100 × 1000 = 100.000)',
+    conNuevoTC.monto === 100000 && conNuevoTC.tipoCambio === 1000, conNuevoTC);
+
   await finish({ context, browser, errors });
 })();

@@ -619,7 +619,10 @@ function monedaSelectorHtml(d){
 export function conversionInnerHtml(d){
   if(!esUSD(d)) return '';
   if(d.tipoCambioCargando) return '<p class="cat-picker-hint" style="margin:8px 0 0;">Buscando el dólar del '+dayLabel(d.fecha)+'…</p>';
-  if(d.tipoCambio){
+  // editandoTipoCambio: se apretó "cambiarlo" teniendo ya un valor. Se muestra el mismo campo
+  // manual que cuando la API falla, pero PRECARGADO con el valor actual -- así se corrige un
+  // dígito en vez de tener que escribirlo entero de nuevo.
+  if(d.tipoCambio && !d.editandoTipoCambio){
     return '<p class="cat-picker-hint" style="margin:8px 0 0;">'+
       'US$'+(d.montoOriginal||0).toLocaleString('es-CL',{minimumFractionDigits:2, maximumFractionDigits:2})+
       ' = <b>'+money(d.monto||0)+'</b><br>'+
@@ -627,9 +630,14 @@ export function conversionInnerHtml(d){
       ' · <button class="split-toggle-link" data-editar-tipocambio style="padding:0;">cambiarlo</button>'+
     '</p>';
   }
+  const valorActual = d.tipoCambio ? String(d.tipoCambio).replace('.', ',') : '';
   return '<div style="margin-top:8px;">'+
-    '<p class="cat-picker-hint" style="margin:0 0 6px;">No se pudo conseguir el dólar de ese día. Escríbelo a mano para poder guardar.</p>'+
-    '<input type="text" inputmode="decimal" class="draft-input tabular" data-draft-tipocambio placeholder="Ej: 965,71" value="">'+
+    '<p class="cat-picker-hint" style="margin:0 0 6px;">'+
+      (d.editandoTipoCambio
+        ? 'Escribe el tipo de cambio que quieras usar para esta compra.'
+        : 'No se pudo conseguir el dólar de ese día. Escríbelo a mano para poder guardar.')+
+    '</p>'+
+    '<input type="text" inputmode="decimal" class="draft-input tabular" data-draft-tipocambio placeholder="Ej: 965,71" value="'+esc(valorActual)+'">'+
   '</div>';
 }
 function conversionHtml(d){
@@ -657,7 +665,7 @@ export function openNewTxSheet(tipoInicial?){
     // monto es SIEMPRE pesos. En USD, el campo de monto edita montoOriginal y monto queda
     // como su conversión -- así todo lo que mira el borrador antes de guardar (la categoría,
     // dividir el gasto, por cobrar) ya ve pesos y no hay que acordarse de convertir en cada uno.
-    moneda:'CLP', montoOriginal:0, tipoCambio:null,
+    moneda:'CLP', montoOriginal:0, tipoCambio:null, editandoTipoCambio:false,
     tipo: tipoInicial || 'gasto', recurrencia:'variable', categorias:[], porCobrar:[],
     // Undefined (not yet set) rather than a real estado -- Acciones rápidas has something to
     // toggle from a clean slate; saveDraftTx() below only falls back to the old

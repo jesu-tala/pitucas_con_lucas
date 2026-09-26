@@ -6014,6 +6014,19 @@
       closeSheet();
       return;
     }
+    const editarTC = e.target.closest("[data-editar-tipocambio]");
+    if (editarTC && state.draftTx) {
+      state.draftTx.editandoTipoCambio = true;
+      renderSheet();
+      setTimeout(function() {
+        const el = document.querySelector("[data-draft-tipocambio]");
+        if (el) {
+          el.focus();
+          el.select();
+        }
+      }, 50);
+      return;
+    }
     const monedaBtn = e.target.closest("[data-draft-moneda]");
     if (monedaBtn && state.draftTx) {
       const nueva = monedaBtn.getAttribute("data-draft-moneda");
@@ -6022,6 +6035,7 @@
         state.draftTx.monto = 0;
         state.draftTx.montoOriginal = 0;
         state.draftTx.tipoCambio = null;
+        state.draftTx.editandoTipoCambio = false;
         if (state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = 0;
         if (nueva === "USD") pedirTipoCambio();
         renderSheet();
@@ -9979,10 +9993,11 @@
   function conversionInnerHtml(d) {
     if (!esUSD(d)) return "";
     if (d.tipoCambioCargando) return '<p class="cat-picker-hint" style="margin:8px 0 0;">Buscando el d\xF3lar del ' + dayLabel(d.fecha) + "\u2026</p>";
-    if (d.tipoCambio) {
+    if (d.tipoCambio && !d.editandoTipoCambio) {
       return '<p class="cat-picker-hint" style="margin:8px 0 0;">US$' + (d.montoOriginal || 0).toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " = <b>" + money(d.monto || 0) + "</b><br>D\xF3lar observado del " + dayLabel(d.fecha) + ": $" + String(d.tipoCambio).replace(".", ",") + ' \xB7 <button class="split-toggle-link" data-editar-tipocambio style="padding:0;">cambiarlo</button></p>';
     }
-    return '<div style="margin-top:8px;"><p class="cat-picker-hint" style="margin:0 0 6px;">No se pudo conseguir el d\xF3lar de ese d\xEDa. Escr\xEDbelo a mano para poder guardar.</p><input type="text" inputmode="decimal" class="draft-input tabular" data-draft-tipocambio placeholder="Ej: 965,71" value=""></div>';
+    const valorActual = d.tipoCambio ? String(d.tipoCambio).replace(".", ",") : "";
+    return '<div style="margin-top:8px;"><p class="cat-picker-hint" style="margin:0 0 6px;">' + (d.editandoTipoCambio ? "Escribe el tipo de cambio que quieras usar para esta compra." : "No se pudo conseguir el d\xF3lar de ese d\xEDa. Escr\xEDbelo a mano para poder guardar.") + '</p><input type="text" inputmode="decimal" class="draft-input tabular" data-draft-tipocambio placeholder="Ej: 965,71" value="' + esc(valorActual) + '"></div>';
   }
   __name(conversionInnerHtml, "conversionInnerHtml");
   function conversionHtml(d) {
@@ -10017,6 +10032,7 @@
       moneda: "CLP",
       montoOriginal: 0,
       tipoCambio: null,
+      editandoTipoCambio: false,
       tipo: tipoInicial || "gasto",
       recurrencia: "variable",
       categorias: [],
