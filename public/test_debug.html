@@ -2003,6 +2003,7 @@
   __name(daysBetween, "daysBetween");
   function matchConfidence(mov, tx) {
     if (tx.tipo !== mov.tipoMov) return null;
+    if (mov.cuotaNumero != null && tx.cuotaNumero != null && mov.cuotaNumero !== tx.cuotaNumero) return null;
     const montoAbs = Math.abs(mov.monto);
     const montoDiff = Math.abs(tx.monto - montoAbs);
     const diffDias = daysBetween(tx.fecha, mov.fecha);
@@ -3738,14 +3739,24 @@
       const filaCompleta = (r.codigo + " " + r.detalle).toUpperCase();
       let esEspecial = null;
       if (/MONTO CANCELADO/.test(filaCompleta)) esEspecial = "pago_recibido";
+      const cuotaMatch = (r.ncuota || "").match(/(\d{1,2})\s*(?:\/|\s+DE\s+|-)\s*(\d{1,2})/i);
+      const valorCuota = parseMontoCLP(r.valor_cuota);
+      const esCuota = !!cuotaMatch && valorCuota !== null && valorCuota !== 0;
+      const montoFinal = esCuota ? valorCuota : monto;
       movimientos.push({
         fecha: fechaISO,
         detalle: detalleCompleto,
         comercioSugerido: detalleCompleto,
-        monto: monto < 0 ? monto : -Math.abs(monto),
+        monto: montoFinal < 0 ? montoFinal : -Math.abs(montoFinal),
         // on a card statement, every purchase is an expense
         tipoMov: "gasto",
-        esEspecial
+        esEspecial,
+        // Se arrastran para que el diff pueda decir "cuota 3 de 12" en pantalla y, sobre todo, para
+        // desempatar cuando dos cuotas del mismo comercio caen en el mismo período con igual monto
+        // (ver matchConfidence en reconcile.ts).
+        cuotaNumero: esCuota ? parseInt(cuotaMatch[1], 10) : void 0,
+        cuotaTotal: esCuota ? parseInt(cuotaMatch[2], 10) : void 0,
+        montoOperacion: esCuota ? Math.abs(monto) : void 0
       });
     });
     return movimientos;
