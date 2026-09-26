@@ -418,44 +418,10 @@ phone.addEventListener('click', function(e: any){
     return;
   }
 
-  const pickCatBtn = e.target.closest('[data-pick-cat]');
-  if(pickCatBtn){
-    const t = getTx(state.openTxId);
-    if(t){
-      const catId = pickCatBtn.getAttribute('data-pick-cat');
-      if(t.sharedByOthers){
-        // Group expense that someone else registered: besides classifying this transaction,
-        // this learns the "their category -> mine" mapping so future expenses like this get
-        // classified automatically (see classifySharedExpenseFromOthers).
-        classifySharedExpenseFromOthers(t.id, catId).then(function(){
-          state.categoryEditMode[t.id] = false;
-          toast('Clasificada como '+catInfo(catId).nombre);
-          renderSheet(); renderIfListVisible();
-        });
-      } else {
-        const wasClassified = t.categorias.length>0;
-        // See bumpPlatformValueForContribution -- classifying an inversión transaction for the
-        // first time (or re-picking it from this grid) counts as money landing in whatever
-        // platform catId belongs to; if it was already pointing at a different platform (rare
-        // here, since this grid is normally only shown while still unclassified), take the old
-        // amount back out of that one first.
-        if(t.tipo==='inversion'){
-          const oldPlatform = t.categorias[0] ? platformIdForInvestmentCat(t.categorias[0].cat) : null;
-          const newPlatform = platformIdForInvestmentCat(catId);
-          if(oldPlatform!==newPlatform){
-            if(oldPlatform) bumpPlatformValueForContribution(oldPlatform, -t.categorias[0].monto);
-            if(newPlatform) bumpPlatformValueForContribution(newPlatform, t.monto);
-          }
-        }
-        t.categorias = [{cat:catId, monto:t.monto}];
-        if(t.estado==='pendiente') t.estado='confirmado';
-        state.categoryEditMode[t.id] = false;
-        toast(wasClassified ? 'Categoría actualizada a '+catInfo(catId).nombre : 'Clasificada como '+catInfo(catId).nombre);
-        renderSheet(); renderIfListVisible();
-      }
-    }
-    return;
-  }
+  // El handler de [data-pick-cat] vivía acá: era el de las grillas de chips, que ya no existen
+  // (ver la nota en sheet.ts donde estaban). Todo lo que hacía -- clasificar, pasar el estado a
+  // confirmado y aprender el mapeo de un gasto de grupo ajeno -- vive ahora en el handler de
+  // [data-cat-select], que es el único camino para clasificar.
 
   const toggleCuotas = e.target.closest('[data-toggle-installments]');
   if(toggleCuotas){

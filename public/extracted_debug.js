@@ -4729,38 +4729,6 @@
       renderSheet();
       return;
     }
-    const pickCatBtn = e.target.closest("[data-pick-cat]");
-    if (pickCatBtn) {
-      const t = getTx(state.openTxId);
-      if (t) {
-        const catId = pickCatBtn.getAttribute("data-pick-cat");
-        if (t.sharedByOthers) {
-          classifySharedExpenseFromOthers(t.id, catId).then(function() {
-            state.categoryEditMode[t.id] = false;
-            toast("Clasificada como " + catInfo(catId).nombre);
-            renderSheet();
-            renderIfListVisible();
-          });
-        } else {
-          const wasClassified = t.categorias.length > 0;
-          if (t.tipo === "inversion") {
-            const oldPlatform = t.categorias[0] ? platformIdForInvestmentCat(t.categorias[0].cat) : null;
-            const newPlatform = platformIdForInvestmentCat(catId);
-            if (oldPlatform !== newPlatform) {
-              if (oldPlatform) bumpPlatformValueForContribution(oldPlatform, -t.categorias[0].monto);
-              if (newPlatform) bumpPlatformValueForContribution(newPlatform, t.monto);
-            }
-          }
-          t.categorias = [{ cat: catId, monto: t.monto }];
-          if (t.estado === "pendiente") t.estado = "confirmado";
-          state.categoryEditMode[t.id] = false;
-          toast(wasClassified ? "Categor\xEDa actualizada a " + catInfo(catId).nombre : "Clasificada como " + catInfo(catId).nombre);
-          renderSheet();
-          renderIfListVisible();
-        }
-      }
-      return;
-    }
     const toggleCuotas = e.target.closest("[data-toggle-installments]");
     if (toggleCuotas) {
       const t = getTx(toggleCuotas.getAttribute("data-toggle-installments"));
@@ -8501,21 +8469,6 @@
     return '<div class="cat-rows"><div class="split-row" data-draft-cat-row><span class="cat-row-icon" style="' + categoryColorVars(ci) + '">' + (ci ? catIconMarkup(ci.icon) : ICONS.more) + "</span><select data-draft-cat-select>" + opts + "</select></div></div>";
   }
   __name(renderDraftCategoryRow, "renderDraftCategoryRow");
-  function catPickerGrid(tipoFilter, attrName, selectedId) {
-    return '<div class="cat-picker-grid">' + Object.keys(CATEGORIES).filter((k) => CATEGORIES[k].tipo === tipoFilter && (tipoFilter !== "inversion" || !isPlatformArchived(k) || k === selectedId)).map((k) => {
-      const c = CATEGORIES[k];
-      const sel = k === selectedId;
-      return '<button class="cat-picker-chip" data-' + attrName + '="' + k + '" ' + (sel ? 'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"' : "") + ">" + catIconMarkup(c.icon) + " " + esc(c.nombre) + "</button>";
-    }).join("") + "</div>";
-  }
-  __name(catPickerGrid, "catPickerGrid");
-  function investCatPickerGrid(selectedId) {
-    return '<div class="cat-picker-grid">' + investmentCatOptions(selectedId).map((o) => {
-      const sel = o.value === selectedId;
-      return '<button class="cat-picker-chip" data-pick-cat="' + o.value + '" ' + (sel ? 'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"' : "") + ">" + catIconMarkup(o.icon) + " " + esc(o.label) + "</button>";
-    }).join("") + "</div>";
-  }
-  __name(investCatPickerGrid, "investCatPickerGrid");
   function renderInvestGoalEmptyState(contextPlatformId) {
     const platId = contextPlatformId || goalCapablePlatformIds()[0] || platformIds()[0] || "";
     return '<div class="card placeholder-card" style="padding:18px 14px;">' + ICONS.inbox + "<h3>No tienes metas creadas</h3><p>Crea tu primera meta de inversi\xF3n para poder clasificar tus aportes.</p>" + (platId ? '<button class="save-tx-btn" style="width:100%;margin-top:10px;" data-goto-create-goal="' + platId + '">+ Crear meta de inversi\xF3n</button>' : "") + "</div>";

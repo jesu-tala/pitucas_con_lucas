@@ -245,26 +245,12 @@ export function renderDraftCategoryRow(d){
     '<select data-draft-cat-select>'+opts+'</select>'+
   '</div></div>';
 }
-export function catPickerGrid(tipoFilter, attrName, selectedId?){
-  // A closed platform isn't offered for classifying new transactions (you no longer use it),
-  // but if an old transaction is already pointing at it, it keeps showing as selected.
-  return '<div class="cat-picker-grid">'+Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo===tipoFilter && (tipoFilter!=='inversion' || !isPlatformArchived(k) || k===selectedId)).map(k=>{
-    const c = CATEGORIES[k];
-    const sel = k===selectedId;
-    return '<button class="cat-picker-chip" data-'+attrName+'="'+k+'" '+(sel?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+catIconMarkup(c.icon)+' '+esc(c.nombre)+'</button>';
-  }).join('')+'</div>';
-}
-// Same chip-grid look as catPickerGrid, but for classifying an investment-type transaction for
-// the first time (needsClassifying in renderSheetContent) -- offers Goals + General buckets
-// (investmentCatOptions) instead of a flat CATEGORIES list. Reuses the same data-pick-cat
-// attribute, so the existing click handler in events.ts (which just sets t.categorias to
-// whatever value it got) doesn't need to know or care which kind of picker produced it.
-export function investCatPickerGrid(selectedId?){
-  return '<div class="cat-picker-grid">'+investmentCatOptions(selectedId).map(o=>{
-    const sel = o.value===selectedId;
-    return '<button class="cat-picker-chip" data-pick-cat="'+o.value+'" '+(sel?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+catIconMarkup(o.icon)+' '+esc(o.label)+'</button>';
-  }).join('')+'</div>';
-}
+// Acá vivían catPickerGrid() e investCatPickerGrid(), las dos grillas de chips siempre abiertas
+// que se usaban para clasificar. Quedaron sin ningún llamador al unificar el selector de
+// categoría (ahora clasificar usa renderCategoryRows, el mismo componente del gasto manual), así
+// que se eliminan en vez de dejarlas ahí: una función de UI muerta invita a volver a usarla y a
+// reintroducir la inconsistencia. La clase .cat-picker-chip SÍ sigue viva -- la usa otro chip de
+// más abajo en este mismo archivo -- así que su CSS se mantiene.
 // Shown instead of the category picker for an investment-type transaction when there isn't a
 // single Goal to offer yet (INVESTMENT_GOALS is empty) -- requirement from the user: don't show
 // an effectively-empty picker, tell her she needs a goal first and take her straight there.
