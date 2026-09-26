@@ -667,6 +667,10 @@
   .cat-chip svg{width:14px;height:14px;flex-shrink:0;}
 
   .segmented{display:flex;background:var(--surface-sunken);border-radius:12px;padding:3px;gap:2px;}
+  /* Selector de moneda del formulario: el mismo segmented de siempre, más chico y alineado a la
+     izquierda, para que se lea como una opción del campo Monto y no como una decisión aparte. */
+  .moneda-seg{width:auto;display:inline-flex;margin-bottom:8px;}
+  .moneda-seg button{padding:5px 12px;font-size:12px;}
   .segmented button{
     flex:1;border:none;background:none;color:var(--text-secondary);font-size:13px;font-weight:700;
     padding:8px 6px;border-radius:9px;cursor:pointer;transition:background .15s ease,color .15s ease;

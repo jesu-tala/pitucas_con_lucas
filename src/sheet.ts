@@ -595,6 +595,39 @@ export let paymentMethodIdCounter = 0;
 // events.ts increments this counter from outside (adding a new card/payment method inside the
 // mini-form of the new-transaction sheet) -- see the note about setters in state.ts.
 export function setPaymentMethodIdCounter(v){ paymentMethodIdCounter = v; }
+// ---------- moneda del borrador ----------
+// Una compra en dólares se registra en dólares y se guarda en pesos: monto (CLP), montoOriginal
+// (USD) y tipoCambio quedan los tres guardados, así la conversión es auditable y se puede rehacer.
+// El tipo de cambio es el del DÍA DE LA COMPRA, no el de hoy.
+export function esUSD(d): boolean { return !!d && d.moneda === 'USD'; }
+
+function monedaSelectorHtml(d){
+  return '<div class="segmented moneda-seg" data-seg="draft-moneda">'+
+    '<button data-draft-moneda="CLP" class="'+(esUSD(d)?'':'active')+'">$ CLP</button>'+
+    '<button data-draft-moneda="USD" class="'+(esUSD(d)?'active':'')+'">US$</button>'+
+  '</div>';
+}
+
+// La línea bajo el campo cuando se está en dólares. Tres estados, y ninguno deja guardar un
+// número ambiguo: mientras se consulta, cuando hay valor, y cuando no se pudo conseguir -- ahí
+// se ofrece escribirlo a mano, porque no tener el dato NUNCA puede impedir registrar un gasto.
+function conversionHtml(d){
+  if(!esUSD(d)) return '';
+  if(d.tipoCambioCargando) return '<p class="cat-picker-hint" style="margin:8px 0 0;">Buscando el dólar del '+dayLabel(d.fecha)+'…</p>';
+  if(d.tipoCambio){
+    return '<p class="cat-picker-hint" style="margin:8px 0 0;">'+
+      'US$'+(d.montoOriginal||0).toLocaleString('es-CL',{minimumFractionDigits:2, maximumFractionDigits:2})+
+      ' = <b>'+money(d.monto||0)+'</b><br>'+
+      'Dólar observado del '+dayLabel(d.fecha)+': $'+String(d.tipoCambio).replace('.',',')+
+      ' · <button class="split-toggle-link" data-editar-tipocambio style="padding:0;">cambiarlo</button>'+
+    '</p>';
+  }
+  return '<div style="margin-top:8px;">'+
+    '<p class="cat-picker-hint" style="margin:0 0 6px;">No se pudo conseguir el dólar de ese día. Escríbelo a mano para poder guardar.</p>'+
+    '<input type="text" inputmode="decimal" class="draft-input tabular" data-draft-tipocambio placeholder="Ej: 965,71" value="">'+
+  '</div>';
+}
+
 export function openNewTxSheet(tipoInicial?){
   state.openTxId = null;
   state.creatingNew = true;
@@ -613,6 +646,10 @@ export function openNewTxSheet(tipoInicial?){
     // other half of this (resolving it back from events.ts).
     id: DRAFT_TX_ID,
     comercio:'', monto:0, fecha: todayISO(), hora:'12:00', medio: Object.keys(PAYMENT_METHODS)[0] || 'efectivo',
+    // monto es SIEMPRE pesos. En USD, el campo de monto edita montoOriginal y monto queda
+    // como su conversión -- así todo lo que mira el borrador antes de guardar (la categoría,
+    // dividir el gasto, por cobrar) ya ve pesos y no hay que acordarse de convertir en cada uno.
+    moneda:'CLP', montoOriginal:0, tipoCambio:null,
     tipo: tipoInicial || 'gasto', recurrencia:'variable', categorias:[], porCobrar:[],
     // Undefined (not yet set) rather than a real estado -- Acciones rápidas has something to
     // toggle from a clean slate; saveDraftTx() below only falls back to the old
@@ -1087,8 +1124,12 @@ export function renderNewTxSheetContent(d){
     '<div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Comercio y monto</div>'+
       '<div class="draft-field"><label class="draft-label">Comercio</label>'+
         '<input type="text" class="draft-input" data-draft-field="comercio" value="'+esc(d.comercio)+'" placeholder="Ej: Jumbo, Uber, Sueldo…"></div>'+
-      '<div class="draft-field" style="margin-top:14px;"><label class="draft-label">Monto</label>'+
-        '<input type="text" inputmode="decimal" class="draft-input amount tabular" data-draft-field="monto" value="'+(d.monto||'')+'" placeholder="0"></div>'+
+      '<div class="draft-field" style="margin-top:14px;">'+
+        '<label class="draft-label">Monto</label>'+
+        monedaSelectorHtml(d)+
+        '<input type="text" inputmode="decimal" class="draft-input amount tabular" data-draft-field="monto" value="'+(esUSD(d)?(d.montoOriginal||''):(d.monto||''))+'" placeholder="0">'+
+        conversionHtml(d)+
+      '</div>'+
       '<div class="draft-field" style="margin-top:14px;"><label class="draft-label">Fecha</label>'+
         '<input type="date" class="draft-input" data-draft-field="fecha" value="'+d.fecha+'"></div>'+
     '</div>'+
@@ -1138,11 +1179,19 @@ export function saveDraftTx(){
     // saved bare and then edited the old two-step way.
     porCobrar: d.porCobrar && d.porCobrar.length>0 ? d.porCobrar : [],
     reglaAuto:false, nota:'',
+    // monto (arriba) ya está en pesos -- el campo de monto en USD escribe montoOriginal y
+    // deja monto convertido, así que acá no hay que convertir nada, solo arrastrar la
+    // trazabilidad. Una compra en pesos no lleva ninguno de los tres campos.
     origen:'manual' // typed by hand right here -- the reconciliation engine (reconcile.ts) can never touch this
   };
   // pagador/divisionTipo only mean anything once there's a persona split (see commitPersonaSplit
   // in shared-expenses.ts, which is exactly what "Por cobrar a alguien" runs pre-save too) --
   // undefined on a plain draft, same as an untouched field on any other new Transaction literal.
+  if(esUSD(d) && d.tipoCambio){
+    (tx as any).moneda = 'USD';
+    (tx as any).montoOriginal = d.montoOriginal;
+    (tx as any).tipoCambio = d.tipoCambio;
+  }
   if(d.pagador) tx.pagador = d.pagador;
   if(d.divisionTipo) tx.divisionTipo = d.divisionTipo;
   TRANSACTIONS.push(tx);
