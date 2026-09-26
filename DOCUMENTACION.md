@@ -228,6 +228,18 @@ Supabase (ver sección 5) o a un respaldo JSON descargable (Menú → Respaldo e
   cada meta", agrupado por plazo (Corto/Medio/Largo).
 - **`TOTAL_GOAL_CHECKS`** (`{mes:bool}`): check manual mes a mes de "¿cumplí mi objetivo de
   inversión TOTAL este mes?", independiente de los checks de cada meta individual.
+- **`NOTAS_CATEGORIA`** (`{mes: {catId: texto}}`): una nota libre por categoría **y por mes**,
+  editable desde el desglose por categoría de Balance (el íconito al final de cada fila abre un
+  sheet). La nota de "Restoranes" de septiembre es distinta de la de octubre. El **mes va afuera
+  y la categoría adentro** a propósito: al dibujar Balance ya se sabe qué mes se está mirando,
+  así que `NOTAS_CATEGORIA[mes]` entrega de una todas las notas visibles y el indicador de cada
+  fila se resuelve sin recorrer nada; al revés habría que recorrer todas las categorías en cada
+  render. Guardar una nota vacía **borra** la entrada (`setNotaCategoria` en `state.ts`), para
+  que el indicador no quede encendido sobre una nota en blanco ni el blob acumule basura. El
+  indicador solo aparece en la vista de **mes**: en la de año no hay un mes al que la nota
+  pertenecería. Viaja en el blob como todo lo demás, así que el modo demo no expone las notas
+  reales sin necesidad de ningún caso especial (entrar reemplaza el estado entero, salir lo
+  restaura — ver `enterDemoMode`/`exitDemoMode` en `demo.ts`).
 - **`MONTHS`** / **`MONTH_LABEL`**: lista de meses "conocidos" por la app (crece cuando una
   cuota o una transacción nueva cae en un mes que todavía no existía) — **no** es lo mismo que
   "los 12 meses del año calendario" (ver `fullYearMonths(year)` /

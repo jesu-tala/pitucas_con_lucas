@@ -5,7 +5,7 @@ import { categoryColorVars } from './category-colors';
 import { ICONS, catIconMarkup } from './icons';
 import { render } from './render';
 import { ensureMonthExists, safeEvalExpr } from './shared-expenses';
-import { CATEGORIES, CONTACTS, GROUPS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, money, moneyPlainMasked, state, todayISO } from './state';
+import { CATEGORIES, CONTACTS, GROUPS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, money, moneyPlainMasked, state, todayISO, MONTH_LABEL, notaCategoria, setNotaCategoria} from './state';
 import { boletaWorkerConfigured } from './supabase';
 import { ReceivableItem, Transaction } from './types';
 import { toast } from './ui/toasts';
@@ -245,26 +245,12 @@ export function renderDraftCategoryRow(d){
     '<select data-draft-cat-select>'+opts+'</select>'+
   '</div></div>';
 }
-export function catPickerGrid(tipoFilter, attrName, selectedId?){
-  // A closed platform isn't offered for classifying new transactions (you no longer use it),
-  // but if an old transaction is already pointing at it, it keeps showing as selected.
-  return '<div class="cat-picker-grid">'+Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo===tipoFilter && (tipoFilter!=='inversion' || !isPlatformArchived(k) || k===selectedId)).map(k=>{
-    const c = CATEGORIES[k];
-    const sel = k===selectedId;
-    return '<button class="cat-picker-chip" data-'+attrName+'="'+k+'" '+(sel?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+catIconMarkup(c.icon)+' '+esc(c.nombre)+'</button>';
-  }).join('')+'</div>';
-}
-// Same chip-grid look as catPickerGrid, but for classifying an investment-type transaction for
-// the first time (needsClassifying in renderSheetContent) -- offers Goals + General buckets
-// (investmentCatOptions) instead of a flat CATEGORIES list. Reuses the same data-pick-cat
-// attribute, so the existing click handler in events.ts (which just sets t.categorias to
-// whatever value it got) doesn't need to know or care which kind of picker produced it.
-export function investCatPickerGrid(selectedId?){
-  return '<div class="cat-picker-grid">'+investmentCatOptions(selectedId).map(o=>{
-    const sel = o.value===selectedId;
-    return '<button class="cat-picker-chip" data-pick-cat="'+o.value+'" '+(sel?'style="background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink);"':'')+'>'+catIconMarkup(o.icon)+' '+esc(o.label)+'</button>';
-  }).join('')+'</div>';
-}
+// Acá vivían catPickerGrid() e investCatPickerGrid(), las dos grillas de chips siempre abiertas
+// que se usaban para clasificar. Quedaron sin ningún llamador al unificar el selector de
+// categoría (ahora clasificar usa renderCategoryRows, el mismo componente del gasto manual), así
+// que se eliminan en vez de dejarlas ahí: una función de UI muerta invita a volver a usarla y a
+// reintroducir la inconsistencia. La clase .cat-picker-chip SÍ sigue viva -- la usa otro chip de
+// más abajo en este mismo archivo -- así que su CSS se mantiene.
 // Shown instead of the category picker for an investment-type transaction when there isn't a
 // single Goal to offer yet (INVESTMENT_GOALS is empty) -- requirement from the user: don't show
 // an effectively-empty picker, tell her she needs a goal first and take her straight there.
@@ -691,6 +677,36 @@ export function openNewTxSheet(tipoInicial?){
   document.getElementById('sheet-content').scrollTop = 0;
   setTimeout(()=>{ const el=document.querySelector<HTMLElement>('[data-draft-field="comercio"]'); if(el) el.focus(); }, 260);
 }
+// Nota de una categoría en un mes concreto. Se abre desde el ícono de la fila del desglose en
+// Balance, con el mismo patrón de sheet que el resto de la app (.sheet-block.card) en vez de un
+// pop-up propio -- así hereda el overlay, el cerrar con Escape y el swipe hacia abajo.
+export function renderNotaCategoriaContent(){
+  const {mes, catId} = state.notaSheet;
+  const info = catInfo(catId);
+  const texto = notaCategoria(mes, catId);
+  return '<div class="sheet-top">'+
+      '<div class="merchant">'+esc(info.nombre)+'</div>'+
+      '<div class="meta">Nota de '+esc(MONTH_LABEL[mes] || mes)+'</div>'+
+    '</div>'+
+    '<div class="sheet-block card" style="padding:16px;">'+
+      '<div class="sheet-block-title">Tu nota</div>'+
+      '<p class="cat-picker-hint" style="margin:0 0 10px;">Para acordarte de por qué gastaste lo que gastaste este mes. Es solo de este mes: la nota de otro mes es otra.</p>'+
+      '<textarea class="draft-input nota-cat-input" data-nota-texto rows="4" placeholder="Ej: cumpleaños de mi mamá, pagué yo la mesa">'+esc(texto)+'</textarea>'+
+      '<div style="display:flex;gap:8px;margin-top:12px;">'+
+        (texto ? '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-nota-borrar>Borrar</button>' : '')+
+        '<button class="save-tx-btn" style="flex:1;" data-nota-guardar>Guardar</button>'+
+      '</div>'+
+    '</div>';
+}
+export function openNotaCategoria(mes, catId){
+  state.openTxId = null;
+  state.creatingNew = false;
+  state.filterSheetOpen = false;
+  state.notaSheet = {mes, catId};
+  openSheetOverlay();
+  renderSheet();
+  document.getElementById('sheet-content').scrollTop = 0;
+}
 export function openFilterSheet(){
   state.openTxId = null;
   state.creatingNew = false;
@@ -702,6 +718,7 @@ export function openFilterSheet(){
 export function closeSheet(){
   state.openTxId = null;
   state.creatingNew = false;
+  state.notaSheet = null;
   state.draftTx = null;
   state.filterSheetOpen = false;
   state.linkFlow = null;
@@ -1255,6 +1272,12 @@ export function renderSheet(){
   if(state.filterSheetOpen){
     const contentEl = document.getElementById('sheet-content');
     contentEl.innerHTML = renderFilterSheetContent();
+    document.getElementById('sheet-close-btn').innerHTML = ICONS.close;
+    return;
+  }
+  if(state.notaSheet){
+    const contentEl = document.getElementById('sheet-content');
+    contentEl.innerHTML = renderNotaCategoriaContent();
     document.getElementById('sheet-close-btn').innerHTML = ICONS.close;
     return;
   }
