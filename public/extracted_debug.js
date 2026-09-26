@@ -749,6 +749,47 @@
   }
   __name(buildReconcileDiff, "buildReconcileDiff");
 
+  // src/currency.ts
+  var MAX_DIAS_ATRAS = 7;
+  var cache = {};
+  function tipoCambioCacheado(fechaISO) {
+    return Object.prototype.hasOwnProperty.call(cache, fechaISO) ? cache[fechaISO] : null;
+  }
+  __name(tipoCambioCacheado, "tipoCambioCacheado");
+  function ddmmaaaa(d) {
+    const p = /* @__PURE__ */ __name((n) => String(n).padStart(2, "0"), "p");
+    return p(d.getDate()) + "-" + p(d.getMonth() + 1) + "-" + d.getFullYear();
+  }
+  __name(ddmmaaaa, "ddmmaaaa");
+  async function tipoCambioUSDCLP(fechaISO) {
+    if (Object.prototype.hasOwnProperty.call(cache, fechaISO)) return cache[fechaISO];
+    const d = /* @__PURE__ */ new Date(fechaISO + "T12:00:00");
+    if (isNaN(d.getTime())) return null;
+    for (let intento = 0; intento < MAX_DIAS_ATRAS; intento++) {
+      try {
+        const res = await fetch("https://mindicador.cl/api/dolar/" + ddmmaaaa(d));
+        if (res.ok) {
+          const data = await res.json();
+          const valor = data && data.serie && data.serie.length ? data.serie[0].valor : null;
+          if (typeof valor === "number" && valor > 0) {
+            cache[fechaISO] = valor;
+            return valor;
+          }
+        }
+      } catch (e) {
+        console.warn("Pitucas sin lucas \u2014 no se pudo consultar el tipo de cambio:", String(e));
+        return null;
+      }
+      d.setDate(d.getDate() - 1);
+    }
+    return null;
+  }
+  __name(tipoCambioUSDCLP, "tipoCambioUSDCLP");
+  function convertirUSDaCLP(montoUSD, tipoCambio) {
+    return Math.round((montoUSD || 0) * (tipoCambio || 0));
+  }
+  __name(convertirUSDaCLP, "convertirUSDaCLP");
+
   // src/ui/toasts.ts
   function toast(msg) {
     const stack2 = document.getElementById("toast-stack");
@@ -2826,6 +2867,15 @@
     return found ? generalCatIdFor(found) : null;
   }
   __name(guessCatIdFromImportRow, "guessCatIdFromImportRow");
+  function monedaDeFilaImportada(row) {
+    const raw = row && row.raw;
+    if (!raw || raw.moneda !== "USD") return null;
+    const montoOriginal = Number(raw.monto_original);
+    if (!isFinite(montoOriginal) || montoOriginal <= 0) return null;
+    const tc = Number(raw.tipo_cambio);
+    return { montoOriginal, tipoCambio: isFinite(tc) && tc > 0 ? tc : null };
+  }
+  __name(monedaDeFilaImportada, "monedaDeFilaImportada");
   function txFromEmailImport(row) {
     const reglaByComercio = {};
     groupedRules().forEach(function(r) {
@@ -2834,19 +2884,23 @@
     const regla = reglaByComercio[row.comercio];
     const catId = regla && regla.cat ? regla.cat : guessCatIdFromImportRow(row);
     const medioId = ensurePaymentMethodForSuggestion(row.medio_sugerido) || ensureUnknownPaymentMethod();
+    const usd = monedaDeFilaImportada(row);
+    const montoCLP = usd ? usd.tipoCambio ? convertirUSDaCLP(usd.montoOriginal, usd.tipoCambio) : 0 : Math.round(row.monto);
+    const sinConvertir = !!usd && !usd.tipoCambio;
     return {
       id: "temail" + nextImportId(),
       fecha: row.fecha,
       hora: row.hora || "00:00",
       comercio: row.comercio,
-      monto: Math.round(row.monto),
+      monto: montoCLP,
       medio: medioId,
       tipo: row.tipo,
       recurrencia: regla ? regla.recurrencia : "variable",
-      estado: catId ? "confirmado" : "pendiente",
-      categorias: catId ? [{ cat: catId, monto: Math.round(row.monto) }] : [],
+      estado: catId && !sinConvertir ? "confirmado" : "pendiente",
+      categorias: catId && !sinConvertir ? [{ cat: catId, monto: montoCLP }] : [],
       porCobrar: [],
       reglaAuto: !!(regla && regla.cat),
+      ...usd ? { moneda: "USD", montoOriginal: usd.montoOriginal, tipoCambio: usd.tipoCambio || void 0 } : {},
       // La nota nace VACÍA a propósito. Antes traía 'Importado automáticamente desde tu correo' como valor real, así que para
       // escribir algo propio había que borrarlo primero -- una transacción importada llegaba
       // con el campo ya ocupado por texto que la persona no escribió. Ese dato no se pierde:
@@ -4003,47 +4057,6 @@
     render();
   }
   __name(exitDemoMode, "exitDemoMode");
-
-  // src/currency.ts
-  var MAX_DIAS_ATRAS = 7;
-  var cache = {};
-  function tipoCambioCacheado(fechaISO) {
-    return Object.prototype.hasOwnProperty.call(cache, fechaISO) ? cache[fechaISO] : null;
-  }
-  __name(tipoCambioCacheado, "tipoCambioCacheado");
-  function ddmmaaaa(d) {
-    const p = /* @__PURE__ */ __name((n) => String(n).padStart(2, "0"), "p");
-    return p(d.getDate()) + "-" + p(d.getMonth() + 1) + "-" + d.getFullYear();
-  }
-  __name(ddmmaaaa, "ddmmaaaa");
-  async function tipoCambioUSDCLP(fechaISO) {
-    if (Object.prototype.hasOwnProperty.call(cache, fechaISO)) return cache[fechaISO];
-    const d = /* @__PURE__ */ new Date(fechaISO + "T12:00:00");
-    if (isNaN(d.getTime())) return null;
-    for (let intento = 0; intento < MAX_DIAS_ATRAS; intento++) {
-      try {
-        const res = await fetch("https://mindicador.cl/api/dolar/" + ddmmaaaa(d));
-        if (res.ok) {
-          const data = await res.json();
-          const valor = data && data.serie && data.serie.length ? data.serie[0].valor : null;
-          if (typeof valor === "number" && valor > 0) {
-            cache[fechaISO] = valor;
-            return valor;
-          }
-        }
-      } catch (e) {
-        console.warn("Pitucas sin lucas \u2014 no se pudo consultar el tipo de cambio:", String(e));
-        return null;
-      }
-      d.setDate(d.getDate() - 1);
-    }
-    return null;
-  }
-  __name(tipoCambioUSDCLP, "tipoCambioUSDCLP");
-  function convertirUSDaCLP(montoUSD, tipoCambio) {
-    return Math.round((montoUSD || 0) * (tipoCambio || 0));
-  }
-  __name(convertirUSDaCLP, "convertirUSDaCLP");
 
   // src/group-export.ts
   var SPLIT_TYPE_LABELS = { iguales: "Por partes", pct: "Por %", montos: "Monto fijo" };

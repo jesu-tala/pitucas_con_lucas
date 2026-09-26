@@ -511,6 +511,34 @@ Importar desde tu correo (Gmail + Apps Script — automático), Reconciliar con 
 un mes contra un PDF del banco, con parser de PDF con contraseña vía `pdf.js`), Modo demo,
 Asesoría financiera con Claude (placeholder, "Próximamente").
 
+**Compras en otra moneda.** Una transacción puede registrarse en **USD** y la app la convierte a
+pesos con el **dólar observado del día de la compra** (mindicador.cl, la API pública del Banco
+Central; responde con `Access-Control-Allow-Origin:*`, así que se consulta derecho desde el
+navegador y no hace falta pasar por el Worker). Se guardan **tres** campos en la transacción:
+`monto` (CLP), `montoOriginal` (USD) y `tipoCambio`. **`monto` está SIEMPRE en pesos**, sin
+excepción: Balance, Evolución, Presupuesto y las metas suman `monto` y no necesitan saber nada de
+monedas.
+
+Las **tres vías de entrada** usan la misma conversión (`convertirUSDaCLP` en `currency.ts`):
+
+- **A mano**: selector `$ CLP / US$` junto al monto. Si la API no responde, se puede escribir el
+  tipo de cambio a mano; hasta que haya uno, no deja guardar — permitirlo sería meter un número
+  en dólares a un campo que se suma como pesos.
+- **Import del correo**: el Apps Script **ya no convierte ni escribe "(US$… a $…)" pegado al
+  nombre del comercio** (antes lo hacía, y eso era texto en vez de datos). Solo reporta
+  `{moneda, monto_original, tipo_cambio}` dentro de `raw`, el bolsón por-fuente que la RPC
+  `importar_transaccion` ya aceptaba — por eso esto **no necesitó migración de SQL ni cambiar la
+  firma de la RPC**. La app convierte al absorber la fila (`txFromEmailImport` en `views/menu.ts`).
+  Si no hay tipo de cambio, la transacción llega con `monto` en **0** y **sin clasificar**: lo que
+  nunca puede pasar es que el número en dólares entre a `monto` (una compra de US$51 pesaría $51,
+  mil veces menos — era el comportamiento anterior). El monto en dólares no se pierde, queda en
+  `montoOriginal` para arreglarla a mano.
+- **Cartola**: todavía no convierte. Una compra en el extranjero entra con el monto que traiga la
+  cartola.
+
+Cambiar el Apps Script obliga a **redesplegarlo a mano** en Google Apps Script — no se despliega
+solo con el repo, a diferencia de la app.
+
 ## 5. Autenticación y guardado en la nube
 
 Usa **Supabase** (`@supabase/supabase-js@2`, cargado por CDN). Dos tablas:

@@ -123,28 +123,33 @@ var RULES = [
       var fecha = m[8] + '-' + m[7] + '-' + m[6];
       var comercio = m[5].trim();
       var monto = montoCLP_(m[2]);
+      var datosMoneda = null;
       if (esUSD) {
-        // A diferencia de racional_orden (una inversión, donde tiene sentido seguir el valor en
-        // dólares), esto es un GASTO -- el resto de la app (presupuestos, balance, totales del
-        // mes) suma monto asumiendo que siempre está en pesos, así que dejar el número crudo en
-        // USD lo subestimaba brutalmente (un gasto de US$51 quedaba pesado como $51 CLP). Se
-        // convierte acá mismo, al tipo de cambio DEL DÍA DE LA COMPRA (no el de hoy) -- el monto
-        // en dólares queda igual anotado en el comercio, por transparencia.
-        var montoUSD = monto;
-        var tipoCambio = tipoCambioUSDCLPParaFecha_(fecha);
-        if (tipoCambio) {
-          monto = Math.round(montoUSD * tipoCambio);
-          comercio = comercio + ' (US$' + montoUSD.toFixed(2) + ' a $' + tipoCambio + ')';
-        } else {
-          // No se pudo conseguir el tipo de cambio (servicio caído, etc.) -- se deja el monto en
-          // dólares tal cual, marcado bien claro, en vez de inventar una conversión al voleo.
-          comercio = comercio + ' (US$' + montoUSD.toFixed(2) + ', sin tipo de cambio -- revisar a mano)';
-        }
+        // Antes esto convertía acá y escribía la trazabilidad PEGADA AL NOMBRE del comercio
+        // ("AMAZON (US$51,25 a $950)"): texto, no datos -- no se podía recalcular ni corregir.
+        // Y si no conseguía el tipo de cambio, dejaba el monto EN DÓLARES dentro de un campo que
+        // toda la app suma como pesos, así que US$51 entraba al balance como $51: mil veces
+        // menos, avisando solo con texto en el nombre.
+        //
+        // Ahora esto solo REPORTA que fue en dólares y cuánto. La conversión la hace la app, con
+        // la misma función que usa una compra en dólares ingresada a mano (ver
+        // txFromEmailImport en views/menu.ts y currency.ts) -- una sola implementación para las
+        // tres vías, en vez de tres comportamientos distintos. El tipo de cambio se sigue
+        // buscando acá porque este script ya sabe hacerlo, pero si no lo consigue no pasa nada
+        // grave: viaja en null y la app lo resuelve o deja la transacción sin clasificar.
+        datosMoneda = {
+          moneda: 'USD',
+          monto_original: monto,
+          tipo_cambio: tipoCambioUSDCLPParaFecha_(fecha)
+        };
       }
       return {
         fecha: fecha, hora: m[9],
         comercio: comercio, monto: monto, tipo: 'gasto',
-        medio_sugerido: last4 ? ('****' + last4) : null
+        medio_sugerido: last4 ? ('****' + last4) : null,
+        // Viaja en `raw`, el bolsón por-fuente que la RPC importar_transaccion ya acepta: así
+        // esto no necesita ni columnas nuevas ni cambiar la firma de la RPC.
+        datos_moneda: datosMoneda
       };
     }
   },
@@ -345,7 +350,10 @@ function callImportarTransaccion_(row, fuenteId, msgId){
     p_monto: row.monto,
     p_tipo: row.tipo,
     p_medio_sugerido: row.medio_sugerido || null,
-    p_raw: null
+    // Solo lleva algo cuando la compra vino en otra moneda (ver la regla de compra con
+    // tarjeta): {moneda, monto_original, tipo_cambio}. La app lo lee de acá al absorber la
+    // fila y hace la conversión. Para las compras en pesos, que son casi todas, sigue en null.
+    p_raw: row.datos_moneda || null
   };
   var res = UrlFetchApp.fetch(url, {
     method: 'post',
