@@ -118,6 +118,15 @@ export interface Transaction {
   // Fields that only exist on the future installments that regenerateInstallmentsFor() generates by
   // itself from installment 1 (root.cuotas.total>1) -- not present on a normal transaction.
   cuotaOf?: string;
+  // Moneda en que se registró la compra. Ausente o 'CLP' = pesos, que es el caso normal.
+  // 'USD' significa que monto (arriba) es el resultado de convertir montoOriginal al tipoCambio
+  // del día de la compra: monto SIEMPRE está en pesos, en toda la app, sin excepción -- Balance,
+  // Evolución, Presupuesto y las metas suman monto y no necesitan saber nada de esto.
+  // montoOriginal y tipoCambio existen para trazabilidad: poder mostrar "US$51,25 a $965,71" sin
+  // deducirlo, y poder rehacer la conversión si alguna vez se guardó con un valor equivocado.
+  moneda?: 'CLP' | 'USD';
+  montoOriginal?: number;
+  tipoCambio?: number;
   cuotaNumero?: number;
   cuotaTotal?: number;
   cuotaProyectada?: boolean;

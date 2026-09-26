@@ -3989,6 +3989,47 @@
   }
   __name(exitDemoMode, "exitDemoMode");
 
+  // src/currency.ts
+  var MAX_DIAS_ATRAS = 7;
+  var cache = {};
+  function tipoCambioCacheado(fechaISO) {
+    return Object.prototype.hasOwnProperty.call(cache, fechaISO) ? cache[fechaISO] : null;
+  }
+  __name(tipoCambioCacheado, "tipoCambioCacheado");
+  function ddmmaaaa(d) {
+    const p = /* @__PURE__ */ __name((n) => String(n).padStart(2, "0"), "p");
+    return p(d.getDate()) + "-" + p(d.getMonth() + 1) + "-" + d.getFullYear();
+  }
+  __name(ddmmaaaa, "ddmmaaaa");
+  async function tipoCambioUSDCLP(fechaISO) {
+    if (Object.prototype.hasOwnProperty.call(cache, fechaISO)) return cache[fechaISO];
+    const d = /* @__PURE__ */ new Date(fechaISO + "T12:00:00");
+    if (isNaN(d.getTime())) return null;
+    for (let intento = 0; intento < MAX_DIAS_ATRAS; intento++) {
+      try {
+        const res = await fetch("https://mindicador.cl/api/dolar/" + ddmmaaaa(d));
+        if (res.ok) {
+          const data = await res.json();
+          const valor = data && data.serie && data.serie.length ? data.serie[0].valor : null;
+          if (typeof valor === "number" && valor > 0) {
+            cache[fechaISO] = valor;
+            return valor;
+          }
+        }
+      } catch (e) {
+        console.warn("Pitucas sin lucas \u2014 no se pudo consultar el tipo de cambio:", String(e));
+        return null;
+      }
+      d.setDate(d.getDate() - 1);
+    }
+    return null;
+  }
+  __name(tipoCambioUSDCLP, "tipoCambioUSDCLP");
+  function convertirUSDaCLP(montoUSD, tipoCambio) {
+    return Math.round((montoUSD || 0) * (tipoCambio || 0));
+  }
+  __name(convertirUSDaCLP, "convertirUSDaCLP");
+
   // src/group-export.ts
   var SPLIT_TYPE_LABELS = { iguales: "Por partes", pct: "Por %", montos: "Monto fijo" };
   function splitTypeLabel(tipo) {
@@ -4544,6 +4585,20 @@
     }
     if (e.target.closest("#sheet-close-btn") || e.target === overlayEl() || e.target.closest("[data-close-sheet-done]")) {
       closeSheet();
+      return;
+    }
+    const monedaBtn = e.target.closest("[data-draft-moneda]");
+    if (monedaBtn && state.draftTx) {
+      const nueva = monedaBtn.getAttribute("data-draft-moneda");
+      if (nueva !== state.draftTx.moneda) {
+        state.draftTx.moneda = nueva;
+        state.draftTx.monto = 0;
+        state.draftTx.montoOriginal = 0;
+        state.draftTx.tipoCambio = null;
+        if (state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = 0;
+        if (nueva === "USD") pedirTipoCambio();
+        renderSheet();
+      }
       return;
     }
     const segBtn = e.target.closest("[data-seg-val]");
@@ -6667,6 +6722,37 @@
       return;
     }
   });
+  async function pedirTipoCambio() {
+    const d = state.draftTx;
+    if (!d || d.moneda !== "USD") return;
+    const cacheado = tipoCambioCacheado(d.fecha);
+    if (cacheado) {
+      aplicarTipoCambio(d.fecha, cacheado);
+      return;
+    }
+    d.tipoCambioCargando = true;
+    renderSheet();
+    const fechaPedida = d.fecha;
+    const valor = await tipoCambioUSDCLP(fechaPedida);
+    if (!state.draftTx || state.draftTx.moneda !== "USD") return;
+    state.draftTx.tipoCambioCargando = false;
+    if (state.draftTx.fecha !== fechaPedida) {
+      renderSheet();
+      return;
+    }
+    aplicarTipoCambio(fechaPedida, valor);
+  }
+  __name(pedirTipoCambio, "pedirTipoCambio");
+  function aplicarTipoCambio(fecha, valor) {
+    const d = state.draftTx;
+    if (!d || d.fecha !== fecha) return;
+    d.tipoCambioCargando = false;
+    d.tipoCambio = valor || null;
+    d.monto = d.tipoCambio ? convertirUSDaCLP(d.montoOriginal || 0, d.tipoCambio) : 0;
+    if (d.categorias[0]) d.categorias[0].monto = d.monto;
+    renderSheet();
+  }
+  __name(aplicarTipoCambio, "aplicarTipoCambio");
   phone.addEventListener("input", function(e) {
     const searchInput = e.target.closest("#tx-search-input");
     if (searchInput) {
@@ -7043,6 +7129,16 @@
       updateProyeccionCompute();
       return;
     }
+    const tcManual = e.target.closest("[data-draft-tipocambio]");
+    if (tcManual && state.draftTx) {
+      const v = parseFloat(String(tcManual.value).replace(/\./g, "").replace(",", "."));
+      state.draftTx.tipoCambio = isFinite(v) && v > 0 ? v : null;
+      state.draftTx.monto = state.draftTx.tipoCambio ? convertirUSDaCLP(state.draftTx.montoOriginal || 0, state.draftTx.tipoCambio) : 0;
+      if (state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = state.draftTx.monto;
+      const sb2 = document.querySelector("[data-save-draft]");
+      if (sb2) sb2.disabled = !(state.draftTx.comercio.trim().length > 0 && state.draftTx.monto > 0);
+      return;
+    }
     const draftField = e.target.closest("[data-draft-field]");
     if (draftField && state.draftTx) {
       const field = draftField.getAttribute("data-draft-field");
@@ -7050,13 +7146,23 @@
         state.draftTx.comercio = draftField.value;
       } else if (field === "fecha") {
         state.draftTx.fecha = draftField.value;
+        if (state.draftTx.moneda === "USD") {
+          state.draftTx.tipoCambio = null;
+          pedirTipoCambio();
+        }
       } else if (field === "monto") {
         const v = safeEvalMoneyExpr(draftField.value);
         if (v !== null) {
-          state.draftTx.monto = v;
-          if (state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = v;
+          if (state.draftTx.moneda === "USD") {
+            state.draftTx.montoOriginal = v;
+            state.draftTx.monto = state.draftTx.tipoCambio ? convertirUSDaCLP(v, state.draftTx.tipoCambio) : 0;
+          } else {
+            state.draftTx.monto = v;
+          }
+          if (state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = state.draftTx.monto;
         }
         liveFormatThousands(draftField);
+        if (state.draftTx.moneda === "USD") renderSheet();
       }
       const saveBtn = document.querySelector("[data-save-draft]");
       if (saveBtn) saveBtn.disabled = !(state.draftTx.comercio.trim().length > 0 && state.draftTx.monto > 0);
@@ -8452,6 +8558,23 @@
     paymentMethodIdCounter = v;
   }
   __name(setPaymentMethodIdCounter, "setPaymentMethodIdCounter");
+  function esUSD(d) {
+    return !!d && d.moneda === "USD";
+  }
+  __name(esUSD, "esUSD");
+  function monedaSelectorHtml(d) {
+    return '<div class="segmented moneda-seg" data-seg="draft-moneda"><button data-draft-moneda="CLP" class="' + (esUSD(d) ? "" : "active") + '">$ CLP</button><button data-draft-moneda="USD" class="' + (esUSD(d) ? "active" : "") + '">US$</button></div>';
+  }
+  __name(monedaSelectorHtml, "monedaSelectorHtml");
+  function conversionHtml(d) {
+    if (!esUSD(d)) return "";
+    if (d.tipoCambioCargando) return '<p class="cat-picker-hint" style="margin:8px 0 0;">Buscando el d\xF3lar del ' + dayLabel(d.fecha) + "\u2026</p>";
+    if (d.tipoCambio) {
+      return '<p class="cat-picker-hint" style="margin:8px 0 0;">US$' + (d.montoOriginal || 0).toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " = <b>" + money(d.monto || 0) + "</b><br>D\xF3lar observado del " + dayLabel(d.fecha) + ": $" + String(d.tipoCambio).replace(".", ",") + ' \xB7 <button class="split-toggle-link" data-editar-tipocambio style="padding:0;">cambiarlo</button></p>';
+    }
+    return '<div style="margin-top:8px;"><p class="cat-picker-hint" style="margin:0 0 6px;">No se pudo conseguir el d\xF3lar de ese d\xEDa. Escr\xEDbelo a mano para poder guardar.</p><input type="text" inputmode="decimal" class="draft-input tabular" data-draft-tipocambio placeholder="Ej: 965,71" value=""></div>';
+  }
+  __name(conversionHtml, "conversionHtml");
   function openNewTxSheet(tipoInicial) {
     state.openTxId = null;
     state.creatingNew = true;
@@ -8474,6 +8597,12 @@
       fecha: todayISO(),
       hora: "12:00",
       medio: Object.keys(PAYMENT_METHODS)[0] || "efectivo",
+      // monto es SIEMPRE pesos. En USD, el campo de monto edita montoOriginal y monto queda
+      // como su conversión -- así todo lo que mira el borrador antes de guardar (la categoría,
+      // dividir el gasto, por cobrar) ya ve pesos y no hay que acordarse de convertir en cada uno.
+      moneda: "CLP",
+      montoOriginal: 0,
+      tipoCambio: null,
       tipo: tipoInicial || "gasto",
       recurrencia: "variable",
       categorias: [],
@@ -8769,7 +8898,7 @@
     const nm = state.newPaymentMethodDraft;
     const isInvestDraft = d.tipo === "inversion";
     const newPaymentMethodForm = state.addingPaymentMethod ? '<div class="new-medio-form"><label class="draft-label">Nombre de la tarjeta o medio</label><input type="text" class="draft-input" data-new-payment-method-field="nombre" value="' + esc(nm.nombre) + '" placeholder="Ej: Visa Falabella, Mach\u2026"><label class="draft-label" style="margin-top:12px;">\xDAltimos 4 d\xEDgitos (opcional)</label><input type="text" inputmode="numeric" maxlength="4" class="draft-input" data-new-payment-method-field="ultimos4" value="' + esc(nm.ultimos4) + '" placeholder="Ej: 1234"><div style="display:flex;gap:10px;margin-top:12px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-new-payment-method>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-new-payment-method ' + (nm.nombre.trim() ? "" : "disabled") + ">Agregar</button></div></div>" : "";
-    return '<div class="sheet-top" style="padding-top:4px;"><div class="meta" style="font-size:13px;font-weight:700;color:var(--text);">Nueva transacci\xF3n</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Comercio y monto</div><div class="draft-field"><label class="draft-label">Comercio</label><input type="text" class="draft-input" data-draft-field="comercio" value="' + esc(d.comercio) + '" placeholder="Ej: Jumbo, Uber, Sueldo\u2026"></div><div class="draft-field" style="margin-top:14px;"><label class="draft-label">Monto</label><input type="text" inputmode="decimal" class="draft-input amount tabular" data-draft-field="monto" value="' + (d.monto || "") + '" placeholder="0"></div><div class="draft-field" style="margin-top:14px;"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-draft-field="fecha" value="' + d.fecha + '"></div></div><div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + segmentedHtml("draft-tipo", tipoOpts, d.tipo) + (isInvestDraft ? "" : '<div class="draft-label" style="margin:16px 0 7px;">Recurrencia</div>' + segmentedHtml("draft-recurrencia", [{ id: "variable", label: "Variable" }, { id: "mensual", label: "Mensual" }, { id: "anual", label: "Anual" }], d.recurrencia)) + '</div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa</div>' + renderDraftCategoryRow(d) + "</div>" + // Acciones rápidas (marcar por cobrar a alguien/reembolso pendiente/no es gasto) BEFORE the
+    return '<div class="sheet-top" style="padding-top:4px;"><div class="meta" style="font-size:13px;font-weight:700;color:var(--text);">Nueva transacci\xF3n</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Comercio y monto</div><div class="draft-field"><label class="draft-label">Comercio</label><input type="text" class="draft-input" data-draft-field="comercio" value="' + esc(d.comercio) + '" placeholder="Ej: Jumbo, Uber, Sueldo\u2026"></div><div class="draft-field" style="margin-top:14px;"><label class="draft-label">Monto</label>' + monedaSelectorHtml(d) + '<input type="text" inputmode="decimal" class="draft-input amount tabular" data-draft-field="monto" value="' + (esUSD(d) ? d.montoOriginal || "" : d.monto || "") + '" placeholder="0">' + conversionHtml(d) + '</div><div class="draft-field" style="margin-top:14px;"><label class="draft-label">Fecha</label><input type="date" class="draft-input" data-draft-field="fecha" value="' + d.fecha + '"></div></div><div class="sheet-block card" style="padding:16px;"><div class="draft-label" style="margin-bottom:7px;">Tipo</div>' + segmentedHtml("draft-tipo", tipoOpts, d.tipo) + (isInvestDraft ? "" : '<div class="draft-label" style="margin:16px 0 7px;">Recurrencia</div>' + segmentedHtml("draft-recurrencia", [{ id: "variable", label: "Variable" }, { id: "mensual", label: "Mensual" }, { id: "anual", label: "Anual" }], d.recurrencia)) + '</div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Categor\xEDa</div>' + renderDraftCategoryRow(d) + "</div>" + // Acciones rápidas (marcar por cobrar a alguien/reembolso pendiente/no es gasto) BEFORE the
     // transaction is even saved -- the whole point of this fix, mirroring exactly what a gasto's
     // detail already offers after saving (same block, same events.ts handlers, resolved via
     // currentEditableTx() instead of getTx() while state.creatingNew is true). Only for gasto,
@@ -8805,9 +8934,17 @@
       porCobrar: d.porCobrar && d.porCobrar.length > 0 ? d.porCobrar : [],
       reglaAuto: false,
       nota: "",
+      // monto (arriba) ya está en pesos -- el campo de monto en USD escribe montoOriginal y
+      // deja monto convertido, así que acá no hay que convertir nada, solo arrastrar la
+      // trazabilidad. Una compra en pesos no lleva ninguno de los tres campos.
       origen: "manual"
       // typed by hand right here -- the reconciliation engine (reconcile.ts) can never touch this
     };
+    if (esUSD(d) && d.tipoCambio) {
+      tx.moneda = "USD";
+      tx.montoOriginal = d.montoOriginal;
+      tx.tipoCambio = d.tipoCambio;
+    }
     if (d.pagador) tx.pagador = d.pagador;
     if (d.divisionTipo) tx.divisionTipo = d.divisionTipo;
     TRANSACTIONS.push(tx);

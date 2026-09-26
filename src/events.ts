@@ -5,6 +5,7 @@ import { navClearType, navDepth, navPeek, navPop, navPush, NavFrame } from './na
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter, defaultAssignAmount } from './sheet';
+import { convertirUSDaCLP, tipoCambioUSDCLP, tipoCambioCacheado } from './currency';
 import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO, setUltimoRespaldo} from './state';
 import { buildGroupExportWorkbookArrayBuffer } from './group-export';
 import { handleLogout, switchAuthMode } from './supabase';
@@ -259,6 +260,21 @@ phone.addEventListener('click', function(e: any){
     closeSheet(); return;
   }
 
+  const monedaBtn = e.target.closest('[data-draft-moneda]');
+  if(monedaBtn && state.draftTx){
+    const nueva = monedaBtn.getAttribute('data-draft-moneda');
+    if(nueva !== state.draftTx.moneda){
+      state.draftTx.moneda = nueva;
+      // Al cambiar de moneda se reinicia el monto en vez de reinterpretar el número que ya estaba:
+      // "51" significa cosas muy distintas en cada una, y adivinar cuál quiso decir sería
+      // exactamente el tipo de silencio que causó el problema original.
+      state.draftTx.monto = 0; state.draftTx.montoOriginal = 0; state.draftTx.tipoCambio = null;
+      if(state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = 0;
+      if(nueva === 'USD') pedirTipoCambio();
+      renderSheet();
+    }
+    return;
+  }
   const segBtn = e.target.closest('[data-seg-val]');
   if(segBtn && !segBtn.disabled){
     const group = segBtn.closest('[data-seg]').getAttribute('data-seg');
@@ -2341,6 +2357,36 @@ phone.addEventListener('change', function(e: any){
   }
 });
 
+// Consulta el dólar observado del día de la compra. No bloquea nada: mientras llega se muestra
+// "buscando…", y si no hay valor la UI ofrece escribirlo a mano. Que la API no responda no puede
+// impedir registrar un gasto.
+async function pedirTipoCambio(){
+  const d = state.draftTx;
+  if(!d || d.moneda!=='USD') return;
+  const cacheado = tipoCambioCacheado(d.fecha);
+  if(cacheado){ aplicarTipoCambio(d.fecha, cacheado); return; }
+  d.tipoCambioCargando = true; renderSheet();
+  const fechaPedida = d.fecha;
+  const valor = await tipoCambioUSDCLP(fechaPedida);
+  if(!state.draftTx || state.draftTx.moneda !== 'USD') return;
+  // La fecha pudo cambiar mientras se esperaba. Esta respuesta quedó vieja y no se aplica -- pero
+  // igual hay que apagar el "buscando…", porque si no el formulario queda con ese cartel puesto
+  // para siempre y sin ofrecer escribir el valor a mano: la persona no puede guardar y no ve por
+  // qué. (La consulta de la fecha nueva ya salió por su cuenta, desde el handler de la fecha.)
+  state.draftTx.tipoCambioCargando = false;
+  if(state.draftTx.fecha !== fechaPedida){ renderSheet(); return; }
+  aplicarTipoCambio(fechaPedida, valor);
+}
+function aplicarTipoCambio(fecha, valor){
+  const d = state.draftTx;
+  if(!d || d.fecha !== fecha) return;
+  d.tipoCambioCargando = false;
+  d.tipoCambio = valor || null;
+  d.monto = d.tipoCambio ? convertirUSDaCLP(d.montoOriginal||0, d.tipoCambio) : 0;
+  if(d.categorias[0]) d.categorias[0].monto = d.monto;
+  renderSheet();
+}
+
 phone.addEventListener('input', function(e: any){
   const searchInput = e.target.closest('#tx-search-input');
   if(searchInput){
@@ -2742,18 +2788,47 @@ phone.addEventListener('input', function(e: any){
     return;
   }
 
+  const tcManual = e.target.closest('[data-draft-tipocambio]');
+  if(tcManual && state.draftTx){
+    // Fallback cuando la API no responde: se acepta el valor a mano y se recalcula igual que si
+    // hubiera venido de mindicador. Coma o punto como decimal, porque acá se escribe "965,71".
+    const v = parseFloat(String(tcManual.value).replace(/\./g,'').replace(',','.'));
+    state.draftTx.tipoCambio = (isFinite(v) && v>0) ? v : null;
+    state.draftTx.monto = state.draftTx.tipoCambio
+      ? convertirUSDaCLP(state.draftTx.montoOriginal||0, state.draftTx.tipoCambio) : 0;
+    if(state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = state.draftTx.monto;
+    const sb = document.querySelector<HTMLButtonElement>('[data-save-draft]');
+    if(sb) sb.disabled = !(state.draftTx.comercio.trim().length>0 && state.draftTx.monto>0);
+    return;
+  }
   const draftField = e.target.closest('[data-draft-field]');
   if(draftField && state.draftTx){
     const field = draftField.getAttribute('data-draft-field');
     if(field==='comercio'){ state.draftTx.comercio = draftField.value; }
-    else if(field==='fecha'){ state.draftTx.fecha = draftField.value; }
+    else if(field==='fecha'){
+      state.draftTx.fecha = draftField.value;
+      // El dólar observado es distinto cada día: cambiar la fecha invalida el valor que había.
+      if(state.draftTx.moneda==='USD'){ state.draftTx.tipoCambio = null; pedirTipoCambio(); }
+    }
     else if(field==='monto'){
       const v = safeEvalMoneyExpr(draftField.value);
       if(v!==null){
-        state.draftTx.monto = v;
-        if(state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = v;
+        // En dólares, lo que se escribe es montoOriginal y monto queda como su conversión: monto
+        // está SIEMPRE en pesos, así que todo lo que mire el borrador de acá en adelante (la
+        // categoría, dividir el gasto, por cobrar) ya ve pesos sin convertir nada por su cuenta.
+        // Sin tipo de cambio todavía, monto queda en 0 y el botón de guardar sigue deshabilitado
+        // -- registrar un número en dólares dentro de un campo que se suma como pesos es
+        // exactamente el bug que este cambio vino a cerrar.
+        if(state.draftTx.moneda==='USD'){
+          state.draftTx.montoOriginal = v;
+          state.draftTx.monto = state.draftTx.tipoCambio ? convertirUSDaCLP(v, state.draftTx.tipoCambio) : 0;
+        } else {
+          state.draftTx.monto = v;
+        }
+        if(state.draftTx.categorias[0]) state.draftTx.categorias[0].monto = state.draftTx.monto;
       }
       liveFormatThousands(draftField);
+      if(state.draftTx.moneda==='USD') renderSheet();
     }
     const saveBtn = document.querySelector<HTMLButtonElement>('[data-save-draft]');
     if(saveBtn) saveBtn.disabled = !(state.draftTx.comercio.trim().length>0 && state.draftTx.monto>0);
