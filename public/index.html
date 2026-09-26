@@ -7921,6 +7921,16 @@
     if (sel) {
       const t = getTx(state.openTxId);
       const idx = parseInt(sel.getAttribute("data-cat-select"), 10);
+      if (t && t.sharedByOthers && sel.value) {
+        classifySharedExpenseFromOthers(t.id, sel.value).catch(function(err) {
+          console.error("Pitucas sin lucas \u2014 error clasificando el gasto ajeno:", err);
+        });
+        state.categoryEditMode[t.id] = false;
+        toast("Clasificada como " + catInfo(sel.value).nombre);
+        renderSheet();
+        renderIfListVisible();
+        return;
+      }
       if (t) {
         const oldCat = t.categorias[idx] ? t.categorias[idx].cat : null;
         const oldMontoRow = t.categorias[idx] ? t.categorias[idx].monto : 0;
@@ -7944,6 +7954,7 @@
             if (newPlatform) bumpPlatformValueForContribution(newPlatform, t.monto);
           }
         }
+        if (t.categorias.length > 0 && t.estado === "pendiente") t.estado = "confirmado";
         renderSheet();
         renderIfListVisible();
       }
@@ -9875,7 +9886,21 @@
     const isInvest = t.tipo === "inversion";
     const cats = t.categorias;
     const needsClassifying = cats.length === 0 && t.estado === "pendiente";
-    const categoriaSection = isInvest && INVESTMENT_GOALS.length === 0 ? renderInvestGoalEmptyState() : needsClassifying ? (t.sharedByOthers ? '<p class="cat-picker-hint">Este es tu parte de un gasto de grupo' + (t.suggestedOriginCategory ? ' que la otra persona anot\xF3 como "' + t.suggestedOriginCategory + '"' : "") + ". Elige tu categor\xEDa y la pr\xF3xima vez que registre algo as\xED se va a clasificar sola.</p>" : '<p class="cat-picker-hint">Todav\xEDa no le has puesto categor\xEDa. Elige una para clasificarla (y luego puedes activar el candado para que se repita sola).</p>') + (isInvest ? investCatPickerGrid() : catPickerGrid(t.tipo, "pick-cat")) : renderCategoryRows(t, !isInvest);
+    const categoriaSection = isInvest && INVESTMENT_GOALS.length === 0 ? renderInvestGoalEmptyState() : needsClassifying ? (t.sharedByOthers ? '<p class="cat-picker-hint">Este es tu parte de un gasto de grupo' + (t.suggestedOriginCategory ? ' que la otra persona anot\xF3 como "' + t.suggestedOriginCategory + '"' : "") + ". Elige tu categor\xEDa y la pr\xF3xima vez que registre algo as\xED se va a clasificar sola.</p>" : '<p class="cat-picker-hint">Todav\xEDa no le has puesto categor\xEDa. Elige una para clasificarla (y luego puedes activar el candado para que se repita sola).</p>') + // Antes acá se mostraba una grilla de chips SIEMPRE ABIERTA (catPickerGrid /
+    // investCatPickerGrid) con todas las categorías desplegadas de lado, mientras que al
+    // agregar un gasto a mano la categoría se elige con una fila de avatar + select: se
+    // aprieta y recién ahí aparecen todas. Eran dos formas distintas de hacer exactamente lo
+    // mismo, y la grilla ocupaba media pantalla sin haberla pedido.
+    //
+    // Ahora las dos vías usan renderCategoryRows, que ya sabía manejar el caso sin categoría
+    // (una sola fila con el select vacío, ver la primera línea de esa función) y ya resuelve
+    // las inversiones por su cuenta: investOrPlainOptions devuelve las metas y los buckets
+    // General para tipo 'inversion', que es lo mismo que ofrecía investCatPickerGrid. El
+    // texto de ayuda de arriba se mantiene: es lo que explica POR QUÉ hay que elegir.
+    //
+    // allowSplit queda apagado mientras se clasifica por primera vez (igual que antes): sin
+    // categoría todavía no tiene sentido ofrecer dividir el monto entre varias.
+    renderCategoryRows(t, false) : renderCategoryRows(t, !isInvest);
     const naturalezaDelDeposito = t.tipo === "ingreso" ? incomeNatureOf(t) : null;
     const esDepositoVinculado = naturalezaDelDeposito === "cobro" || naturalezaDelDeposito === "reembolso";
     const tipoSelector = esDepositoVinculado ? (function() {

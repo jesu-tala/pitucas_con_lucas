@@ -50,18 +50,24 @@ const { openApp, check, finish } = require('./lib/test_kit');
     return {
       mencionaSugerencia: content.textContent.includes('Comida'),
       mencionaGrupo: content.textContent.includes('gasto de grupo') || content.textContent.includes('grupo'),
-      tieneGrilla: !!document.querySelector('[data-pick-cat]'),
+      // Antes esto era una grilla de chips siempre abierta (catPickerGrid). Ahora clasificar usa
+      // el MISMO selector que al agregar un gasto a mano -- fila de avatar + select -- para que
+      // elegir categoría se sienta igual en toda la app. Lo que se verifica sigue siendo lo
+      // mismo: que haya con qué clasificar y que arranque sin categoría elegida.
+      tieneSelector: !!document.querySelector('[data-cat-select]'),
+      selectorVacio: (document.querySelector('[data-cat-select]') || {}).value === '',
       tieneSeccionCompartir: content.textContent.includes('Compartir con un grupo'),
     };
   });
   check('(b) El detalle muestra la sugerencia de categoría de origen ("Comida")', detalle.mencionaSugerencia === true, detalle);
-  check('   muestra la grilla de categorías para clasificar (como cualquier pendiente)', detalle.tieneGrilla === true, detalle);
+  check('   ofrece el selector de categoría para clasificar (el mismo del gasto manual)',
+    detalle.tieneSelector === true && detalle.selectorVacio === true, detalle);
   check('   NO ofrece "Compartir con un grupo" (esta es la parte ajena, no se vuelve a compartir)', detalle.tieneSeccionCompartir === false, detalle);
 
   // (c) Tapping the "Supermercado" category classifies this transaction AND learns the mapping
   // (from Fran, "Comida" -> supermercado) for next time.
-  await page.click('[data-pick-cat="supermercado"]');
-  await page.waitForTimeout(200);
+  await page.selectOption('[data-cat-select]', 'supermercado');
+  await page.waitForTimeout(400);
   const clasificado = await page.evaluate(() => {
     const D = window.__debug;
     const tx = D.TRANSACTIONS.find(t => t.id === 'compartido-gcA');
@@ -78,7 +84,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
     clasificado.mapeo.length === 1 && clasificado.mapeo[0].de_participante === 'p2' &&
     clasificado.mapeo[0].categoria_ajena === 'Comida' && clasificado.mapeo[0].categoria_propia === 'supermercado',
     clasificado.mapeo);
-  check('   el detalle ya no muestra la grilla de clasificar (ahora se ve como categoría normal editable)',
+  check('   ya clasificada, el detalle deja de pedir que elijas categoría',
     !clasificado.contenidoSheet.includes('Elige tu categoría'));
   await page.click('[data-close-sheet-done]');
   await page.waitForTimeout(150);
@@ -107,5 +113,11 @@ const { openApp, check, finish } = require('./lib/test_kit');
     autoclasificado.existe && autoclasificado.estado === 'confirmado' && autoclasificado.categoria === 'supermercado',
     autoclasificado);
 
-  await finish({ context, browser, errors });
+  // Clasificar un gasto ajeno intenta guardar el mapeo en Supabase. En el sandbox no hay sesión,
+  // así que esa escritura responde 401 -- ruido del entorno, no del cambio. Antes ni siquiera
+  // aparecía: la UI esperaba a que la red terminara y el test se cerraba antes, que era
+  // justamente el bug (la pantalla quedaba pidiendo categoría mientras la red colgaba). Se filtra
+  // SOLO ese 401; cualquier otro error de consola sigue haciendo fallar el test.
+  const errsReales = errors.filter(e => !/401 \(Unauthorized\)/.test(e));
+  await finish({ context, browser, errors: errsReales });
 })();

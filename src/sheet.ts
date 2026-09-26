@@ -375,7 +375,21 @@ export function renderSheetContent(t){
       ? (t.sharedByOthers
           ? '<p class="cat-picker-hint">Este es tu parte de un gasto de grupo'+(t.suggestedOriginCategory?' que la otra persona anotó como "'+t.suggestedOriginCategory+'"':'')+'. Elige tu categoría y la próxima vez que registre algo así se va a clasificar sola.</p>'
           : '<p class="cat-picker-hint">Todavía no le has puesto categoría. Elige una para clasificarla (y luego puedes activar el candado para que se repita sola).</p>')+
-        (isInvest ? investCatPickerGrid() : catPickerGrid(t.tipo, 'pick-cat'))
+        // Antes acá se mostraba una grilla de chips SIEMPRE ABIERTA (catPickerGrid /
+        // investCatPickerGrid) con todas las categorías desplegadas de lado, mientras que al
+        // agregar un gasto a mano la categoría se elige con una fila de avatar + select: se
+        // aprieta y recién ahí aparecen todas. Eran dos formas distintas de hacer exactamente lo
+        // mismo, y la grilla ocupaba media pantalla sin haberla pedido.
+        //
+        // Ahora las dos vías usan renderCategoryRows, que ya sabía manejar el caso sin categoría
+        // (una sola fila con el select vacío, ver la primera línea de esa función) y ya resuelve
+        // las inversiones por su cuenta: investOrPlainOptions devuelve las metas y los buckets
+        // General para tipo 'inversion', que es lo mismo que ofrecía investCatPickerGrid. El
+        // texto de ayuda de arriba se mantiene: es lo que explica POR QUÉ hay que elegir.
+        //
+        // allowSplit queda apagado mientras se clasifica por primera vez (igual que antes): sin
+        // categoría todavía no tiene sentido ofrecer dividir el monto entre varias.
+        renderCategoryRows(t, false)
       : renderCategoryRows(t, !isInvest);
 
   // Before, a transaction already created as an investment stayed with a fixed chip ("edited in

@@ -2173,6 +2173,28 @@ phone.addEventListener('change', function(e: any){
   if(sel){
     const t = getTx(state.openTxId);
     const idx = parseInt(sel.getAttribute('data-cat-select'),10);
+    // Clasificar tu parte de un gasto que registró otra persona no es solo ponerle categoría:
+    // además APRENDE el mapeo "su categoría -> la mía", para que el próximo gasto igual de esa
+    // persona se clasifique solo (ver classifySharedExpenseFromOthers). Eso vivía únicamente en
+    // el handler de la grilla de chips; al pasar a clasificar con este select, sin esta rama el
+    // mapeo dejaba de aprenderse en silencio -- la transacción quedaba bien y la próxima igual
+    // volvía a llegar sin clasificar, sin ninguna señal de por qué.
+    if(t && t.sharedByOthers && sel.value){
+      // NO se espera a que termine: classifySharedExpenseFromOthers muta el estado local
+      // (categorías, estado, el mapeo aprendido) de forma SÍNCRONA, antes de su primer await, y
+      // recién después intenta guardar el mapeo en Supabase. Esperar esa escritura para recién
+      // ahí redibujar dejaba la pantalla congelada pidiendo "elige tu categoría" mientras la red
+      // colgaba -- en el peor caso varios segundos, y sin conexión hasta que el cliente se
+      // rindiera. La transacción YA estaba clasificada; lo único pendiente era el viaje a la red.
+      // Si esa escritura falla, la función lo registra y el mapeo local sigue funcionando igual
+      // en esta sesión (ver su propio comentario sobre eso).
+      classifySharedExpenseFromOthers(t.id, sel.value)
+        .catch(function(err){ console.error('Pitucas sin lucas — error clasificando el gasto ajeno:', err); });
+      state.categoryEditMode[t.id] = false;
+      toast('Clasificada como '+catInfo(sel.value).nombre);
+      renderSheet(); renderIfListVisible();
+      return;
+    }
     if(t){
       const oldCat = t.categorias[idx] ? t.categorias[idx].cat : null;
       const oldMontoRow = t.categorias[idx] ? t.categorias[idx].monto : 0;
@@ -2204,6 +2226,11 @@ phone.addEventListener('change', function(e: any){
           if(newPlatform) bumpPlatformValueForContribution(newPlatform, t.monto);
         }
       }
+      // Ponerle categoría a una transacción que estaba sin clasificar la deja resuelta: deja de
+      // aparecer en Pendientes. Esto también venía solo del handler de los chips -- antes este
+      // select nunca era el que clasificaba por primera vez (esa era la grilla), así que no le
+      // hacía falta; ahora sí es el único camino.
+      if(t.categorias.length>0 && t.estado==='pendiente') t.estado='confirmado';
       renderSheet(); renderIfListVisible();
     }
     return;
