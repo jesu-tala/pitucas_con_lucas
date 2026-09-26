@@ -439,6 +439,21 @@
     border:none;background:none;width:100%;text-align:left;
   }
   .legend-row:hover{background:var(--surface-sunken);}
+  /* La fila de la leyenda y el botón de nota son HERMANOS (un botón dentro de otro es HTML
+     inválido), así que el wrapper los pone lado a lado y la fila sigue ocupando todo el ancho
+     sobrante -- el drill-down mantiene el mismo área de toque que antes. */
+  .legend-row-wrap{display:flex;align-items:center;}
+  .legend-row-wrap .legend-row{flex:1;min-width:0;}
+  .legend-note-btn{
+    flex-shrink:0;border:none;background:none;cursor:pointer;padding:8px;border-radius:10px;
+    display:flex;align-items:center;color:var(--text-tertiary);
+  }
+  .legend-note-btn svg{width:14px;height:14px;}
+  .legend-note-btn:hover{background:var(--surface-sunken);}
+  /* Con nota escrita, el ícono toma el color de acento: se nota que hay algo sin gritar ni
+     competir con el monto, que es lo que se viene a mirar. */
+  .legend-note-btn.tiene-nota{color:var(--accent-ink);}
+  .nota-cat-input{width:100%;resize:vertical;min-height:88px;font-family:inherit;line-height:1.45;}
   .legend-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;background:var(--fill);}
   .legend-icon{display:flex;align-items:center;flex-shrink:0;}
   .legend-icon svg{width:15px;height:15px;}

@@ -5,7 +5,7 @@ import { categoryColorVars } from './category-colors';
 import { ICONS, catIconMarkup } from './icons';
 import { render } from './render';
 import { ensureMonthExists, safeEvalExpr } from './shared-expenses';
-import { CATEGORIES, CONTACTS, GROUPS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, money, moneyPlainMasked, state, todayISO } from './state';
+import { CATEGORIES, CONTACTS, GROUPS, INVESTMENT_GOALS, PAYMENT_METHODS, TRANSACTIONS, money, moneyPlainMasked, state, todayISO, MONTH_LABEL, notaCategoria, setNotaCategoria} from './state';
 import { boletaWorkerConfigured } from './supabase';
 import { ReceivableItem, Transaction } from './types';
 import { toast } from './ui/toasts';
@@ -691,6 +691,36 @@ export function openNewTxSheet(tipoInicial?){
   document.getElementById('sheet-content').scrollTop = 0;
   setTimeout(()=>{ const el=document.querySelector<HTMLElement>('[data-draft-field="comercio"]'); if(el) el.focus(); }, 260);
 }
+// Nota de una categoría en un mes concreto. Se abre desde el ícono de la fila del desglose en
+// Balance, con el mismo patrón de sheet que el resto de la app (.sheet-block.card) en vez de un
+// pop-up propio -- así hereda el overlay, el cerrar con Escape y el swipe hacia abajo.
+export function renderNotaCategoriaContent(){
+  const {mes, catId} = state.notaSheet;
+  const info = catInfo(catId);
+  const texto = notaCategoria(mes, catId);
+  return '<div class="sheet-top">'+
+      '<div class="merchant">'+esc(info.nombre)+'</div>'+
+      '<div class="meta">Nota de '+esc(MONTH_LABEL[mes] || mes)+'</div>'+
+    '</div>'+
+    '<div class="sheet-block card" style="padding:16px;">'+
+      '<div class="sheet-block-title">Tu nota</div>'+
+      '<p class="cat-picker-hint" style="margin:0 0 10px;">Para acordarte de por qué gastaste lo que gastaste este mes. Es solo de este mes: la nota de otro mes es otra.</p>'+
+      '<textarea class="draft-input nota-cat-input" data-nota-texto rows="4" placeholder="Ej: cumpleaños de mi mamá, pagué yo la mesa">'+esc(texto)+'</textarea>'+
+      '<div style="display:flex;gap:8px;margin-top:12px;">'+
+        (texto ? '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-nota-borrar>Borrar</button>' : '')+
+        '<button class="save-tx-btn" style="flex:1;" data-nota-guardar>Guardar</button>'+
+      '</div>'+
+    '</div>';
+}
+export function openNotaCategoria(mes, catId){
+  state.openTxId = null;
+  state.creatingNew = false;
+  state.filterSheetOpen = false;
+  state.notaSheet = {mes, catId};
+  openSheetOverlay();
+  renderSheet();
+  document.getElementById('sheet-content').scrollTop = 0;
+}
 export function openFilterSheet(){
   state.openTxId = null;
   state.creatingNew = false;
@@ -702,6 +732,7 @@ export function openFilterSheet(){
 export function closeSheet(){
   state.openTxId = null;
   state.creatingNew = false;
+  state.notaSheet = null;
   state.draftTx = null;
   state.filterSheetOpen = false;
   state.linkFlow = null;
@@ -1255,6 +1286,12 @@ export function renderSheet(){
   if(state.filterSheetOpen){
     const contentEl = document.getElementById('sheet-content');
     contentEl.innerHTML = renderFilterSheetContent();
+    document.getElementById('sheet-close-btn').innerHTML = ICONS.close;
+    return;
+  }
+  if(state.notaSheet){
+    const contentEl = document.getElementById('sheet-content');
+    contentEl.innerHTML = renderNotaCategoriaContent();
     document.getElementById('sheet-close-btn').innerHTML = ICONS.close;
     return;
   }

@@ -1144,7 +1144,11 @@
     const legend = entries.length === 0 ? '<div class="empty-state" style="padding:14px 4px;">' + icon("inbox") + "<div>Sin movimientos este mes.</div></div>" : entries.map((e) => {
       const pct = total > 0 ? Math.round(e.value / total * 100) : 0;
       const enOtros = otrosIds.includes(e.id);
-      return '<button class="legend-row' + (enOtros ? " legend-row-otros" : "") + '" data-cat="' + e.id + '"><span class="legend-dot" style="--fill:' + categoryFillCss(e.info.colorHue) + '"></span><span class="legend-icon">' + catIconMarkup(e.info.icon) + '</span><span class="legend-name">' + esc(e.info.nombre) + (enOtros ? ' <span class="legend-otros-badge">Otros</span>' : "") + '</span><span class="legend-pct">' + pct + '%</span><span class="legend-value tabular">' + money(e.value) + "</span></button>";
+      const mesDeLaNota = /^\d{4}-\d{2}$/.test(String(periodoFiltro || "")) ? periodoFiltro : null;
+      const nota = mesDeLaNota ? notaCategoria(mesDeLaNota, e.id) : "";
+      const botonNota = !mesDeLaNota ? "" : '<button class="legend-note-btn' + (nota ? " tiene-nota" : "") + '" data-nota-cat="' + esc(e.id) + '" data-nota-mes="' + esc(mesDeLaNota) + '" aria-label="' + (nota ? "Ver la nota de " : "Agregar una nota a ") + esc(e.info.nombre) + '">' + icon("edit") + "</button>";
+      const filaHtml = '<button class="legend-row' + (enOtros ? " legend-row-otros" : "") + '" data-cat="' + e.id + '"><span class="legend-dot" style="--fill:' + categoryFillCss(e.info.colorHue) + '"></span><span class="legend-icon">' + catIconMarkup(e.info.icon) + '</span><span class="legend-name">' + esc(e.info.nombre) + (enOtros ? ' <span class="legend-otros-badge">Otros</span>' : "") + '</span><span class="legend-pct">' + pct + '%</span><span class="legend-value tabular">' + money(e.value) + "</span></button>";
+      return '<div class="legend-row-wrap">' + filaHtml + botonNota + "</div>";
     }).join("");
     return '<div class="card donut-card" ' + (periodoFiltro ? 'data-periodo="' + periodoFiltro + '"' : "") + '><div class="donut-card-title">' + titulo + '</div><div class="donut-card-sub">' + subtitulo + '</div><div class="donut-row"><div class="donut-svg-wrap">' + donutSvg + '<div class="donut-center"><span class="dc-total tabular">' + (total > 0 ? moneyPlainMasked(total) : "$0") + '</span><span class="dc-label">total</span></div></div><div class="donut-legend">' + legend + "</div></div></div>";
   }
@@ -4504,6 +4508,29 @@
       renderTransactionsView();
       return;
     }
+    const notaBtn = e.target.closest("[data-nota-cat]");
+    if (notaBtn) {
+      openNotaCategoria(notaBtn.getAttribute("data-nota-mes"), notaBtn.getAttribute("data-nota-cat"));
+      return;
+    }
+    const notaGuardar = e.target.closest("[data-nota-guardar]");
+    if (notaGuardar && state.notaSheet) {
+      const ta = document.querySelector("[data-nota-texto]");
+      setNotaCategoria(state.notaSheet.mes, state.notaSheet.catId, ta ? ta.value : "");
+      const habia = !!(ta && ta.value.trim());
+      closeSheet();
+      render();
+      toast(habia ? "Nota guardada" : "Nota borrada");
+      return;
+    }
+    const notaBorrar = e.target.closest("[data-nota-borrar]");
+    if (notaBorrar && state.notaSheet) {
+      setNotaCategoria(state.notaSheet.mes, state.notaSheet.catId, "");
+      closeSheet();
+      render();
+      toast("Nota borrada");
+      return;
+    }
     const openFiltersBtn = e.target.closest("[data-open-filters]");
     if (openFiltersBtn) {
       openFilterSheet();
@@ -7544,6 +7571,7 @@
       planificador: PLANNER,
       metasTotalChecks: TOTAL_GOAL_CHECKS,
       presupuestoAvisosEnviados: BUDGET_ALERTS_SENT,
+      notasCategoria: NOTAS_CATEGORIA,
       months: MONTHS,
       monthLabel: MONTH_LABEL,
       contactos: CONTACTS,
@@ -7584,6 +7612,7 @@
       }
     });
     setContacts(blob.contactos || []);
+    setNotasCategoria(blob.notasCategoria || {});
     setUltimoRespaldo2(blob.ultimoRespaldo || null);
     setGroupCategoryRules(blob.reglasGrupoCategoria || {});
     setBudgets(blob.presupuestos || {});
@@ -8669,6 +8698,23 @@
     }, 260);
   }
   __name(openNewTxSheet, "openNewTxSheet");
+  function renderNotaCategoriaContent() {
+    const { mes, catId } = state.notaSheet;
+    const info = catInfo(catId);
+    const texto = notaCategoria(mes, catId);
+    return '<div class="sheet-top"><div class="merchant">' + esc(info.nombre) + '</div><div class="meta">Nota de ' + esc(MONTH_LABEL[mes] || mes) + '</div></div><div class="sheet-block card" style="padding:16px;"><div class="sheet-block-title">Tu nota</div><p class="cat-picker-hint" style="margin:0 0 10px;">Para acordarte de por qu\xE9 gastaste lo que gastaste este mes. Es solo de este mes: la nota de otro mes es otra.</p><textarea class="draft-input nota-cat-input" data-nota-texto rows="4" placeholder="Ej: cumplea\xF1os de mi mam\xE1, pagu\xE9 yo la mesa">' + esc(texto) + '</textarea><div style="display:flex;gap:8px;margin-top:12px;">' + (texto ? '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-nota-borrar>Borrar</button>' : "") + '<button class="save-tx-btn" style="flex:1;" data-nota-guardar>Guardar</button></div></div>';
+  }
+  __name(renderNotaCategoriaContent, "renderNotaCategoriaContent");
+  function openNotaCategoria(mes, catId) {
+    state.openTxId = null;
+    state.creatingNew = false;
+    state.filterSheetOpen = false;
+    state.notaSheet = { mes, catId };
+    openSheetOverlay();
+    renderSheet();
+    document.getElementById("sheet-content").scrollTop = 0;
+  }
+  __name(openNotaCategoria, "openNotaCategoria");
   function openFilterSheet() {
     state.openTxId = null;
     state.creatingNew = false;
@@ -8681,6 +8727,7 @@
   function closeSheet() {
     state.openTxId = null;
     state.creatingNew = false;
+    state.notaSheet = null;
     state.draftTx = null;
     state.filterSheetOpen = false;
     state.linkFlow = null;
@@ -9028,6 +9075,12 @@
     if (state.filterSheetOpen) {
       const contentEl2 = document.getElementById("sheet-content");
       contentEl2.innerHTML = renderFilterSheetContent();
+      document.getElementById("sheet-close-btn").innerHTML = ICONS.close;
+      return;
+    }
+    if (state.notaSheet) {
+      const contentEl2 = document.getElementById("sheet-content");
+      contentEl2.innerHTML = renderNotaCategoriaContent();
       document.getElementById("sheet-close-btn").innerHTML = ICONS.close;
       return;
     }
@@ -9620,6 +9673,28 @@
     }
   ];
   var TOTAL_GOAL_CHECKS = { "2026-01": true, "2026-02": true, "2026-03": true, "2026-04": true, "2026-05": true, "2026-06": false, "2026-07": true, "2026-08": true };
+  var NOTAS_CATEGORIA = {};
+  function setNotasCategoria(v) {
+    NOTAS_CATEGORIA = v || {};
+  }
+  __name(setNotasCategoria, "setNotasCategoria");
+  function setNotaCategoria(mes, catId, texto) {
+    const limpio = String(texto == null ? "" : texto).trim();
+    if (!limpio) {
+      if (NOTAS_CATEGORIA[mes]) {
+        delete NOTAS_CATEGORIA[mes][catId];
+        if (!Object.keys(NOTAS_CATEGORIA[mes]).length) delete NOTAS_CATEGORIA[mes];
+      }
+      return;
+    }
+    if (!NOTAS_CATEGORIA[mes]) NOTAS_CATEGORIA[mes] = {};
+    NOTAS_CATEGORIA[mes][catId] = limpio;
+  }
+  __name(setNotaCategoria, "setNotaCategoria");
+  function notaCategoria(mes, catId) {
+    return NOTAS_CATEGORIA[mes] && NOTAS_CATEGORIA[mes][catId] || "";
+  }
+  __name(notaCategoria, "notaCategoria");
   var BUDGET_ALERTS_SENT = {};
   var UPDATE_THRESHOLD_DAYS = 30;
   var PLATFORM_DATA = {
@@ -9846,6 +9921,8 @@
     // free text to search by merchant in Transactions
     advFilters: { cats: [], medios: [], grupos: [], dateFrom: "", dateTo: "" },
     filterSheetOpen: false,
+    // {mes, catId} mientras el pop-up de la nota de una categoría está abierto; null si no.
+    notaSheet: null,
     addingPaymentMethod: false,
     // true while the "add card" mini-form is shown
     newPaymentMethodDraft: { nombre: "", ultimos4: "" },
@@ -10174,7 +10251,7 @@
     referenceMonthlyIncome: referenceMonthlyIncome, sumSpendingGoalPct: sumSpendingGoalPct,
     monthlyBudgetTotal: monthlyBudgetTotal, sumaPresupuestosCategorias: sumaPresupuestosCategorias,
     pgBytesToArrayBuffer: pgBytesToArrayBuffer, hasReceivableType: hasReceivableType,
-    netExpenseTx: netExpenseTx, aggregatedTxAmount: aggregatedTxAmount, catBucketId: catBucketId,
+    netExpenseTx: netExpenseTx, aggregatedTxAmount: aggregatedTxAmount, catBucketId: catBucketId, NOTAS_CATEGORIA: NOTAS_CATEGORIA, setNotaCategoria: setNotaCategoria, notaCategoria: notaCategoria,
     reimbursementTotalForMonths: reimbursementTotalForMonths,
     incomeNatureOf: incomeNatureOf, incomeNatureAmount: incomeNatureAmount,
     netIncomeTx: netIncomeTx, catNetAmount: catNetAmount, resolvePending: resolvePending,

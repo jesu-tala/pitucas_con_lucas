@@ -4,9 +4,9 @@ import { enterDemoMode, exitDemoMode } from './demo';
 import { navClearType, navDepth, navPeek, navPop, navPush, NavFrame } from './nav';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
-import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter, defaultAssignAmount, conversionInnerHtml} from './sheet';
+import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter, defaultAssignAmount, conversionInnerHtml, openNotaCategoria} from './sheet';
 import { convertirUSDaCLP, tipoCambioUSDCLP, tipoCambioCacheado } from './currency';
-import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO, setUltimoRespaldo} from './state';
+import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO, setUltimoRespaldo, setNotaCategoria} from './state';
 import { buildGroupExportWorkbookArrayBuffer } from './group-export';
 import { handleLogout, switchAuthMode } from './supabase';
 import { toast } from './ui/toasts';
@@ -163,6 +163,31 @@ phone.addEventListener('click', function(e: any){
   const clearSearch = e.target.closest('[data-clear-search]');
   if(clearSearch){ state.searchQuery=''; renderTransactionsView(); return; }
 
+  const notaBtn = e.target.closest('[data-nota-cat]');
+  if(notaBtn){
+    openNotaCategoria(notaBtn.getAttribute('data-nota-mes'), notaBtn.getAttribute('data-nota-cat'));
+    return;
+  }
+  const notaGuardar = e.target.closest('[data-nota-guardar]');
+  if(notaGuardar && state.notaSheet){
+    const ta = document.querySelector('[data-nota-texto]') as HTMLTextAreaElement | null;
+    setNotaCategoria(state.notaSheet.mes, state.notaSheet.catId, ta ? ta.value : '');
+    // setNotaCategoria borra la entrada si el texto quedó vacío, así que guardar sin escribir
+    // nada equivale a no dejar nota -- el indicador se apaga solo.
+    const habia = !!(ta && ta.value.trim());
+    closeSheet();
+    render();
+    toast(habia ? 'Nota guardada' : 'Nota borrada');
+    return;
+  }
+  const notaBorrar = e.target.closest('[data-nota-borrar]');
+  if(notaBorrar && state.notaSheet){
+    setNotaCategoria(state.notaSheet.mes, state.notaSheet.catId, '');
+    closeSheet();
+    render();
+    toast('Nota borrada');
+    return;
+  }
   const openFiltersBtn = e.target.closest('[data-open-filters]');
   if(openFiltersBtn){ openFilterSheet(); return; }
 

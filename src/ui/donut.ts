@@ -2,7 +2,7 @@ import { esc } from '../esc';
 import { catInfo, catBucketId, catNetAmount, catTotalAmount, netExpenseTx, netIncomeFactor, lastSalaryTx } from '../helpers';
 import { categoryFillCss } from '../category-colors';
 import { ICONS, catIconMarkup, icon } from '../icons';
-import { SPENDING_GOAL_PCT, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, money, moneyPlainMasked, state, todayISO } from '../state';
+import { SPENDING_GOAL_PCT, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, money, moneyPlainMasked, state, todayISO, notaCategoria} from '../state';
 import { monthTotals } from '../views/evolucion';
 /* ===================== DONUT SVG ===================== */
 export function buildDonut(segments, size, strokeW){
@@ -118,13 +118,26 @@ export function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro
     : entries.map(e=>{
         const pct = total>0 ? Math.round((e.value/total)*100) : 0;
         const enOtros = otrosIds.includes(e.id);
-        return '<button class="legend-row'+(enOtros?' legend-row-otros':'')+'" data-cat="'+e.id+'">'+
+        // La nota va en un botón HERMANO, no adentro de la fila: la fila entera ya es un <button>
+        // (el drill-down a las transacciones de esa categoría) y un botón dentro de otro es HTML
+        // inválido -- el navegador lo saca del medio y el drill-down deja de funcionar donde
+        // estuviera el de adentro. El wrapper deja los dos lado a lado sin tocar el existente.
+        //
+        // Solo en la vista de MES: una nota es por categoría y por mes, así que en la vista de
+        // año no hay un mes al que pertenecería. Ahí la fila queda exactamente como estaba.
+        const mesDeLaNota = /^\d{4}-\d{2}$/.test(String(periodoFiltro||'')) ? periodoFiltro : null;
+        const nota = mesDeLaNota ? notaCategoria(mesDeLaNota, e.id) : '';
+        const botonNota = !mesDeLaNota ? '' :
+          '<button class="legend-note-btn'+(nota?' tiene-nota':'')+'" data-nota-cat="'+esc(e.id)+'" data-nota-mes="'+esc(mesDeLaNota)+'"'+
+          ' aria-label="'+(nota?'Ver la nota de ':'Agregar una nota a ')+esc(e.info.nombre)+'">'+icon('edit')+'</button>';
+        const filaHtml = '<button class="legend-row'+(enOtros?' legend-row-otros':'')+'" data-cat="'+e.id+'">'+
           '<span class="legend-dot" style="--fill:'+categoryFillCss(e.info.colorHue)+'"></span>'+
           '<span class="legend-icon">'+catIconMarkup(e.info.icon)+'</span>'+
           '<span class="legend-name">'+esc(e.info.nombre)+(enOtros?' <span class="legend-otros-badge">Otros</span>':'')+'</span>'+
           '<span class="legend-pct">'+pct+'%</span>'+
           '<span class="legend-value tabular">'+money(e.value)+'</span>'+
         '</button>';
+        return '<div class="legend-row-wrap">'+filaHtml+botonNota+'</div>';
       }).join('');
   return '<div class="card donut-card" '+(periodoFiltro?'data-periodo="'+periodoFiltro+'"':'')+'>'+
     '<div class="donut-card-title">'+titulo+'</div>'+

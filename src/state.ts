@@ -151,6 +151,33 @@ export let INVESTMENT_GOALS: InvestmentGoal[] = [
 // "unmarked", never as "false".
 export let TOTAL_GOAL_CHECKS = {'2026-01':true,'2026-02':true,'2026-03':true,'2026-04':true,'2026-05':true,'2026-06':false,'2026-07':true,'2026-08':true};
 
+// Notas por categoría Y por mes: la nota de "Restoranes" de septiembre es otra que la de octubre.
+// El mes va AFUERA y la categoría adentro a propósito: al dibujar Balance ya se sabe qué mes se
+// está mirando, así que NOTAS_CATEGORIA[mes] entrega de una todas las notas visibles y el
+// indicador de cada fila se resuelve sin recorrer nada. Al revés (categoría afuera) habría que
+// recorrer todas las categorías en cada render para saber cuáles tienen nota este mes.
+// Misma forma que TOTAL_GOAL_CHECKS, que ya es un objeto con el mes como clave.
+export let NOTAS_CATEGORIA: Record<string, Record<string, string>> = {};
+export function setNotasCategoria(v){ NOTAS_CATEGORIA = v || {}; }
+// Guardar una nota vacía la BORRA en vez de dejar una entrada en blanco: si no, el indicador
+// seguiría encendido para una nota sin texto, y el blob acumularía basura con cada categoría que
+// alguien abrió y cerró sin escribir.
+export function setNotaCategoria(mes, catId, texto){
+  const limpio = String(texto == null ? '' : texto).trim();
+  if(!limpio){
+    if(NOTAS_CATEGORIA[mes]) {
+      delete NOTAS_CATEGORIA[mes][catId];
+      if(!Object.keys(NOTAS_CATEGORIA[mes]).length) delete NOTAS_CATEGORIA[mes];
+    }
+    return;
+  }
+  if(!NOTAS_CATEGORIA[mes]) NOTAS_CATEGORIA[mes] = {};
+  NOTAS_CATEGORIA[mes][catId] = limpio;
+}
+export function notaCategoria(mes, catId): string {
+  return (NOTAS_CATEGORIA[mes] && NOTAS_CATEGORIA[mes][catId]) || '';
+}
+
 // Which budget alerts (catId+month+threshold, e.g. "supermercado|2026-09|80") have already
 // been sent as a push notification, so it's not repeated every time the month's spending is
 // recalculated — see checkBudgetPushAlerts(). Travels in the backup/app_state so it
@@ -394,6 +421,8 @@ export const state: AppState = {
   searchQuery:'',             // free text to search by merchant in Transactions
   advFilters:{cats:[], medios:[], grupos:[], dateFrom:'', dateTo:''},
   filterSheetOpen:false,
+  // {mes, catId} mientras el pop-up de la nota de una categoría está abierto; null si no.
+  notaSheet:null as null | {mes:string; catId:string},
   addingPaymentMethod:false,  // true while the "add card" mini-form is shown
   newPaymentMethodDraft:{nombre:'', ultimos4:''},
   editingBudgetCat:null,       // catId being edited inline, or null
