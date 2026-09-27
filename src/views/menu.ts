@@ -7,6 +7,7 @@ import { buildReconcileDiff, movementLineId } from '../reconcile';
 import { ensureMonthExists, participantHasHistory, participantIdForUser } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
 import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO, ultimoRespaldo, setUltimoRespaldo} from '../state';
+import { convertirUSDaCLP } from '../currency';
 import { OCR_WORKER_URL, PUSH_WORKER_URL, VAPID_PUBLIC_KEY, boletaWorkerConfigured, buildFullStateBlob, currentHouseholdId, currentUser, saveTimer, sb, translateAuthError, writeStateToSupabase } from '../supabase';
 import { CategoryMapping, Transaction } from '../types';
 import { toast } from '../ui/toasts';
@@ -1282,19 +1283,46 @@ export function guessCatIdFromImportRow(row){
 // already existed for that same comercio (e.g. "Copec Providencia" -> Transporte) — CSV
 // statement import did use them (see importStatementRows), this one didn't. Now it checks
 // the same rules, so it behaves the same regardless of where the transaction came from.
+// Lee la info de moneda que el Apps Script deja en row.raw. Va ahí y no en columnas propias a
+// propósito: `raw` es el bolsón por-fuente que la RPC importar_transaccion ya acepta, así que
+// esto NO necesita migración de SQL ni cambiar la firma de la RPC -- lo único que hay que
+// redesplegar a mano es el Apps Script, que iba a haber que redesplegarlo igual.
+export function monedaDeFilaImportada(row){
+  const raw = row && row.raw;
+  if(!raw || raw.moneda !== 'USD') return null;
+  const montoOriginal = Number(raw.monto_original);
+  if(!isFinite(montoOriginal) || montoOriginal <= 0) return null;
+  const tc = Number(raw.tipo_cambio);
+  return { montoOriginal, tipoCambio: (isFinite(tc) && tc > 0) ? tc : null };
+}
 export function txFromEmailImport(row): Transaction {
   const reglaByComercio = {};
   groupedRules().forEach(function(r){ reglaByComercio[r.comercio] = r; });
   const regla = reglaByComercio[row.comercio];
   const catId = (regla && regla.cat) ? regla.cat : guessCatIdFromImportRow(row);
   const medioId = ensurePaymentMethodForSuggestion(row.medio_sugerido) || ensureUnknownPaymentMethod();
+  // Compra en dólares. El Apps Script YA no convierte ni escribe "(US$51,25 a $950)" pegado al
+  // nombre del comercio: solo reporta que fue en USD y cuánto. La conversión ocurre acá, con la
+  // misma función que usa el ingreso manual -- una sola implementación para las tres vías.
+  //
+  // Si el Apps Script no pudo conseguir el tipo de cambio, monto queda en 0 y la transacción
+  // llega como 'pendiente'. Eso es deliberado: lo que NUNCA puede pasar es que un número en
+  // dólares entre a monto, que toda la app suma como pesos -- una compra de US$51 pesaría $51,
+  // mil veces menos, y era exactamente lo que hacía antes. Con monto 0 y sin clasificar no
+  // ensucia ningún total (lo sin clasificar no cuenta) y queda visible para arreglarla a mano.
+  const usd = monedaDeFilaImportada(row);
+  const montoCLP = usd
+    ? (usd.tipoCambio ? convertirUSDaCLP(usd.montoOriginal, usd.tipoCambio) : 0)
+    : Math.round(row.monto);
+  const sinConvertir = !!usd && !usd.tipoCambio;
   return {
     id: 'temail'+(nextImportId()), fecha: row.fecha, hora: row.hora || '00:00', comercio: row.comercio,
-    monto: Math.round(row.monto), medio: medioId, tipo: row.tipo,
+    monto: montoCLP, medio: medioId, tipo: row.tipo,
     recurrencia: regla ? regla.recurrencia : 'variable',
-    estado: catId ? 'confirmado' : 'pendiente',
-    categorias: catId ? [{cat:catId, monto:Math.round(row.monto)}] : [],
+    estado: (catId && !sinConvertir) ? 'confirmado' : 'pendiente',
+    categorias: (catId && !sinConvertir) ? [{cat:catId, monto:montoCLP}] : [],
     porCobrar:[], reglaAuto: !!(regla && regla.cat),
+    ...(usd ? {moneda:'USD' as const, montoOriginal: usd.montoOriginal, tipoCambio: usd.tipoCambio || undefined} : {}),
     // La nota nace VACÍA a propósito. Antes traía 'Importado automáticamente desde tu correo' como valor real, así que para
     // escribir algo propio había que borrarlo primero -- una transacción importada llegaba
     // con el campo ya ocupado por texto que la persona no escribió. Ese dato no se pierde:
