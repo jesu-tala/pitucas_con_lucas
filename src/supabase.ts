@@ -296,6 +296,65 @@ export async function writeStateToSupabase(){
     return false;
   }
 }
+/* ---------- historial del blob: listar y restaurar (ver backend/supabase/schema_historial_blob.sql) ---------- */
+
+// A propósito NO trae la columna `data`: 30 snapshots de un blob de 300 KB serían 9 MB
+// descargados para dibujar una lista. El resumen (n_transacciones, peso_bytes) lo calcula el
+// trigger al guardar justamente para esto, y el blob completo se lee recién al restaurar, del
+// lado del servidor, dentro de restaurar_snapshot().
+export async function loadHistorialSnapshots(){
+  // Limpiar historialLoading también acá es el detalle que importa: quien llama prende la
+  // bandera ANTES para pintar "Cargando…", así que un return temprano que no la apague deja la
+  // pantalla pegada en "Cargando…" para siempre (sin sesión, o en modo demo, donde sb es null).
+  if(!sb || !currentHouseholdId){ state.historialSnapshots = []; state.historialLoading = false; return; }
+  state.historialLoading = true; state.historialError = null;
+  try{
+    const { data, error } = await sb.from('app_state_historial')
+      .select('id, snapshot_at, n_transacciones, peso_bytes')
+      .eq('household_id', currentHouseholdId)
+      .order('snapshot_at', { ascending: false });
+    if(error) throw error;
+    state.historialSnapshots = data || [];
+  }catch(err){
+    console.error('Pitucas sin lucas — error cargando el historial:', err);
+    state.historialError = 'No se pudo cargar el historial. Revisa tu conexión e intenta de nuevo.';
+    state.historialSnapshots = [];
+  }
+  state.historialLoading = false;
+}
+
+// Restaurar es un UPDATE de app_state hecho del lado del servidor, así que el trigger archiva
+// solo el estado que había ANTES -- deshacer una restauración equivocada es restaurar el
+// snapshot que queda recién creado arriba de la lista.
+//
+// El orden de lo que pasa después importa y es la parte delicada: en memoria todavía está el
+// estado VIEJO, y el autoSaveObserver tiene un guardado agendado que lo escribiría de vuelta
+// encima de lo que acabamos de restaurar. Por eso primero se frena el guardado automático
+// (suppressAutoSave + clearTimeout), después se aplica el blob restaurado, y recién al final
+// se vuelve a soltar -- el mismo orden que usa onAuthenticated() al cargar el hogar.
+export async function restaurarSnapshot(snapshotId){
+  if(!sb || !currentHouseholdId) return false;
+  try{
+    suppressAutoSave = true;
+    clearTimeout(saveTimer);
+    const { error } = await sb.rpc('restaurar_snapshot', { p_snapshot_id: snapshotId });
+    if(error) throw error;
+    const { data: stateRow, error: readErr } = await sb.from('app_state')
+      .select('data').eq('household_id', currentHouseholdId).single();
+    if(readErr) throw readErr;
+    applyStateBlob((stateRow && stateRow.data) || emptyAppStateBlob());
+    // Lo que quedó en memoria ES lo que está guardado, así que no hay nada que escribir: sin
+    // esto, el primer repintado dispararía un guardado idéntico y un snapshot de más.
+    lastSavedBlobJSON = JSON.stringify(buildFullStateBlob());
+    return true;
+  }catch(err){
+    console.error('Pitucas sin lucas — error restaurando el respaldo:', err);
+    return false;
+  }finally{
+    setTimeout(function(){ suppressAutoSave = false; }, 0);
+  }
+}
+
 export function scheduleSave(){
   if(suppressAutoSave || !sb || !currentHouseholdId) return;
   clearTimeout(saveTimer);

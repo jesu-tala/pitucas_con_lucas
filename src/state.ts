@@ -455,7 +455,7 @@ export const state: AppState = {
   subtabDragId:null,           // id of the sub-tab currently being dragged, or null
 
   // ---- Menu ----
-  menuSection:null,            // null | 'categorias' | 'medios' | 'reglas' | 'exportar' | 'respaldo' | 'importar' | 'demo' | 'asesoria' | 'cuenta' | 'importarcorreo' | 'notificaciones'
+  menuSection:null,            // null | 'categorias' | 'medios' | 'reglas' | 'exportar' | 'respaldo' | 'importar' | 'demo' | 'asesoria' | 'cuenta' | 'importarcorreo' | 'notificaciones' | 'historial'
   emailImportLoaded:false,     // whether the import code has already been loaded at least once
   emailImportLoading:false,
   emailImportError:null,
@@ -468,6 +468,13 @@ export const state: AppState = {
   notifBusy:false,              // subscribing/unsubscribing right now (disables the button)
   notifTestBusy:false,          // sending the test notification right now
   notifTestResult:null,         // text with the Worker's actual result (unlike enviarPushHogar, this one DOES wait for the response)
+  // ---- Historial del blob (Menú > Volver a una versión anterior) ----
+  historialLoading:false,
+  historialError:null,
+  historialSnapshots:null,      // [{id, snapshot_at, n_transacciones, peso_bytes}] del más nuevo al más viejo, o null si no se ha cargado
+  confirmRestaurarId:null,      // id del snapshot mostrando "¿seguro?" antes de restaurar de verdad
+  historialRestaurando:false,   // restauración en curso (deshabilita los botones)
+  historialMensaje:null,        // resultado de la última restauración, para mostrarlo en pantalla
   confirmDeleteTxId:null,       // id of the transaction showing "are you sure you want to delete it?"
   salaryBannerDismissedMonth:null, // 'YYYY-MM' of the month "Not now" was tapped on the salary suggestion
   editingCategoryId:null,      // catId being edited, 'nueva', or null
