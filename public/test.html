@@ -3615,6 +3615,28 @@
     return true;
   }
   __name(ensurePdfJs, "ensurePdfJs");
+  function parseMontoConMoneda(s) {
+    if (!s) return null;
+    const txt = String(s);
+    const esUSD2 = /\bUSD?\b|US\s*\$|U\$S/i.test(txt);
+    if (!esUSD2) {
+      const v2 = parseMontoCLP(txt);
+      return v2 === null ? null : { monto: v2, moneda: "CLP" };
+    }
+    const neg = /-/.test(txt);
+    const soloNum = txt.replace(/[^0-9.,]/g, "");
+    if (!soloNum) return null;
+    const ultimoSep = Math.max(soloNum.lastIndexOf(","), soloNum.lastIndexOf("."));
+    let entero = soloNum, decimales = "";
+    if (ultimoSep !== -1 && soloNum.length - ultimoSep - 1 <= 2) {
+      entero = soloNum.slice(0, ultimoSep);
+      decimales = soloNum.slice(ultimoSep + 1);
+    }
+    const v = parseFloat(entero.replace(/[.,]/g, "") + (decimales ? "." + decimales : ""));
+    if (!isFinite(v)) return null;
+    return { monto: neg ? -v : v, moneda: "USD" };
+  }
+  __name(parseMontoConMoneda, "parseMontoConMoneda");
   function parseMontoCLP(s) {
     if (!s) return null;
     const neg = /-/.test(s);
@@ -3801,6 +3823,8 @@
       if (/MONTO CANCELADO/.test(filaCompleta)) esEspecial = "pago_recibido";
       const cuotaMatch = (r.ncuota || "").match(/(\d{1,2})\s*(?:\/|\s+DE\s+|-)\s*(\d{1,2})/i);
       const valorCuota = parseMontoCLP(r.valor_cuota);
+      const conMoneda = parseMontoConMoneda(r.monto_op);
+      const esUSD2 = !!conMoneda && conMoneda.moneda === "USD";
       const esCuota = !!cuotaMatch && valorCuota !== null && valorCuota !== 0;
       const montoFinal = esCuota ? valorCuota : monto;
       movimientos.push({
@@ -3816,7 +3840,11 @@
         // (ver matchConfidence en reconcile.ts).
         cuotaNumero: esCuota ? parseInt(cuotaMatch[1], 10) : void 0,
         cuotaTotal: esCuota ? parseInt(cuotaMatch[2], 10) : void 0,
-        montoOperacion: esCuota ? Math.abs(monto) : void 0
+        montoOperacion: esCuota ? Math.abs(monto) : void 0,
+        // En dólares el monto de arriba queda provisorio: la conversión se hace en
+        // parseCartolaPdf, que sí puede esperar la consulta del tipo de cambio del día.
+        moneda: esUSD2 ? "USD" : void 0,
+        montoOriginal: esUSD2 ? Math.abs(conMoneda.monto) : void 0
       });
     });
     return movimientos;
@@ -3838,6 +3866,27 @@
     movimientos.forEach(function(m, idx) {
       m.fuenteLineaId = movementLineId(m, idx);
     });
+    const enUSD = movimientos.filter(function(m) {
+      return m.moneda === "USD";
+    });
+    if (enUSD.length) {
+      const fechas = Array.from(new Set(enUSD.map(function(m) {
+        return m.fecha;
+      })));
+      const tasas = {};
+      for (const f of fechas) {
+        tasas[f] = await tipoCambioUSDCLP(f);
+      }
+      enUSD.forEach(function(m) {
+        const tc = tasas[m.fecha];
+        m.tipoCambio = tc || null;
+        const signo = m.monto < 0 ? -1 : 1;
+        m.monto = tc ? signo * convertirUSDaCLP(m.montoOriginal, tc) : 0;
+      });
+      movimientos.forEach(function(m, idx) {
+        m.fuenteLineaId = movementLineId(m, idx);
+      });
+    }
     return { tipo, movimientos };
   }
   __name(parseStatementPDF, "parseStatementPDF");
@@ -4092,9 +4141,16 @@
       monto: Math.abs(m.monto),
       medio: medioId,
       tipo: m.tipoMov,
+      // Compra en el extranjero: m.monto ya viene convertido a pesos desde parseCartolaPdf (o en 0
+      // si no se consiguió el tipo de cambio de ese día). Acá solo se arrastra la trazabilidad,
+      // los mismos tres campos que guarda una compra en dólares ingresada a mano o importada del
+      // correo -- las tres vías quedan idénticas.
+      ...m.moneda === "USD" ? { moneda: "USD", montoOriginal: m.montoOriginal, tipoCambio: m.tipoCambio || void 0 } : {},
       recurrencia: m.esEspecial === "sueldo" ? "mensual" : "variable",
-      estado: opts.noEsGasto ? "no_es_gasto" : catId ? "confirmado" : "pendiente",
-      categorias: !opts.noEsGasto && catId ? [{ cat: catId, monto: Math.abs(m.monto) }] : [],
+      // Una línea en dólares SIN tipo de cambio llega con monto 0: no se puede dar por confirmada
+      // aunque haya una regla que le calce la categoría, porque el número todavía no es real.
+      estado: opts.noEsGasto ? "no_es_gasto" : catId && !(m.moneda === "USD" && !m.tipoCambio) ? "confirmado" : "pendiente",
+      categorias: !opts.noEsGasto && catId && !(m.moneda === "USD" && !m.tipoCambio) ? [{ cat: catId, monto: Math.abs(m.monto) }] : [],
       porCobrar: [],
       reglaAuto: false,
       nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola \u2014 marcada como "' + (m.tipoMov === "ingreso" ? "no es ingreso" : "no es gasto") + '"' : "Agregada al reconciliar con la cartola",
