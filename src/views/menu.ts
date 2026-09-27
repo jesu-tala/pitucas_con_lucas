@@ -7,7 +7,7 @@ import { buildReconcileDiff, movementLineId } from '../reconcile';
 import { ensureMonthExists, participantHasHistory, participantIdForUser } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
 import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO, ultimoRespaldo, setUltimoRespaldo} from '../state';
-import { convertirUSDaCLP } from '../currency';
+import { convertirUSDaCLP, tipoCambioUSDCLP } from '../currency';
 import { OCR_WORKER_URL, PUSH_WORKER_URL, VAPID_PUBLIC_KEY, boletaWorkerConfigured, buildFullStateBlob, currentHouseholdId, currentUser, saveTimer, sb, translateAuthError, writeStateToSupabase } from '../supabase';
 import { CategoryMapping, Transaction } from '../types';
 import { toast } from '../ui/toasts';
@@ -469,6 +469,37 @@ export function ensurePdfJs(){
   return true;
 }
 
+// Detecta si el texto de un monto viene en dólares y lo parsea RESPETANDO los decimales.
+//
+// parseMontoCLP (más abajo) borra todo lo que no sea dígito -- perfecto para pesos, donde el
+// punto es separador de miles y no hay decimales, pero destructivo para dólares: "US$51,25" le
+// queda en 5125, o sea $5.125 pesos. Mal por un factor de ~10 y sin ninguna señal de que pasó.
+// Por eso la moneda se decide ANTES de tocar los dígitos, mirando el texto crudo.
+export function parseMontoConMoneda(s): {monto:number; moneda:'CLP'|'USD'} | null {
+  if(!s) return null;
+  const txt = String(s);
+  // "US$", "USD", "U\$S": basta con que aparezca una U antes del signo/monto para que NO sea
+  // un monto en pesos. Un "$" solo siempre es peso chileno en estas cartolas.
+  const esUSD = /\bUSD?\b|US\s*\$|U\$S/i.test(txt);
+  if(!esUSD){
+    const v = parseMontoCLP(txt);
+    return v===null ? null : {monto:v, moneda:'CLP'};
+  }
+  const neg = /-/.test(txt);
+  // En dólares el último separador es el decimal, sea coma o punto: "51,25" y "51.25" son lo
+  // mismo. Se normaliza a punto y se sacan los separadores de miles anteriores.
+  const soloNum = txt.replace(/[^0-9.,]/g, '');
+  if(!soloNum) return null;
+  const ultimoSep = Math.max(soloNum.lastIndexOf(','), soloNum.lastIndexOf('.'));
+  let entero = soloNum, decimales = '';
+  if(ultimoSep !== -1 && soloNum.length - ultimoSep - 1 <= 2){
+    entero = soloNum.slice(0, ultimoSep);
+    decimales = soloNum.slice(ultimoSep + 1);
+  }
+  const v = parseFloat(entero.replace(/[.,]/g, '') + (decimales ? '.'+decimales : ''));
+  if(!isFinite(v)) return null;
+  return {monto: neg ? -v : v, moneda:'USD'};
+}
 export function parseMontoCLP(s){
   if(!s) return null;
   const neg = /-/.test(s);
@@ -662,6 +693,11 @@ export function parseTarjetaNacionalMovs(pagesWords){
     // le llegaba, no cómo lo comparaba.
     const cuotaMatch = (r.ncuota || '').match(/(\d{1,2})\s*(?:\/|\s+DE\s+|-)\s*(\d{1,2})/i);
     const valorCuota = parseMontoCLP(r.valor_cuota);
+    // Compra en el extranjero: el monto viene en dólares en la propia cartola. parseMontoCLP no
+    // sirve acá -- borra el separador decimal, así que "US$51,25" le queda en 5125 ($5.125). Se
+    // detecta sobre el texto CRUDO, antes de tocar los dígitos.
+    const conMoneda = parseMontoConMoneda(r.monto_op);
+    const esUSD = !!conMoneda && conMoneda.moneda === 'USD';
     const esCuota = !!cuotaMatch && valorCuota !== null && valorCuota !== 0;
     const montoFinal = esCuota ? valorCuota : monto;
 
@@ -677,7 +713,11 @@ export function parseTarjetaNacionalMovs(pagesWords){
       // (ver matchConfidence en reconcile.ts).
       cuotaNumero: esCuota ? parseInt(cuotaMatch[1], 10) : undefined,
       cuotaTotal: esCuota ? parseInt(cuotaMatch[2], 10) : undefined,
-      montoOperacion: esCuota ? Math.abs(monto) : undefined
+      montoOperacion: esCuota ? Math.abs(monto) : undefined,
+      // En dólares el monto de arriba queda provisorio: la conversión se hace en
+      // parseCartolaPdf, que sí puede esperar la consulta del tipo de cambio del día.
+      moneda: esUSD ? 'USD' as const : undefined,
+      montoOriginal: esUSD ? Math.abs(conMoneda.monto) : undefined
     });
   });
   return movimientos;
@@ -703,6 +743,27 @@ export async function parseStatementPDF(arrayBuffer, password){
   // which is what buildReconcileDiff/createTxFromMovement rely on to never duplicate a line
   // that was already turned into a transaction on a previous run (see reconcile.ts).
   movimientos.forEach(function(m, idx){ m.fuenteLineaId = movementLineId(m, idx); });
+  // Las líneas en dólares se convierten acá y no en el parser porque esto requiere consultar el
+  // dólar observado del día de cada compra, que es asíncrono. Se pide UNA vez por fecha distinta
+  // (currency.ts además cachea), así que un viaje entero con veinte compras en tres días hace
+  // tres consultas, no veinte. Si alguna no se consigue, esa línea queda con monto 0 y su monto
+  // en dólares guardado: el mismo criterio que el import del correo -- lo que nunca puede pasar
+  // es que un número en dólares entre a un campo que toda la app suma como pesos.
+  const enUSD = movimientos.filter(function(m){ return m.moneda === 'USD'; });
+  if(enUSD.length){
+    const fechas = Array.from(new Set(enUSD.map(function(m){ return m.fecha; })));
+    const tasas = {};
+    for(const f of fechas){ tasas[f] = await tipoCambioUSDCLP(f); }
+    enUSD.forEach(function(m){
+      const tc = tasas[m.fecha];
+      m.tipoCambio = tc || null;
+      const signo = m.monto < 0 ? -1 : 1;
+      m.monto = tc ? signo * convertirUSDaCLP(m.montoOriginal, tc) : 0;
+    });
+    // El id estable se recalcula: depende del monto, y el monto recién ahora es el definitivo.
+    // Sin esto, reprocesar la misma cartola generaría un id distinto y la idempotencia se caería.
+    movimientos.forEach(function(m, idx){ m.fuenteLineaId = movementLineId(m, idx); });
+  }
   return {tipo, movimientos};
 }
 
@@ -1057,9 +1118,16 @@ export function createTxFromMovement(m, opts?: {noEsGasto?: boolean}){
   TRANSACTIONS.unshift({
     id: 'trec'+(nextImportId()), fecha: m.fecha, hora:'00:00', comercio: m.comercioSugerido || m.detalle,
     monto: Math.abs(m.monto), medio: medioId, tipo: m.tipoMov,
+    // Compra en el extranjero: m.monto ya viene convertido a pesos desde parseCartolaPdf (o en 0
+    // si no se consiguió el tipo de cambio de ese día). Acá solo se arrastra la trazabilidad,
+    // los mismos tres campos que guarda una compra en dólares ingresada a mano o importada del
+    // correo -- las tres vías quedan idénticas.
+    ...(m.moneda === 'USD' ? {moneda:'USD' as const, montoOriginal: m.montoOriginal, tipoCambio: m.tipoCambio || undefined} : {}),
     recurrencia: m.esEspecial==='sueldo' ? 'mensual' : 'variable',
-    estado: opts.noEsGasto ? 'no_es_gasto' : (catId ? 'confirmado' : 'pendiente'),
-    categorias: (!opts.noEsGasto && catId) ? [{cat:catId, monto:Math.abs(m.monto)}] : [],
+    // Una línea en dólares SIN tipo de cambio llega con monto 0: no se puede dar por confirmada
+    // aunque haya una regla que le calce la categoría, porque el número todavía no es real.
+    estado: opts.noEsGasto ? 'no_es_gasto' : ((catId && !(m.moneda === 'USD' && !m.tipoCambio)) ? 'confirmado' : 'pendiente'),
+    categorias: (!opts.noEsGasto && catId && !(m.moneda === 'USD' && !m.tipoCambio)) ? [{cat:catId, monto:Math.abs(m.monto)}] : [],
     porCobrar:[], reglaAuto:false,
     nota: opts.noEsGasto ? 'Agregada al reconciliar con la cartola — marcada como "'+(m.tipoMov==='ingreso'?'no es ingreso':'no es gasto')+'"' : 'Agregada al reconciliar con la cartola',
     // Came straight from a bank statement line, whether through the movement-by-movement
