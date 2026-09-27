@@ -81,6 +81,11 @@ begin
 end;
 $$;
 
+-- revoke ... from public primero: PostgreSQL otorga EXECUTE sobre toda función nueva al rol
+-- especial PUBLIC (que incluye a `anon`, el rol SIN sesión), así que el grant a `authenticated`
+-- de abajo por sí solo NO cierra nada. Sin el revoke, cualquiera con la anon key (que está a la
+-- vista en el cliente) podía llamar esta función sin tener cuenta. Ver fix_permisos_publicos.sql.
+revoke execute on function reclamar_participante(uuid, uuid) from public;
 grant execute on function reclamar_participante(uuid, uuid) to authenticated;
 
 -- ============================ VERIFICACIÓN ============================

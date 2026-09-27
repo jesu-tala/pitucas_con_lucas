@@ -34,6 +34,11 @@ create policy "borrar mis suscripciones push" on push_subscriptions
   for delete using (is_household_member(household_id));
 
 grant select, insert, delete on push_subscriptions to authenticated;
+-- Y explícitamente NADA para `anon`: en la base real esta tabla tenía otorgados a anon los 7
+-- privilegios (incluido TRUNCATE, que NO pasa por RLS), casi seguro por haberla creado alguna
+-- vez desde el editor de tablas del dashboard. Ninguna tabla necesita acceso sin sesión.
+revoke all on table push_subscriptions from anon;
+
 
 create or replace function obtener_suscripciones_push(
   p_household_id uuid,
@@ -74,6 +79,12 @@ begin
 end;
 $$;
 
+-- revoke ... from public primero: PostgreSQL otorga EXECUTE sobre toda función nueva al rol
+-- especial PUBLIC (que incluye a `anon`, el rol sin sesión), así que el grant de abajo por sí
+-- solo NO restringe nada -- agrega un permiso que ya estaba. Revocar PUBLIC y otorgar `anon`
+-- explícito deja el permiso declarado en el ACL en vez de heredado. Ver fix_permisos_publicos.sql.
+revoke execute on function obtener_suscripciones_push(uuid, uuid) from public;
+revoke execute on function eliminar_suscripcion_push(uuid, uuid, text) from public;
 grant execute on function obtener_suscripciones_push(uuid, uuid) to anon, authenticated;
 grant execute on function eliminar_suscripcion_push(uuid, uuid, text) to anon, authenticated;
 

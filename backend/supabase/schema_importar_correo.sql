@@ -83,6 +83,13 @@ $$;
 
 -- anon: así llega el script de Google (sin sesión de usuario, solo con el anon key).
 -- authenticated: por si algún día la propia app quisiera llamarla directo (no lo hace hoy).
+-- revoke ... from public primero: PostgreSQL otorga EXECUTE sobre toda función nueva al rol
+-- especial PUBLIC (que incluye a `anon`, el rol sin sesión), así que el grant de abajo por sí
+-- solo NO restringe nada -- agrega un permiso que ya estaba. Revocar PUBLIC y otorgar `anon`
+-- explícito deja el permiso declarado en el ACL en vez de heredado. Ver fix_permisos_publicos.sql.
+revoke execute on function importar_transaccion(
+  uuid, uuid, text, text, date, text, text, numeric, text, text, jsonb
+) from public;
 grant execute on function importar_transaccion(
   uuid, uuid, text, text, date, text, text, numeric, text, text, jsonb
 ) to anon, authenticated;
