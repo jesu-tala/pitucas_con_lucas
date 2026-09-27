@@ -607,8 +607,19 @@
   .edit-amount-row{display:flex;align-items:center;gap:10px;}
   .edit-amount-row .draft-input{flex:1;min-width:0;}
   .edit-amount-echo{font-size:19px;font-weight:700;white-space:nowrap;flex-shrink:0;letter-spacing:-0.01em;}
-  .edit-field-pair{display:flex;gap:10px;}
+  /* Fecha y Hora, lado a lado. En iOS los input[type=date]/[type=time] se dibujan con el ancho
+     NATURAL de su contenido y Safari no los encoge por debajo de eso -- así que se comen el
+     espacio entre ambos y las dos cajas terminan pegadas, leyéndose como un solo control. En
+     Chromium no pasa (ahí quedan en 155px cada una, con sus 10px de separación), por eso hace
+     falta pedirlo explícito en vez de confiar en el flex.
+     min-width:0 en el input le da permiso a Safari para encogerlo, y el padding más chico le
+     deja lugar al texto de la fecha completa sin tener que crecer. */
+  .edit-field-pair{display:flex;gap:14px;}
   .edit-field-col{flex:1;min-width:0;}
+  .edit-field-col input[type="date"],
+  .edit-field-col input[type="time"]{
+    min-width:0;width:100%;padding-left:10px;padding-right:10px;
+  }
   .edit-day-hint{font-size:12.5px;margin:-6px 0 2px;}
   .new-medio-form{
     background:var(--surface-sunken);border:1px solid var(--border);border-radius:14px;padding:14px;margin-top:2px;
