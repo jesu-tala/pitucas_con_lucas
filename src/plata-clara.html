@@ -684,6 +684,12 @@
   .segmented{display:flex;background:var(--surface-sunken);border-radius:12px;padding:3px;gap:2px;}
   /* Selector de moneda del formulario: el mismo segmented de siempre, más chico y alineado a la
      izquierda, para que se lea como una opción del campo Monto y no como una decisión aparte. */
+  /* La línea "US$51,25 · dólar a $965,71" bajo el monto de una compra en otra moneda: discreta,
+     porque el número que importa es el de pesos, pero presente para poder verificar de dónde
+     salió. Cuando falta el tipo de cambio toma el color de alerta: ahí el monto en pesos es 0 y
+     sin este aviso la transacción se vería como un gasto de $0 sin explicación. */
+  .sheet-moneda-origen{margin-top:4px;font-size:12px;}
+  .sheet-moneda-origen.sin-convertir{color:var(--expense-ink);font-weight:600;}
   .moneda-seg{width:auto;display:inline-flex;margin-bottom:8px;}
   .moneda-seg button{padding:5px 12px;font-size:12px;}
   .segmented button{

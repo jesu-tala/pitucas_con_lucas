@@ -343,6 +343,20 @@ function renderIncomeNatureBlock(t){
     '</div></div>';
 }
 
+// Lo que se muestra cuando la transacción se registró en otra moneda. Tres estados:
+//  - convertida: cuánto fue en dólares y a qué tipo de cambio, para poder verificar la cifra.
+//  - sin convertir: el monto en pesos es 0 porque no se consiguió el dólar de ese día -- acá es
+//    donde MÁS hace falta el aviso, porque si no la transacción se ve como un gasto de $0 y no
+//    se entiende por qué.
+//  - en pesos: no se muestra nada, que es el 99% de los casos.
+export function origenEnOtraMonedaHtml(t){
+  if(!t || t.moneda !== 'USD' || !t.montoOriginal) return '';
+  const enUSD = 'US$'+Number(t.montoOriginal).toLocaleString('es-CL', {minimumFractionDigits:2, maximumFractionDigits:2});
+  if(!t.tipoCambio){
+    return '<div class="meta sheet-moneda-origen sin-convertir">'+enUSD+' · falta el tipo de cambio para convertirlo</div>';
+  }
+  return '<div class="meta sheet-moneda-origen">'+enUSD+' · dólar a $'+String(t.tipoCambio).replace('.', ',')+'</div>';
+}
 export function renderSheetContent(t){
   const isIncome = t.tipo==='ingreso';
   const isInvest = t.tipo==='inversion';
@@ -470,6 +484,11 @@ export function renderSheetContent(t){
       '<div class="merchant" id="sheet-title-el">'+esc(t.comercio)+'</div>'+
       '<div class="meta">'+dayLabel(t.fecha)+' · '+t.hora+' · '+esc(paymentMethodInfo(t.medio).nombre)+'</div>'+
       '<div class="sheet-amount '+(isIncome?'pos':'')+' tabular">'+(isIncome?'+':'')+money(t.monto)+'</div>'+
+      // Compra en otra moneda: sin esto la transacción guardada se veía EXACTAMENTE igual que un
+      // gasto en pesos y no había forma de saber que habían sido US$51,25 -- los tres campos se
+      // guardaban, pero ninguna vista los mostraba, así que la trazabilidad existía solo en la
+      // base de datos. Va justo bajo el monto, que es donde se mira para entender la cifra.
+      origenEnOtraMonedaHtml(t)+
       '<div class="meta" data-note-echo style="margin-top:6px;'+(t.nota?'':'display:none;')+'">'+esc(t.nota||'')+'</div>'+
     '</div>'+
 
