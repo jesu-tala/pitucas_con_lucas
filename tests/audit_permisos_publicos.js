@@ -79,12 +79,6 @@ exigen.forEach(f => {
   check('revoca EXECUTE a public en el mismo archivo que la define: ' + f.nombre + ' (' + f.archivo + ')', re.test(src));
 });
 
-// ---------- el import_token nunca puede leer el blob ----------
-// Es la garantía central del aislamiento entre hogares: las funciones que se autentican con el
-// import_token (y por lo tanto son llamables sin sesión, desde el Apps Script y el Worker)
-// escriben transacciones y leen suscripciones push, pero NINGUNA toca app_state. Si mañana
-// alguien agrega un `select ... from app_state` dentro de una de ellas, un token filtrado
-// pasaría de "puede escribir transacciones falsas" a "puede leer toda la plata del hogar".
 function cuerpoDe(f) {
   const src = fs.readFileSync(path.join(SQL_DIR, f.archivo), 'utf-8');
   const re = new RegExp('create\\s+or\\s+replace\\s+function\\s+' + f.nombre + '\\s*\\(');
@@ -93,18 +87,36 @@ function cuerpoDe(f) {
   return src.slice(i, fin === -1 ? src.length : fin);
 }
 
-// Control positivo del detector: handle_new_user SÍ escribe en app_state (es el trigger que le
-// crea el blob vacío a cada cuenta nueva). Si esta comprobación se pusiera en verde, el regex
-// dejó de detectar referencias a app_state y todas las de abajo pasarían sin revisar nada.
+// Control positivo del detector de cuerpos: handle_new_user SÍ menciona app_state (es el
+// trigger que le crea el blob vacío a cada cuenta nueva). Si esto se pusiera en verde, el
+// regex dejó de encontrar los cuerpos y todas las comprobaciones de abajo pasarían en vacío.
 check('(control) el detector ve que handle_new_user sí menciona app_state',
   /\bapp_state\b/.test(cuerpoDe(funciones.find(f => f.nombre === 'handle_new_user'))));
 
-// La prohibición corre sobre las funciones ALCANZABLES desde la API: las de trigger quedan
-// fuera porque PostgreSQL no permite invocarlas a mano, y handle_new_user necesita app_state
-// para hacer su trabajo.
-funciones.filter(f => f.esDefiner && !f.devuelveTrigger).forEach(f => {
-  check('la función security definer ' + f.nombre + ' no menciona app_state (' + f.archivo + ')',
+// ---------- el import_token nunca puede leer ni escribir el blob ----------
+// Es la garantía central del aislamiento entre hogares. Las funciones que se autentican con
+// el import_token son las llamables SIN sesión (el Apps Script y el Worker las usan así), y
+// su credencial es un uuid que vive en un script de Google y en un secret de Cloudflare. Esas
+// escriben transacciones y leen suscripciones push, pero ninguna debe tocar app_state: si
+// mañana alguien mete un `select ... from app_state` en una de ellas, un token filtrado pasa
+// de "puede escribir transacciones falsas" a "puede leer, o pisar, toda la plata del hogar".
+// Se las reconoce por el parámetro p_token, que es lo que las hace llamables sin sesión.
+const conToken = funciones.filter(f => f.esDefiner && /\bp_token\b/.test(cuerpoDe(f)));
+check('(control) se encontraron las funciones que se autentican con import_token', conToken.length >= 5,
+  { encontradas: conToken.map(f => f.nombre + ' (' + f.archivo + ')') });
+conToken.forEach(f => {
+  check('la función con token ' + f.nombre + ' no menciona app_state (' + f.archivo + ')',
     !/\bapp_state\b/.test(cuerpoDe(f)));
+});
+
+// Y al revés: toda función security definer que SÍ escriba app_state tiene que verificar la
+// membresía contra auth.uid(), nunca confiar solo en el id que le pasaron. restaurar_snapshot
+// recibe un id de snapshot; sin este chequeo, ese id suelto alcanzaría para pisar el blob de
+// un hogar ajeno. Quedan fuera las de trigger: no reciben parámetros de nadie.
+funciones.filter(f => f.esDefiner && !f.devuelveTrigger && /\bapp_state\b/.test(cuerpoDe(f))).forEach(f => {
+  const cuerpo = cuerpoDe(f);
+  check('la función ' + f.nombre + ' verifica la membresía antes de tocar app_state (' + f.archivo + ')',
+    /is_household_member\s*\(/.test(cuerpo) && /auth\.uid\(\)/.test(cuerpo));
 });
 
 // ---------- RLS prendida en toda tabla creada ----------

@@ -8,12 +8,12 @@ import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getT
 import { convertirUSDaCLP, tipoCambioUSDCLP, tipoCambioCacheado } from './currency';
 import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO, setUltimoRespaldo, setNotaCategoria} from './state';
 import { buildGroupExportWorkbookArrayBuffer } from './group-export';
-import { handleLogout, switchAuthMode } from './supabase';
+import { handleLogout, switchAuthMode, loadHistorialSnapshots, restaurarSnapshot } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
 import { defaultShareDraft, shareDraftForTx, renderGroupsView } from './views/grupos';
 import { activePlatformIds, bumpPlatformValueForContribution, generalCatIdFor, goalCapablePlatformIds, platformCurrentValue, platformIdForInvestmentCat, platformIds, renderInvestmentsView, renderSummarySubContent, renderSummarySubtabsInner, renderSummaryView, updatePlanCompute, updateProyeccionCompute } from './views/inversiones';
-import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, updateSharedTransaction, removeSharedTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, deleteGroupParticipant, editGroupParticipant, leerBoletaConOCR, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, joinGroup, fetchGroupRoster, claimParticipant, useImportedStatement } from './views/menu';
+import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, updateSharedTransaction, removeSharedTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, deleteGroupParticipant, editGroupParticipant, leerBoletaConOCR, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, fechaHoraSnapshot, joinGroup, fetchGroupRoster, claimParticipant, useImportedStatement } from './views/menu';
 import { renderBalanceView, renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
 import { buildReconcileDiff } from './reconcile';
@@ -1387,7 +1387,52 @@ phone.addEventListener('click', function(e: any){
       loadNotifStatus();
       return;
     }
+    if(state.menuSection==='historial'){
+      // Se recarga cada vez que se entra, no una sola vez: el historial cambia solo (cada
+      // guardado puede agregar un snapshot), así que una lista cacheada de hace media hora
+      // mostraría menos versiones de las que de verdad hay.
+      state.historialLoading = true;
+      state.historialMensaje = null;
+      state.confirmRestaurarId = null;
+      renderMenuView();
+      loadHistorialSnapshots().then(function(){ renderMenuView(); });
+      return;
+    }
     renderMenuView();
+    return;
+  }
+  const histRestaurarBtn = e.target.closest('[data-historial-restaurar]');
+  if(histRestaurarBtn){
+    state.confirmRestaurarId = histRestaurarBtn.getAttribute('data-historial-restaurar');
+    state.historialMensaje = null;
+    renderMenuView();
+    return;
+  }
+  const histCancelarBtn = e.target.closest('[data-historial-cancelar]');
+  if(histCancelarBtn){
+    state.confirmRestaurarId = null;
+    renderMenuView();
+    return;
+  }
+  const histConfirmarBtn = e.target.closest('[data-historial-confirmar]');
+  if(histConfirmarBtn){
+    const id = histConfirmarBtn.getAttribute('data-historial-confirmar');
+    const sn = (state.historialSnapshots||[]).find(function(x){ return x.id===id; });
+    state.historialRestaurando = true;
+    renderMenuView();
+    restaurarSnapshot(id).then(function(ok){
+      state.historialRestaurando = false;
+      state.confirmRestaurarId = null;
+      if(ok){
+        state.historialMensaje = 'Listo: volviste a la versión de '+(sn ? fechaHoraSnapshot(sn.snapshot_at) : 'antes')+'.';
+        // La lista queda vieja: restaurar generó un snapshot nuevo (el del estado que había
+        // justo antes), que es precisamente el que hace falta para deshacer esto.
+        loadHistorialSnapshots().then(function(){ renderMenuView(); render(); });
+      } else {
+        state.historialError = 'No se pudo restaurar. Revisa tu conexión e intenta de nuevo.';
+        renderMenuView();
+      }
+    });
     return;
   }
   const notifToggleBtn = e.target.closest('[data-notif-toggle]');

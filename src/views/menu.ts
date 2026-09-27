@@ -184,6 +184,7 @@ export function renderMenuMain(){
     {section:'reglas', icon:'lockSmall', label:'Reglas de clasificación', sub: nReglas+' regla'+(nReglas===1?'':'s')+' automática'+(nReglas===1?'':'s')},
     {section:'exportar', icon:'trending', label:'Exportar a Excel', sub:'Descarga tus transacciones en un CSV'},
     {section:'respaldo', icon:'inbox', label:'Respaldo en JSON', sub: respaldoSubtitulo(), alerta: respaldoInfo().vencido},
+    {section:'historial', icon:'repeat', label:'Volver a una versión anterior', sub:'Respaldos automáticos de los últimos 30 días'},
     {section:'importar', icon:'plusCircle', label:'Importar CSV de cartola', sub:'Sube movimientos desde un archivo de tu banco'},
     {section:'importarcorreo', icon:'inbox', label:'Importar desde tu correo', sub:'Automático, vía Gmail'},
     {section:'notificaciones', icon:'bell', label:'Notificaciones', sub: state.notifSubscribed ? 'Activadas en este dispositivo' : 'Avísame de transacciones y presupuesto'},
@@ -423,6 +424,89 @@ export function renderMenuRespaldo(){
         ' Pensado para guardar una copia de respaldo o migrarla más adelante — no se puede volver a importar desde esta maqueta.</div>'+
     '</div>';
 }
+// "1 transacción" / "2 transacciones": el acento se cae en plural, así que no sirve pegarle
+// 'es' al singular.
+function nTx(n){ return n + (n===1 ? ' transacción' : ' transacciones'); }
+// Cuánto pesa un snapshot, en la unidad que se entiende de un vistazo.
+function pesoLegible(bytes){
+  if(!bytes || bytes < 1024) return (bytes||0)+' B';
+  if(bytes < 1024*1024) return Math.round(bytes/1024)+' KB';
+  return (bytes/(1024*1024)).toFixed(1)+' MB';
+}
+// "hoy 14:32" / "ayer 09:10" / "hace 4 días — 23 sep 18:45". La fecha absoluta se muestra
+// siempre además de la relativa: "hace 4 días" alcanza para orientarse, pero al momento de
+// elegir cuál restaurar lo que se recuerda es el día en que pasó la cosa.
+export function fechaHoraSnapshot(iso){
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return String(iso);
+  const hora = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const dia = new Date(d); dia.setHours(0,0,0,0);
+  const dias = Math.round((hoy.getTime()-dia.getTime())/86400000);
+  if(dias===0) return 'hoy '+hora;
+  if(dias===1) return 'ayer '+hora;
+  const MES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  return 'hace '+dias+' días — '+d.getDate()+' '+MES[d.getMonth()]+' '+hora;
+}
+
+export function renderMenuHistorial(){
+  const head = menuScreenHead('Volver a una versión anterior');
+  const root = document.getElementById('view-root');
+  // En modo demo sb está en null a propósito (ver demo.ts), así que no hay historial real que
+  // mostrar -- y tampoco tendría sentido: los datos de la maqueta no son de nadie.
+  if(state.demoMode){
+    root.innerHTML = head+'<div class="card placeholder-card">'+ICONS.lockSmall+'<h3>No disponible en modo demo</h3>'+
+      '<p>El historial son respaldos de tus datos reales. Sal del modo demo para verlo.</p></div>';
+    return;
+  }
+  if(state.historialLoading){
+    root.innerHTML = head+'<div class="card placeholder-card">Cargando…</div>';
+    return;
+  }
+  const mensaje = !state.historialMensaje ? '' :
+    '<div class="card" style="padding:14px 16px;margin-bottom:12px;border-color:var(--income-ink);">'+
+      '<div style="font-weight:700;font-size:13.5px;color:var(--income-ink);">'+state.historialMensaje+'</div></div>';
+  const error = !state.historialError ? '' :
+    '<div class="file-format-hint" style="margin-bottom:12px;">'+state.historialError+'</div>';
+  const snaps = state.historialSnapshots || [];
+  if(!snaps.length){
+    root.innerHTML = head+mensaje+error+'<div class="card placeholder-card">'+ICONS.repeat+
+      '<h3>Todavía no hay versiones guardadas</h3>'+
+      '<p>Cada vez que cambian tus datos se guarda sola una copia de cómo estaban antes. Aparecen acá a medida que uses la app, y se conservan los últimos 30 días.</p></div>';
+    return;
+  }
+  const filas = snaps.map(function(sn){
+    const enConfirmacion = state.confirmRestaurarId === sn.id;
+    const cuerpo =
+      '<div class="menu-item-card" style="padding:0;">'+
+        '<span class="menu-item-card-icon" style="--fill:var(--cat-sky-fill);--ink:var(--cat-sky-ink)">'+ICONS.resumen+'</span>'+
+        '<div class="menu-item-card-body">'+
+          '<div class="menu-item-card-name">'+fechaHoraSnapshot(sn.snapshot_at)+'</div>'+
+          '<div class="menu-item-card-sub">'+nTx(sn.n_transacciones)+' · '+pesoLegible(sn.peso_bytes)+'</div>'+
+        '</div>'+
+      '</div>';
+    if(!enConfirmacion){
+      return '<div class="card" style="padding:14px 16px;margin-bottom:10px;">'+cuerpo+
+        '<button class="budget-add-link" style="margin-top:10px;" data-historial-restaurar="'+sn.id+'">Restaurar esta versión</button>'+
+      '</div>';
+    }
+    // La advertencia dice las dos cosas que importan: qué se reemplaza, y que la vuelta atrás
+    // existe. Lo segundo es cierto por cómo está hecho (restaurar es un UPDATE, y el trigger
+    // archiva el estado previo), así que se puede prometer sin letra chica.
+    return '<div class="card" style="padding:14px 16px;margin-bottom:10px;border-color:var(--expense-ink);">'+cuerpo+
+      '<div class="muted" style="font-size:12.5px;margin-top:10px;">Tus datos de ahora ('+TRANSACTIONS.length+' transacción'+(TRANSACTIONS.length===1?'':'es')+') se reemplazan por los de esta versión. Antes de reemplazarlos se guardan como una versión más, arriba de esta lista, así que si te equivocas puedes volver.</div>'+
+      '<div style="display:flex;gap:10px;margin-top:12px;">'+
+        '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-historial-cancelar'+(state.historialRestaurando?' disabled':'')+'>Cancelar</button>'+
+        '<button class="save-tx-btn" style="flex:1;" data-historial-confirmar="'+sn.id+'"'+(state.historialRestaurando?' disabled':'')+'>'+
+          (state.historialRestaurando ? 'Restaurando…' : 'Sí, restaurar')+'</button>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+  root.innerHTML = head+mensaje+error+
+    '<div class="file-format-hint" style="margin-bottom:12px;">Cada vez que cambian tus datos se guarda sola una copia de cómo estaban antes. Se conservan las 30 más recientes y una por día de los últimos 30 días.</div>'+
+    filas;
+}
+
 export function renderMenuImportar(){
   const s = state.importSummary;
   document.getElementById('view-root').innerHTML = menuScreenHead('Importar CSV de cartola')+(
@@ -2279,6 +2363,7 @@ export function renderMenuView(){
   else if(state.menuSection==='reglas') renderMenuReglas();
   else if(state.menuSection==='exportar') renderMenuExportar();
   else if(state.menuSection==='respaldo') renderMenuRespaldo();
+  else if(state.menuSection==='historial') renderMenuHistorial();
   else if(state.menuSection==='importar') renderMenuImportar();
   else if(state.menuSection==='importarcorreo') renderMenuImportarCorreo();
   else if(state.menuSection==='notificaciones') renderMenuNotificaciones();

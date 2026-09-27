@@ -157,6 +157,7 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  groupExportSheets: groupExportSheets, buildGroupExportWorkbookArrayBuffer: buildGroupExportWorkbookArrayBuffer,
 """ + indent + """  splitTypeLabel: splitTypeLabel,
 """ + indent + """  esc: esc, toast: toast,
+""" + indent + """  renderMenuView: renderMenuView, fechaHoraSnapshot: fechaHoraSnapshot,
 """ + indent + """  respaldoInfo: respaldoInfo, DIAS_PARA_RECORDAR_RESPALDO: DIAS_PARA_RECORDAR_RESPALDO,
 """ + indent + """  get ultimoRespaldo(){ return ultimoRespaldo; }, set ultimoRespaldo(v){ ultimoRespaldo = v; }
 """ + indent + """};"""

@@ -3518,6 +3518,7 @@
       { section: "reglas", icon: "lockSmall", label: "Reglas de clasificaci\xF3n", sub: nReglas + " regla" + (nReglas === 1 ? "" : "s") + " autom\xE1tica" + (nReglas === 1 ? "" : "s") },
       { section: "exportar", icon: "trending", label: "Exportar a Excel", sub: "Descarga tus transacciones en un CSV" },
       { section: "respaldo", icon: "inbox", label: "Respaldo en JSON", sub: respaldoSubtitulo(), alerta: respaldoInfo().vencido },
+      { section: "historial", icon: "repeat", label: "Volver a una versi\xF3n anterior", sub: "Respaldos autom\xE1ticos de los \xFAltimos 30 d\xEDas" },
       { section: "importar", icon: "plusCircle", label: "Importar CSV de cartola", sub: "Sube movimientos desde un archivo de tu banco" },
       { section: "importarcorreo", icon: "inbox", label: "Importar desde tu correo", sub: "Autom\xE1tico, v\xEDa Gmail" },
       { section: "notificaciones", icon: "bell", label: "Notificaciones", sub: state.notifSubscribed ? "Activadas en este dispositivo" : "Av\xEDsame de transacciones y presupuesto" },
@@ -3610,6 +3611,60 @@
     document.getElementById("view-root").innerHTML = menuScreenHead("Respaldo en JSON") + aviso + '<div class="card" style="padding:16px;"><div class="menu-item-card" style="padding:0;margin-bottom:16px;"><span class="menu-item-card-icon" style="--fill:var(--cat-sky-fill);--ink:var(--cat-sky-ink)">' + ICONS.inbox + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">Copia completa de tus datos</div><div class="menu-item-card-sub">Transacciones, categor\xEDas, medios, presupuestos, metas y plataformas</div></div></div><button class="save-tx-btn" data-export-json style="width:100%;">Descargar JSON</button><div class="file-format-hint">' + (r.nunca ? "Todav\xEDa no has descargado ninguno." : "\xDAltimo descargado: " + dayLabel(ultimoRespaldo) + ".") + " Pensado para guardar una copia de respaldo o migrarla m\xE1s adelante \u2014 no se puede volver a importar desde esta maqueta.</div></div>";
   }
   __name(renderMenuRespaldo, "renderMenuRespaldo");
+  function nTx(n) {
+    return n + (n === 1 ? " transacci\xF3n" : " transacciones");
+  }
+  __name(nTx, "nTx");
+  function pesoLegible(bytes) {
+    if (!bytes || bytes < 1024) return (bytes || 0) + " B";
+    if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+  __name(pesoLegible, "pesoLegible");
+  function fechaHoraSnapshot(iso) {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    const hora = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    const hoy = /* @__PURE__ */ new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const dia = new Date(d);
+    dia.setHours(0, 0, 0, 0);
+    const dias = Math.round((hoy.getTime() - dia.getTime()) / 864e5);
+    if (dias === 0) return "hoy " + hora;
+    if (dias === 1) return "ayer " + hora;
+    const MES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+    return "hace " + dias + " d\xEDas \u2014 " + d.getDate() + " " + MES[d.getMonth()] + " " + hora;
+  }
+  __name(fechaHoraSnapshot, "fechaHoraSnapshot");
+  function renderMenuHistorial() {
+    const head = menuScreenHead("Volver a una versi\xF3n anterior");
+    const root = document.getElementById("view-root");
+    if (state.demoMode) {
+      root.innerHTML = head + '<div class="card placeholder-card">' + ICONS.lockSmall + "<h3>No disponible en modo demo</h3><p>El historial son respaldos de tus datos reales. Sal del modo demo para verlo.</p></div>";
+      return;
+    }
+    if (state.historialLoading) {
+      root.innerHTML = head + '<div class="card placeholder-card">Cargando\u2026</div>';
+      return;
+    }
+    const mensaje = !state.historialMensaje ? "" : '<div class="card" style="padding:14px 16px;margin-bottom:12px;border-color:var(--income-ink);"><div style="font-weight:700;font-size:13.5px;color:var(--income-ink);">' + state.historialMensaje + "</div></div>";
+    const error = !state.historialError ? "" : '<div class="file-format-hint" style="margin-bottom:12px;">' + state.historialError + "</div>";
+    const snaps = state.historialSnapshots || [];
+    if (!snaps.length) {
+      root.innerHTML = head + mensaje + error + '<div class="card placeholder-card">' + ICONS.repeat + "<h3>Todav\xEDa no hay versiones guardadas</h3><p>Cada vez que cambian tus datos se guarda sola una copia de c\xF3mo estaban antes. Aparecen ac\xE1 a medida que uses la app, y se conservan los \xFAltimos 30 d\xEDas.</p></div>";
+      return;
+    }
+    const filas = snaps.map(function(sn) {
+      const enConfirmacion = state.confirmRestaurarId === sn.id;
+      const cuerpo = '<div class="menu-item-card" style="padding:0;"><span class="menu-item-card-icon" style="--fill:var(--cat-sky-fill);--ink:var(--cat-sky-ink)">' + ICONS.resumen + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">' + fechaHoraSnapshot(sn.snapshot_at) + '</div><div class="menu-item-card-sub">' + nTx(sn.n_transacciones) + " \xB7 " + pesoLegible(sn.peso_bytes) + "</div></div></div>";
+      if (!enConfirmacion) {
+        return '<div class="card" style="padding:14px 16px;margin-bottom:10px;">' + cuerpo + '<button class="budget-add-link" style="margin-top:10px;" data-historial-restaurar="' + sn.id + '">Restaurar esta versi\xF3n</button></div>';
+      }
+      return '<div class="card" style="padding:14px 16px;margin-bottom:10px;border-color:var(--expense-ink);">' + cuerpo + '<div class="muted" style="font-size:12.5px;margin-top:10px;">Tus datos de ahora (' + TRANSACTIONS.length + " transacci\xF3n" + (TRANSACTIONS.length === 1 ? "" : "es") + ') se reemplazan por los de esta versi\xF3n. Antes de reemplazarlos se guardan como una versi\xF3n m\xE1s, arriba de esta lista, as\xED que si te equivocas puedes volver.</div><div style="display:flex;gap:10px;margin-top:12px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-historial-cancelar' + (state.historialRestaurando ? " disabled" : "") + '>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-historial-confirmar="' + sn.id + '"' + (state.historialRestaurando ? " disabled" : "") + ">" + (state.historialRestaurando ? "Restaurando\u2026" : "S\xED, restaurar") + "</button></div></div>";
+    }).join("");
+    root.innerHTML = head + mensaje + error + '<div class="file-format-hint" style="margin-bottom:12px;">Cada vez que cambian tus datos se guarda sola una copia de c\xF3mo estaban antes. Se conservan las 30 m\xE1s recientes y una por d\xEDa de los \xFAltimos 30 d\xEDas.</div>' + filas;
+  }
+  __name(renderMenuHistorial, "renderMenuHistorial");
   function renderMenuImportar() {
     const s = state.importSummary;
     document.getElementById("view-root").innerHTML = menuScreenHead("Importar CSV de cartola") + (s ? '<div class="card" style="padding:16px;"><div class="menu-item-card" style="padding:0;margin-bottom:14px;"><span class="menu-item-card-icon" style="--fill:var(--cat-mint-fill);--ink:var(--cat-mint-ink)">' + ICONS.checkCircle + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">' + s.archivo + '</div><div class="menu-item-card-sub">' + s.creadas + " fila" + (s.creadas === 1 ? "" : "s") + " le\xEDda" + (s.creadas === 1 ? "" : "s") + '</div></div></div><div class="rule-card-detail" style="margin-bottom:8px;">' + ICONS.check + "<span>" + s.creadas + ' transacciones creadas</span></div><div class="rule-card-detail" style="margin-bottom:8px;">' + ICONS.lockSmall + "<span>" + s.conRegla + ' categorizadas autom\xE1ticamente por una regla existente</span></div><div class="rule-card-detail" style="margin-bottom:' + (s.errores.length ? "8px" : "0") + ';">' + ICONS.question + "<span>" + s.pendientes + " quedaron pendientes de categorizar</span></div>" + (s.errores.length ? '<div class="rule-card-detail" style="color:var(--expense-ink);">' + s.errores.length + " fila" + (s.errores.length === 1 ? "" : "s") + " no se pudo leer</div>" : "") + '<button class="budget-add-link" data-import-again style="margin-top:14px;">Importar otro archivo</button>' + (s.pendientes > 0 ? '<button class="save-tx-btn" style="width:100%;margin-top:10px;" data-goto-pending>Ir a categorizarlas</button>' : "") + "</div>" : '<div class="card file-drop-card">' + ICONS.inbox + '<p>Sube un archivo CSV con tus movimientos. Cada fila necesita fecha, descripci\xF3n del comercio y monto (negativo para gastos, positivo para ingresos).</p><label class="save-tx-btn" style="display:inline-block;cursor:pointer;">Elegir archivo<input type="file" accept=".csv,text/csv" data-csv-file-input style="display:none;"></label><div class="file-format-hint">Formato esperado: <code>fecha,descripcion,monto</code><br>Ej: <code>2026-08-20,Jumbo \xD1u\xF1oa,-45000</code></div></div>');
@@ -5163,6 +5218,7 @@
     else if (state.menuSection === "reglas") renderMenuReglas();
     else if (state.menuSection === "exportar") renderMenuExportar();
     else if (state.menuSection === "respaldo") renderMenuRespaldo();
+    else if (state.menuSection === "historial") renderMenuHistorial();
     else if (state.menuSection === "importar") renderMenuImportar();
     else if (state.menuSection === "importarcorreo") renderMenuImportarCorreo();
     else if (state.menuSection === "notificaciones") renderMenuNotificaciones();
@@ -7162,7 +7218,54 @@
         loadNotifStatus();
         return;
       }
+      if (state.menuSection === "historial") {
+        state.historialLoading = true;
+        state.historialMensaje = null;
+        state.confirmRestaurarId = null;
+        renderMenuView();
+        loadHistorialSnapshots().then(function() {
+          renderMenuView();
+        });
+        return;
+      }
       renderMenuView();
+      return;
+    }
+    const histRestaurarBtn = e.target.closest("[data-historial-restaurar]");
+    if (histRestaurarBtn) {
+      state.confirmRestaurarId = histRestaurarBtn.getAttribute("data-historial-restaurar");
+      state.historialMensaje = null;
+      renderMenuView();
+      return;
+    }
+    const histCancelarBtn = e.target.closest("[data-historial-cancelar]");
+    if (histCancelarBtn) {
+      state.confirmRestaurarId = null;
+      renderMenuView();
+      return;
+    }
+    const histConfirmarBtn = e.target.closest("[data-historial-confirmar]");
+    if (histConfirmarBtn) {
+      const id = histConfirmarBtn.getAttribute("data-historial-confirmar");
+      const sn = (state.historialSnapshots || []).find(function(x) {
+        return x.id === id;
+      });
+      state.historialRestaurando = true;
+      renderMenuView();
+      restaurarSnapshot(id).then(function(ok) {
+        state.historialRestaurando = false;
+        state.confirmRestaurarId = null;
+        if (ok) {
+          state.historialMensaje = "Listo: volviste a la versi\xF3n de " + (sn ? fechaHoraSnapshot(sn.snapshot_at) : "antes") + ".";
+          loadHistorialSnapshots().then(function() {
+            renderMenuView();
+            render();
+          });
+        } else {
+          state.historialError = "No se pudo restaurar. Revisa tu conexi\xF3n e intenta de nuevo.";
+          renderMenuView();
+        }
+      });
       return;
     }
     const notifToggleBtn = e.target.closest("[data-notif-toggle]");
@@ -9173,6 +9276,48 @@
     }
   }
   __name(writeStateToSupabase, "writeStateToSupabase");
+  async function loadHistorialSnapshots() {
+    if (!sb || !currentHouseholdId) {
+      state.historialSnapshots = [];
+      state.historialLoading = false;
+      return;
+    }
+    state.historialLoading = true;
+    state.historialError = null;
+    try {
+      const { data, error } = await sb.from("app_state_historial").select("id, snapshot_at, n_transacciones, peso_bytes").eq("household_id", currentHouseholdId).order("snapshot_at", { ascending: false });
+      if (error) throw error;
+      state.historialSnapshots = data || [];
+    } catch (err) {
+      console.error("Pitucas sin lucas \u2014 error cargando el historial:", err);
+      state.historialError = "No se pudo cargar el historial. Revisa tu conexi\xF3n e intenta de nuevo.";
+      state.historialSnapshots = [];
+    }
+    state.historialLoading = false;
+  }
+  __name(loadHistorialSnapshots, "loadHistorialSnapshots");
+  async function restaurarSnapshot(snapshotId) {
+    if (!sb || !currentHouseholdId) return false;
+    try {
+      suppressAutoSave = true;
+      clearTimeout(saveTimer);
+      const { error } = await sb.rpc("restaurar_snapshot", { p_snapshot_id: snapshotId });
+      if (error) throw error;
+      const { data: stateRow, error: readErr } = await sb.from("app_state").select("data").eq("household_id", currentHouseholdId).single();
+      if (readErr) throw readErr;
+      applyStateBlob(stateRow && stateRow.data || emptyAppStateBlob());
+      lastSavedBlobJSON = JSON.stringify(buildFullStateBlob());
+      return true;
+    } catch (err) {
+      console.error("Pitucas sin lucas \u2014 error restaurando el respaldo:", err);
+      return false;
+    } finally {
+      setTimeout(function() {
+        suppressAutoSave = false;
+      }, 0);
+    }
+  }
+  __name(restaurarSnapshot, "restaurarSnapshot");
   function scheduleSave() {
     if (suppressAutoSave || !sb || !currentHouseholdId) return;
     clearTimeout(saveTimer);
@@ -11441,7 +11586,7 @@
     // id of the sub-tab currently being dragged, or null
     // ---- Menu ----
     menuSection: null,
-    // null | 'categorias' | 'medios' | 'reglas' | 'exportar' | 'respaldo' | 'importar' | 'demo' | 'asesoria' | 'cuenta' | 'importarcorreo' | 'notificaciones'
+    // null | 'categorias' | 'medios' | 'reglas' | 'exportar' | 'respaldo' | 'importar' | 'demo' | 'asesoria' | 'cuenta' | 'importarcorreo' | 'notificaciones' | 'historial'
     emailImportLoaded: false,
     // whether the import code has already been loaded at least once
     emailImportLoading: false,
@@ -11461,6 +11606,17 @@
     // sending the test notification right now
     notifTestResult: null,
     // text with the Worker's actual result (unlike enviarPushHogar, this one DOES wait for the response)
+    // ---- Historial del blob (Menú > Volver a una versión anterior) ----
+    historialLoading: false,
+    historialError: null,
+    historialSnapshots: null,
+    // [{id, snapshot_at, n_transacciones, peso_bytes}] del más nuevo al más viejo, o null si no se ha cargado
+    confirmRestaurarId: null,
+    // id del snapshot mostrando "¿seguro?" antes de restaurar de verdad
+    historialRestaurando: false,
+    // restauración en curso (deshabilita los botones)
+    historialMensaje: null,
+    // resultado de la última restauración, para mostrarlo en pantalla
     confirmDeleteTxId: null,
     // id of the transaction showing "are you sure you want to delete it?"
     salaryBannerDismissedMonth: null,
@@ -11794,6 +11950,7 @@
     groupExportSheets: groupExportSheets, buildGroupExportWorkbookArrayBuffer: buildGroupExportWorkbookArrayBuffer,
     splitTypeLabel: splitTypeLabel,
     esc: esc, toast: toast,
+    renderMenuView: renderMenuView, fechaHoraSnapshot: fechaHoraSnapshot,
     respaldoInfo: respaldoInfo, DIAS_PARA_RECORDAR_RESPALDO: DIAS_PARA_RECORDAR_RESPALDO,
     get ultimoRespaldo(){ return ultimoRespaldo; }, set ultimoRespaldo(v){ ultimoRespaldo = v; }
   };
