@@ -285,6 +285,16 @@ phone.addEventListener('click', function(e: any){
     closeSheet(); return;
   }
 
+  const editarTCTx = e.target.closest('[data-editar-tc-tx]');
+  if(editarTCTx){
+    state.editandoTCTx = editarTCTx.getAttribute('data-editar-tc-tx');
+    renderSheet();
+    setTimeout(function(){
+      const el = document.querySelector('[data-tx-tipocambio]') as HTMLInputElement | null;
+      if(el){ el.focus(); el.select(); }
+    }, 50);
+    return;
+  }
   const editarTC = e.target.closest('[data-editar-tipocambio]');
   if(editarTC && state.draftTx){
     // Faltaba este handler: el botón "cambiarlo" se dibujaba pero no estaba enganchado a nada, así
@@ -2820,6 +2830,27 @@ phone.addEventListener('input', function(e: any){
     return;
   }
 
+  const tcTx = e.target.closest('[data-tx-tipocambio]');
+  if(tcTx){
+    const t = getTx(tcTx.getAttribute('data-tx-tipocambio'));
+    if(t && t.montoOriginal){
+      const v = parseFloat(String(tcTx.value).replace(/\./g,'').replace(',','.'));
+      const tc = (isFinite(v) && v>0) ? v : null;
+      t.tipoCambio = tc || undefined;
+      // El monto se recalcula desde montoOriginal, NO desde el monto actual: reconvertir sobre
+      // un monto ya convertido lo multiplicaría de nuevo cada vez que se corrige el valor.
+      t.monto = tc ? convertirUSDaCLP(t.montoOriginal, tc) : 0;
+      if(t.categorias[0]) t.categorias[0].monto = t.monto;
+      // Llegó sin convertir y ahora tiene un monto real: deja de estar pendiente por ese motivo.
+      if(tc && t.estado==='pendiente' && t.categorias.length>0) t.estado='confirmado';
+      // El monto de arriba se parcha en vivo, sin re-renderizar, para no perder el foco del
+      // campo mientras se escribe (mismo criterio que el monto del borrador en dólares).
+      const amtEl = document.querySelector('.sheet-amount');
+      if(amtEl) amtEl.textContent = money(t.monto);
+      renderIfListVisible();
+    }
+    return;
+  }
   const tcManual = e.target.closest('[data-draft-tipocambio]');
   if(tcManual && state.draftTx){
     // Fallback cuando la API no responde: se acepta el valor a mano y se recalcula igual que si

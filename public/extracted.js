@@ -4638,6 +4638,19 @@
       closeSheet();
       return;
     }
+    const editarTCTx = e.target.closest("[data-editar-tc-tx]");
+    if (editarTCTx) {
+      state.editandoTCTx = editarTCTx.getAttribute("data-editar-tc-tx");
+      renderSheet();
+      setTimeout(function() {
+        const el = document.querySelector("[data-tx-tipocambio]");
+        if (el) {
+          el.focus();
+          el.select();
+        }
+      }, 50);
+      return;
+    }
     const editarTC = e.target.closest("[data-editar-tipocambio]");
     if (editarTC && state.draftTx) {
       state.draftTx.editandoTipoCambio = true;
@@ -7173,6 +7186,22 @@
       updateProyeccionCompute();
       return;
     }
+    const tcTx = e.target.closest("[data-tx-tipocambio]");
+    if (tcTx) {
+      const t = getTx(tcTx.getAttribute("data-tx-tipocambio"));
+      if (t && t.montoOriginal) {
+        const v = parseFloat(String(tcTx.value).replace(/\./g, "").replace(",", "."));
+        const tc = isFinite(v) && v > 0 ? v : null;
+        t.tipoCambio = tc || void 0;
+        t.monto = tc ? convertirUSDaCLP(t.montoOriginal, tc) : 0;
+        if (t.categorias[0]) t.categorias[0].monto = t.monto;
+        if (tc && t.estado === "pendiente" && t.categorias.length > 0) t.estado = "confirmado";
+        const amtEl = document.querySelector(".sheet-amount");
+        if (amtEl) amtEl.textContent = money(t.monto);
+        renderIfListVisible();
+      }
+      return;
+    }
     const tcManual = e.target.closest("[data-draft-tipocambio]");
     if (tcManual && state.draftTx) {
       const v = parseFloat(String(tcManual.value).replace(/\./g, "").replace(",", "."));
@@ -8532,10 +8561,14 @@
   function origenEnOtraMonedaHtml(t) {
     if (!t || t.moneda !== "USD" || !t.montoOriginal) return "";
     const enUSD = "US$" + Number(t.montoOriginal).toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (!t.tipoCambio) {
-      return '<div class="meta sheet-moneda-origen sin-convertir">' + enUSD + " \xB7 falta el tipo de cambio para convertirlo</div>";
+    if (state.editandoTCTx === t.id) {
+      const actual = t.tipoCambio ? String(t.tipoCambio).replace(".", ",") : "";
+      return '<div class="sheet-moneda-origen-edit"><span class="meta">' + enUSD + ' \xB7 d\xF3lar a</span><input type="text" inputmode="decimal" class="draft-input tabular" data-tx-tipocambio="' + t.id + '" value="' + esc(actual) + '" placeholder="965,71"></div>';
     }
-    return '<div class="meta sheet-moneda-origen">' + enUSD + " \xB7 d\xF3lar a $" + String(t.tipoCambio).replace(".", ",") + "</div>";
+    if (!t.tipoCambio) {
+      return '<button class="meta sheet-moneda-origen sin-convertir" data-editar-tc-tx="' + t.id + '">' + enUSD + " \xB7 falta el tipo de cambio \u2014 t\xF3calo para escribirlo</button>";
+    }
+    return '<button class="meta sheet-moneda-origen" data-editar-tc-tx="' + t.id + '">' + enUSD + " \xB7 d\xF3lar a $" + String(t.tipoCambio).replace(".", ",") + "</button>";
   }
   __name(origenEnOtraMonedaHtml, "origenEnOtraMonedaHtml");
   function renderSheetContent(t) {
@@ -8723,6 +8756,7 @@
     state.openTxId = null;
     state.creatingNew = false;
     state.notaSheet = null;
+    state.editandoTCTx = null;
     state.draftTx = null;
     state.filterSheetOpen = false;
     state.linkFlow = null;
@@ -9918,6 +9952,8 @@
     filterSheetOpen: false,
     // {mes, catId} mientras el pop-up de la nota de una categoría está abierto; null si no.
     notaSheet: null,
+    // id de la transacción cuyo tipo de cambio se está editando en el detalle, o null.
+    editandoTCTx: null,
     addingPaymentMethod: false,
     // true while the "add card" mini-form is shown
     newPaymentMethodDraft: { nombre: "", ultimos4: "" },

@@ -423,6 +423,8 @@ export const state: AppState = {
   filterSheetOpen:false,
   // {mes, catId} mientras el pop-up de la nota de una categoría está abierto; null si no.
   notaSheet:null as null | {mes:string; catId:string},
+  // id de la transacción cuyo tipo de cambio se está editando en el detalle, o null.
+  editandoTCTx:null as null | string,
   addingPaymentMethod:false,  // true while the "add card" mini-form is shown
   newPaymentMethodDraft:{nombre:'', ultimos4:''},
   editingBudgetCat:null,       // catId being edited inline, or null

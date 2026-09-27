@@ -352,10 +352,20 @@ function renderIncomeNatureBlock(t){
 export function origenEnOtraMonedaHtml(t){
   if(!t || t.moneda !== 'USD' || !t.montoOriginal) return '';
   const enUSD = 'US$'+Number(t.montoOriginal).toLocaleString('es-CL', {minimumFractionDigits:2, maximumFractionDigits:2});
-  if(!t.tipoCambio){
-    return '<div class="meta sheet-moneda-origen sin-convertir">'+enUSD+' · falta el tipo de cambio para convertirlo</div>';
+  // Editando: el campo para escribir el tipo de cambio de una transacción YA guardada. Antes
+  // esto no existía -- una compra que llegaba sin convertir (la API caída el día que entró) no
+  // tenía arreglo desde la app: había que borrarla y rehacerla a mano.
+  if(state.editandoTCTx === t.id){
+    const actual = t.tipoCambio ? String(t.tipoCambio).replace('.', ',') : '';
+    return '<div class="sheet-moneda-origen-edit">'+
+      '<span class="meta">'+enUSD+' · dólar a</span>'+
+      '<input type="text" inputmode="decimal" class="draft-input tabular" data-tx-tipocambio="'+t.id+'" value="'+esc(actual)+'" placeholder="965,71">'+
+    '</div>';
   }
-  return '<div class="meta sheet-moneda-origen">'+enUSD+' · dólar a $'+String(t.tipoCambio).replace('.', ',')+'</div>';
+  if(!t.tipoCambio){
+    return '<button class="meta sheet-moneda-origen sin-convertir" data-editar-tc-tx="'+t.id+'">'+enUSD+' · falta el tipo de cambio — tócalo para escribirlo</button>';
+  }
+  return '<button class="meta sheet-moneda-origen" data-editar-tc-tx="'+t.id+'">'+enUSD+' · dólar a $'+String(t.tipoCambio).replace('.', ',')+'</button>';
 }
 export function renderSheetContent(t){
   const isIncome = t.tipo==='ingreso';
@@ -746,6 +756,7 @@ export function closeSheet(){
   state.openTxId = null;
   state.creatingNew = false;
   state.notaSheet = null;
+  state.editandoTCTx = null;
   state.draftTx = null;
   state.filterSheetOpen = false;
   state.linkFlow = null;
