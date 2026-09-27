@@ -88,5 +88,11 @@ end;
 $$;
 
 -- anon: así llega el Worker (sin sesión de usuario, solo con el anon key).
+-- revoke ... from public primero: PostgreSQL otorga EXECUTE sobre toda función nueva al rol
+-- especial PUBLIC (que incluye a `anon`, el rol sin sesión), así que el grant de abajo por sí
+-- solo NO restringe nada -- agrega un permiso que ya estaba. Revocar PUBLIC y otorgar `anon`
+-- explícito deja el permiso declarado en el ACL en vez de heredado. Ver fix_permisos_publicos.sql.
+revoke execute on function obtener_suscripciones_push(uuid, uuid) from public;
+revoke execute on function eliminar_suscripcion_push(uuid, uuid, text) from public;
 grant execute on function obtener_suscripciones_push(uuid, uuid) to anon, authenticated;
 grant execute on function eliminar_suscripcion_push(uuid, uuid, text) to anon, authenticated;

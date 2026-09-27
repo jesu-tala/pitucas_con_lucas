@@ -104,6 +104,13 @@ language plpgsql security definer set search_path = public as $$
 declare
   v_grupo_id uuid;
 begin
+  -- Sin sesión no hay a quién unir, y el `on conflict` de más abajo NO protege ese caso: con
+  -- auth.uid() en null el unique (grupo_id, user_id) no ve un conflicto (en un índice unique
+  -- los NULL cuentan como distintos entre sí), así que cada llamada insertaría un participante
+  -- nuevo, sin tope. Se rechaza explícito en vez de confiar en el unique.
+  if auth.uid() is null then
+    raise exception 'hay que tener la sesión abierta para unirse a un grupo';
+  end if;
   select id into v_grupo_id from grupos where invite_code = p_invite_code;
   if v_grupo_id is null then
     raise exception 'código de invitación inválido';
@@ -115,6 +122,11 @@ begin
 end;
 $$;
 
+-- revoke ... from public primero: PostgreSQL otorga EXECUTE sobre toda función nueva al rol
+-- especial PUBLIC (que incluye a `anon`, el rol SIN sesión), así que el grant a `authenticated`
+-- de abajo por sí solo NO cierra nada. Sin el revoke, cualquiera con la anon key (que está a la
+-- vista en el cliente) podía llamar esta función sin tener cuenta. Ver fix_permisos_publicos.sql.
+revoke execute on function unirse_a_grupo(uuid, text) from public;
 grant execute on function unirse_a_grupo(uuid, text) to authenticated;
 
 -- ============ Los gastos compartidos en sí ============
