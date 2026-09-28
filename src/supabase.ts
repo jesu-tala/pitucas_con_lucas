@@ -296,6 +296,26 @@ export async function writeStateToSupabase(){
     return false;
   }
 }
+/* ---------- rotar el código de importación (ver backend/supabase/fix_rotar_import_token.sql) ---------- */
+
+// No le pasa el hogar: la función lo saca de auth.uid() adentro, justamente para que nadie
+// pueda apuntarla a un hogar ajeno. Devuelve el código nuevo, que se guarda en state para que
+// la pantalla lo muestre al toque -- y para que el push de prueba y el lector de boletas, que
+// mandan state.importToken al Worker, sigan funcionando sin recargar la app.
+export async function rotarImportToken(){
+  if(!sb || !currentHouseholdId) return false;
+  try{
+    const { data, error } = await sb.rpc('rotar_import_token');
+    if(error) throw error;
+    if(!data) throw new Error('el servidor no devolvió un código nuevo');
+    state.importToken = data;
+    return true;
+  }catch(err){
+    console.error('Pitucas sin lucas — error rotando el código de importación:', err);
+    return false;
+  }
+}
+
 /* ---------- historial del blob: listar y restaurar (ver backend/supabase/schema_historial_blob.sql) ---------- */
 
 // A propósito NO trae la columna `data`: 30 snapshots de un blob de 300 KB serían 9 MB

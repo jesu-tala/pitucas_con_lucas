@@ -468,6 +468,11 @@ export const state: AppState = {
   notifBusy:false,              // subscribing/unsubscribing right now (disables the button)
   notifTestBusy:false,          // sending the test notification right now
   notifTestResult:null,         // text with the Worker's actual result (unlike enviarPushHogar, this one DOES wait for the response)
+  // ---- Rotación del código de importación (Menú > Importar desde tu correo) ----
+  confirmRotarToken:false,      // mostrando el "¿seguro?" antes de cambiar el código
+  rotandoToken:false,           // rotación en curso (deshabilita los botones)
+  tokenRotado:false,            // ya se rotó en esta visita: cambia el texto para avisar que hay que pegarlo en el Apps Script
+  rotarTokenError:null,
   // ---- Historial del blob (Menú > Volver a una versión anterior) ----
   historialLoading:false,
   historialError:null,
