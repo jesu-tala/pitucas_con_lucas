@@ -7924,8 +7924,11 @@
     const el = document.getElementById("sync-indicator");
     if (!el) return;
     clearTimeout(syncHideTimer);
-    el.classList.toggle("error", status === "error");
-    if (status === "error") {
+    el.classList.toggle("error", status === "error" || status === "demasiado-grande");
+    if (status === "demasiado-grande") {
+      el.hidden = false;
+      el.textContent = "Tus datos no caben \u2014 borra algo viejo";
+    } else if (status === "error") {
       el.hidden = false;
       el.textContent = "Sin conexi\xF3n \u2014 no se guard\xF3";
     } else {
@@ -7933,9 +7936,26 @@
     }
   }
   __name(updateSyncIndicator, "updateSyncIndicator");
+  var MAX_BYTES_BLOB = 2097152;
+  function bytesDe(texto) {
+    if (texto.length < MAX_BYTES_BLOB / 3) return texto.length;
+    return new TextEncoder().encode(texto).length;
+  }
+  __name(bytesDe, "bytesDe");
+  function esErrorDeTamano(error) {
+    if (!error) return false;
+    if (error.code === "23514") return true;
+    return /el máximo es/i.test(String(error.message || ""));
+  }
+  __name(esErrorDeTamano, "esErrorDeTamano");
   async function writeStateToSupabase() {
     if (!sb || !currentHouseholdId) return true;
     const blobJSON = JSON.stringify(buildFullStateBlob());
+    if (bytesDe(blobJSON) > MAX_BYTES_BLOB) {
+      console.error("Pitucas sin lucas \u2014 el blob supera el techo de", MAX_BYTES_BLOB, "bytes");
+      updateSyncIndicator("demasiado-grande");
+      return false;
+    }
     if (blobJSON === lastSavedBlobJSON) return true;
     updateSyncIndicator("saving");
     try {
@@ -7946,7 +7966,7 @@
       }).eq("household_id", currentHouseholdId);
       if (error) {
         console.error("Pitucas sin lucas \u2014 error guardando en Supabase:", error);
-        updateSyncIndicator("error");
+        updateSyncIndicator(esErrorDeTamano(error) ? "demasiado-grande" : "error");
         return false;
       }
       lastSavedBlobJSON = blobJSON;

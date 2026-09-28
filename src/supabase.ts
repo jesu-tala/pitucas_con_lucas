@@ -250,8 +250,12 @@ export function updateSyncIndicator(status){
   const el = document.getElementById('sync-indicator');
   if(!el) return;
   clearTimeout(syncHideTimer);
-  el.classList.toggle('error', status==='error');
-  if(status==='error'){
+  el.classList.toggle('error', status==='error' || status==='demasiado-grande');
+  if(status==='demasiado-grande'){
+    // Un mensaje aparte: decir "sin conexión" acá mandaría a revisar el wifi por un problema
+    // que no tiene nada que ver, y que además no se va a arreglar solo esperando.
+    el.hidden = false; el.textContent = 'Tus datos no caben — borra algo viejo';
+  } else if(status==='error'){
     el.hidden = false; el.textContent = 'Sin conexión — no se guardó';
   } else {
     el.hidden = true;
@@ -265,9 +269,46 @@ export function updateSyncIndicator(status){
 // guardó, y el guardado fallaba (sin conexión, error de Supabase), esa transacción se perdía
 // para siempre en silencio -- quedaba en memoria pero nunca escrita, y como el correo ya
 // figuraba procesado, jamás se reintentaba.
+// Techo al tamaño del blob. Tiene que decir lo mismo que v_techo en
+// backend/supabase/fix_limite_tamano_blob.sql -- el límite REAL lo aplica la base (un trigger,
+// porque la API REST se puede llamar sin pasar por esta interfaz); esto de acá existe para dar
+// un mensaje claro antes de mandar 2 MB por la red para que los rechacen.
+// audit_limite_tamano_blob.js falla si los dos números dejan de coincidir.
+export const MAX_BYTES_BLOB = 2097152;   // 2 MB
+
+// Cuántos BYTES ocupa el string en UTF-8, que es lo que mide el trigger con octet_length.
+// El .length de JavaScript cuenta unidades UTF-16, así que un blob lleno de acentos y eñes
+// pesa más bytes que caracteres -- medir mal acá daría un techo distinto al de la base.
+// La cuenta exacta recorre el string entero, así que solo se hace cuando el conteo barato ya
+// está cerca del techo: en un guardado normal, que está lejísimos, no se paga nada.
+//
+// El umbral del camino rápido es un TERCIO del techo, y ese 3 no es holgura al azar: en UTF-8
+// un carácter ocupa como máximo 3 bytes por unidad UTF-16 (el peor caso son los del rango
+// U+0800–U+FFFF, como el chino). Con un umbral de la mitad, un texto de esos podría pesar
+// hasta 1,5 veces el techo y pasar sin que nadie lo midiera. Con un tercio, si el conteo
+// barato está por debajo el peso real no puede superar el techo, sea cual sea el contenido.
+export function bytesDe(texto){
+  if(texto.length < MAX_BYTES_BLOB / 3) return texto.length;
+  return new TextEncoder().encode(texto).length;
+}
+
+// Reconoce el rechazo del trigger de tamaño (fix_limite_tamano_blob.sql), que llega con
+// errcode check_violation. Se mira también el texto por si el código no viaja: el mensaje del
+// trigger es el único que habla de "máximo es ... MB".
+function esErrorDeTamano(error){
+  if(!error) return false;
+  if(error.code === '23514') return true;                 // check_violation
+  return /el máximo es/i.test(String(error.message||''));
+}
+
 export async function writeStateToSupabase(){
   if(!sb || !currentHouseholdId) return true;
   const blobJSON = JSON.stringify(buildFullStateBlob());
+  if(bytesDe(blobJSON) > MAX_BYTES_BLOB){
+    console.error('Pitucas sin lucas — el blob supera el techo de', MAX_BYTES_BLOB, 'bytes');
+    updateSyncIndicator('demasiado-grande');
+    return false;
+  }
   // Almost everything that happens in the app (switching tabs, opening a transaction, filtering)
   // ends up in a repaint of the phone, and that's why it schedules a save (see autoSaveObserver
   // below) — but most of those repaints didn't change any real data, only the
@@ -282,7 +323,15 @@ export async function writeStateToSupabase(){
       updated_at: new Date().toISOString(),
       updated_by: currentUser ? currentUser.id : null
     }).eq('household_id', currentHouseholdId);
-    if(error){ console.error('Pitucas sin lucas — error guardando en Supabase:', error); updateSyncIndicator('error'); return false; }
+    if(error){
+      console.error('Pitucas sin lucas — error guardando en Supabase:', error);
+      // El techo real lo pone el trigger de la base, no el chequeo de más arriba: una pestaña
+      // vieja con código anterior, o una llamada directa a la API, llegan igual hasta acá. Si
+      // el rechazo vino por tamaño hay que decir ESO y no "sin conexión", que manda a revisar
+      // el wifi por algo que esperar no arregla.
+      updateSyncIndicator(esErrorDeTamano(error) ? 'demasiado-grande' : 'error');
+      return false;
+    }
     lastSavedBlobJSON = blobJSON;
     updateSyncIndicator('saved');
     // Right after an actual save (not just any repaint) is the only moment when
