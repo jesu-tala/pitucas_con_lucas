@@ -864,8 +864,23 @@ export function pgBytesToArrayBuffer(val){
   return bytes.buffer;
 }
 
+// Cuánto viven las cartolas en la app. Tiene que decir lo MISMO que el
+// `interval '2 months'` de backend/supabase/fix_retencion_cartolas.sql, en los dos lugares
+// donde ese archivo lo escribe -- el plazo real lo aplica la base, esto es solo para el texto
+// que se le muestra a la persona, y un texto que prometa un plazo distinto al que se cumple es
+// peor que no decir nada. audit_retencion_cartolas.js falla si se desincronizan.
+export const MESES_RETENCION_CARTOLAS = 2;
+
 export async function loadAvailableStatements(){
   if(!sb || !currentHouseholdId) return;
+  // La limpieza de vencidas va ANTES de listar, para que no aparezca en la lista una cartola
+  // que está a punto de borrarse. El trigger de la base ya limpia cuando llega una cartola
+  // nueva; esto cubre el caso que el trigger no puede ver: si dejan de llegar cartolas, sin
+  // esta llamada la última tanda se quedaría guardada para siempre porque no habría ningún
+  // insert que dispare el trigger. Si falla, no es grave: se listan igual y se reintenta la
+  // próxima vez que se abra la pantalla.
+  try{ await sb.rpc('limpiar_cartolas_vencidas'); }
+  catch(err){ console.warn('Pitucas sin lucas — no se pudo limpiar cartolas vencidas:', err); }
   try{
     const { data, error } = await sb.from('cartolas_importadas')
       .select('id,tipo,nombre_archivo,recibido_en')
@@ -1009,7 +1024,12 @@ export function renderCartolasDisponiblesBlock(){
       '<button class="chip" data-statement-use="'+d.id+'">Usar esta</button>'+
     '</div>';
   }).join('');
-  return '<div class="section-title" style="margin-top:0;">Llegaron solas por correo</div>'+filas;
+  return '<div class="section-title" style="margin-top:0;">Llegaron solas por correo</div>'+filas+
+    // Se dice acá, donde están las cartolas a la vista, y se dice la parte que de verdad
+    // preocupa: que lo que se borra es el PDF, no lo que ya sacaste de él.
+    '<div class="file-format-hint" style="margin-top:2px;">Las cartolas se borran solas '+
+      MESES_RETENCION_CARTOLAS+' meses después de llegar. Las transacciones que hayas creado '+
+      'desde ellas se quedan — lo único que se borra es el PDF del banco.</div>';
 }
 
 export function renderMenuReconciliar(){
@@ -2290,6 +2310,36 @@ export function checkBudgetPushAlerts(){
   });
 }
 
+// El bloque de "cambiar el código", debajo del código mismo. Tres estados: el link discreto,
+// la confirmación, y el aviso posterior.
+//
+// Por qué pide confirmación: rotar deja al Apps Script con el código viejo, y desde ese momento
+// la importación automática DEJA de entrar hasta que la persona vaya a script.google.com y
+// pegue el nuevo. Es la consecuencia que hay que decir antes, no después -- si no, el síntoma
+// es "dejaron de aparecer mis compras" varios días más tarde, sin ninguna pista de la causa.
+function rotarTokenBlock(){
+  if(state.rotandoToken || state.confirmRotarToken){
+    return '<div class="card" style="padding:14px 16px;margin-top:12px;border-color:var(--expense-ink);">'+
+      '<div style="font-weight:700;font-size:13.5px;margin-bottom:6px;">¿Cambiar el código?</div>'+
+      '<div class="muted" style="font-size:12.5px;">El código de ahora deja de servir al instante. Tu Apps Script se queda con el viejo, así que <b>las compras van a dejar de entrar solas</b> hasta que pegues el código nuevo allá. Hazlo si crees que alguien más pudo ver este código.</div>'+
+      '<div style="display:flex;gap:10px;margin-top:12px;">'+
+        '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-rotar-token-cancelar'+(state.rotandoToken?' disabled':'')+'>Cancelar</button>'+
+        '<button class="save-tx-btn" style="flex:1;" data-rotar-token-confirmar'+(state.rotandoToken?' disabled':'')+'>'+
+          (state.rotandoToken ? 'Cambiando…' : 'Sí, cambiarlo')+'</button>'+
+      '</div>'+
+    '</div>';
+  }
+  const error = state.rotarTokenError
+    ? '<div class="file-format-hint" style="margin-top:10px;">'+state.rotarTokenError+'</div>' : '';
+  if(state.tokenRotado){
+    return '<div class="card" style="padding:14px 16px;margin-top:12px;border-color:var(--income-ink);">'+
+      '<div style="font-weight:700;font-size:13.5px;color:var(--income-ink);margin-bottom:6px;">Código cambiado</div>'+
+      '<div class="muted" style="font-size:12.5px;">Arriba está el nuevo. Cópialo y pégalo en tu Apps Script, en la línea <b>IMPORT_TOKEN</b> — hasta que lo hagas, las compras no van a entrar solas.</div>'+
+    '</div>'+error;
+  }
+  return '<button class="budget-add-link" style="margin-top:12px;" data-rotar-token>Cambiar este código</button>'+error;
+}
+
 export function renderMenuImportarCorreo(){
   const head = menuScreenHead('Importar desde tu correo');
   if(state.emailImportLoading){
@@ -2316,6 +2366,7 @@ export function renderMenuImportarCorreo(){
         '<input class="draft-input" readonly value="'+(state.importToken||'')+'" style="font-size:11.5px;">'+
         '<button class="budget-edit-btn" data-copy-text="'+(state.importToken||'')+'" aria-label="Copiar código de importación">'+ICONS.copy+'</button>'+
       '</div>'+
+      rotarTokenBlock()+
     '</div>';
   const infoBlock = '<div class="card placeholder-card">'+ICONS.checkCircle+'<h3>Se agregan solas</h3>'+
     '<p>Cuando el script encuentre una transacción nueva en tu correo, la agrega directo a tu pestaña de <b>Transacciones</b>, marcada como pendiente (sin categoría) para que la clasifiques ahí mismo — igual que cualquier otra transacción sin clasificar. Si alguna se agregó por error, ábrela y elimínala desde ahí.</p></div>';

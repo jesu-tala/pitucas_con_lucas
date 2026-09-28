@@ -252,6 +252,14 @@ export function renderTransactionsView(){
     }
   }
 
+  // La fila de chips de categoría se desplaza de lado (.chip-row es overflow-x:auto) y hay
+  // bastantes más de las que caben a lo ancho del teléfono. Como acá se reescribe el innerHTML
+  // entero, el navegador vuelve a crear ese div y su scroll arranca en cero: tocar un chip que
+  // estaba a la derecha hacía saltar la fila al principio, dejando fuera de pantalla el chip
+  // recién tocado. Se guarda la posición antes de reescribir y se restaura después.
+  const chipRowPrevio = document.querySelector('#view-root .chip-row');
+  const chipScroll = chipRowPrevio ? chipRowPrevio.scrollLeft : 0;
+
   document.getElementById('view-root').innerHTML =
     searchRow +
     '<div class="chip-row">'+filterPill+chipsHtml+'</div>'+
@@ -259,6 +267,12 @@ export function renderTransactionsView(){
     sueldoBanner+
     '<div id="tx-results">'+renderTxResultsInner()+'</div>'+
     '<div style="height:64px;"></div>';
+
+  // Se restaura en el mismo tick (antes de que el navegador pinte), así no se ve el salto.
+  if(chipScroll){
+    const chipRowNuevo = document.querySelector('#view-root .chip-row');
+    if(chipRowNuevo) chipRowNuevo.scrollLeft = chipScroll;
+  }
 }
 
 // Pedido real: "quiero arriba de transacciones que me aparezcan próx cuotas" -- las cuotas

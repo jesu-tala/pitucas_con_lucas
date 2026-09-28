@@ -119,6 +119,25 @@ funciones.filter(f => f.esDefiner && !f.devuelveTrigger && /\bapp_state\b/.test(
     /is_household_member\s*\(/.test(cuerpo) && /auth\.uid\(\)/.test(cuerpo));
 });
 
+// ---------- quien rote el import_token no puede recibir el hogar por parámetro ----------
+// El import_token es la credencial con la que se escribe en un hogar sin sesión, y
+// fix_grupos_columnas_protegidas.sql le quitó a `authenticated` el permiso de escribir esa
+// columna, así que el ÚNICO camino para cambiarla es una función security definer. Si esa
+// función aceptara un p_household_id, cualquiera con una sesión válida podría rotarle el token
+// a un hogar ajeno y dejarle la importación muerta. El hogar tiene que salir de auth.uid()
+// adentro de la función, y entonces el ataque no se puede ni expresar.
+const escribenToken = funciones.filter(f => f.esDefiner && /update\s+households\s+set[\s\S]*import_token/i.test(cuerpoDe(f)));
+check('(control) se encontró la función que rota el import_token', escribenToken.length >= 1,
+  { encontradas: escribenToken.map(f => f.nombre) });
+escribenToken.forEach(f => {
+  const cuerpo = cuerpoDe(f);
+  const firma = cuerpo.slice(0, cuerpo.indexOf(')') + 1);
+  check('la función ' + f.nombre + ' saca el hogar de auth.uid(), no de un parámetro (' + f.archivo + ')',
+    /user_id = auth\.uid\(\)/.test(cuerpo) && !/p_household_id/.test(firma), firma);
+  check('la función ' + f.nombre + ' rechaza la llamada sin sesión (' + f.archivo + ')',
+    /if\s+auth\.uid\(\)\s+is\s+null\s+then/i.test(cuerpo));
+});
+
 // ---------- RLS prendida en toda tabla creada ----------
 const tablas = [...new Set([...CORPUS.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?([a-z_][a-z0-9_]*)/gi)].map(m => m[1]))].sort();
 check('(control) se encontraron las tablas del esquema', tablas.length >= 12, { tablas });

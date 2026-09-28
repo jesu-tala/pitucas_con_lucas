@@ -8,7 +8,7 @@ import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getT
 import { convertirUSDaCLP, tipoCambioUSDCLP, tipoCambioCacheado } from './currency';
 import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO, setUltimoRespaldo, setNotaCategoria} from './state';
 import { buildGroupExportWorkbookArrayBuffer } from './group-export';
-import { handleLogout, switchAuthMode, loadHistorialSnapshots, restaurarSnapshot } from './supabase';
+import { handleLogout, switchAuthMode, loadHistorialSnapshots, restaurarSnapshot, rotarImportToken } from './supabase';
 import { toast } from './ui/toasts';
 import { PROJECTION_ASSUMPTIONS, goalsForPlatform, renderEvolutionView } from './views/evolucion';
 import { defaultShareDraft, shareDraftForTx, renderGroupsView } from './views/grupos';
@@ -46,6 +46,30 @@ export function navigateBack(): boolean {
 // to its default view: scrolled to the top, any sub-view/sheet in THAT tab closed. Sheets aren't
 // handled here -- the tab bar sits under the sheet overlay while one is open (see .sheet-overlay
 // CSS, inset:0 over the whole phone), so it's never actually reachable mid-sheet.
+// Reconciliar SIEMPRE tiene que arrancar en su pantalla principal (elegir una cartola), no en
+// el diff de la que se miró la vez pasada. renderMenuReconciliar decide qué pantalla mostrar
+// según `movimientos.length`, y ese estado no se limpiaba nunca -- así que la cartola abierta
+// sobrevivía a salir y volver, sin ninguna forma obvia de volver atrás desde ahí.
+//
+// Hay que llamarlo en DOS momentos, porque hay dos caminos de vuelta y uno solo deja el bug
+// vivo por el otro: al entrar a la sección desde el menú, y al salir de la pestaña Menú
+// mientras se está parado en Reconciliar (cambiar de pestaña no limpia state.menuSection a
+// propósito, para que volver al Menú te deje donde estabas -- lo cual, justamente para esta
+// pantalla, es lo que reabría el documento viejo).
+//
+// `disponibles` NO se toca: es la lista de las que llegaron por correo, y vaciarla haría
+// parpadear la pantalla vacía hasta que la consulta volviera a responder.
+function limpiarCartolaAbierta(){
+  const R = state.reconciliar;
+  R.archivo = null; R.tipo = null; R.movimientos = []; R.pagosTarjeta = null;
+  R.error = null; R.errorPassword = null; R.cargando = false;
+  R.usandoId = null; R.passwordDraft = '';
+  R.archivoBuffer = null; R.archivoNombrePendiente = null;
+  // Arrastrar estos dos entre cartolas es peor que un resto visual: la selección de "eliminar"
+  // apuntaría a ids de OTRA cartola, y la clave tecleada quedaría precargada para la siguiente.
+  R.eliminarSeleccionados = [];
+}
+
 function resetTabToDefault(tab: string){
   if(tab==='menu'){
     navClearType('menu-section');
@@ -140,6 +164,7 @@ phone.addEventListener('click', function(e: any){
     // instant the first tap switches you onto it) resets that section to its default instead of
     // doing nothing -- same convention as most tab-bar apps.
     if(tappedTab===state.tab){ resetTabToDefault(tappedTab); return; }
+    if(state.tab==='menu' && state.menuSection==='reconciliar') limpiarCartolaAbierta();
     state.tab = tappedTab;
     render();
     // we take advantage of the Transacciones tab being opened to check whether the Google
@@ -1380,7 +1405,8 @@ phone.addEventListener('click', function(e: any){
       loadEmailImportScreen();
       return;
     }
-    if(state.menuSection==='reconciliar' && !state.reconciliar.movimientos.length){
+    if(state.menuSection==='reconciliar'){
+      limpiarCartolaAbierta();
       loadAvailableStatements();
     }
     if(state.menuSection==='notificaciones' && !state.notifLoaded){
@@ -1399,6 +1425,31 @@ phone.addEventListener('click', function(e: any){
       return;
     }
     renderMenuView();
+    return;
+  }
+  const rotarTokenBtn = e.target.closest('[data-rotar-token]');
+  if(rotarTokenBtn){
+    state.confirmRotarToken = true; state.rotarTokenError = null; state.tokenRotado = false;
+    renderMenuView();
+    return;
+  }
+  const rotarTokenCancelarBtn = e.target.closest('[data-rotar-token-cancelar]');
+  if(rotarTokenCancelarBtn){
+    state.confirmRotarToken = false;
+    renderMenuView();
+    return;
+  }
+  const rotarTokenConfirmarBtn = e.target.closest('[data-rotar-token-confirmar]');
+  if(rotarTokenConfirmarBtn){
+    state.rotandoToken = true; state.rotarTokenError = null;
+    renderMenuView();
+    rotarImportToken().then(function(ok){
+      state.rotandoToken = false;
+      state.confirmRotarToken = false;
+      state.tokenRotado = ok;
+      if(!ok) state.rotarTokenError = 'No se pudo cambiar el código. Revisa tu conexión e intenta de nuevo.';
+      renderMenuView();
+    });
     return;
   }
   const histRestaurarBtn = e.target.closest('[data-historial-restaurar]');

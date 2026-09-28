@@ -2579,8 +2579,14 @@
     return bytes.buffer;
   }
   __name(pgBytesToArrayBuffer, "pgBytesToArrayBuffer");
+  var MESES_RETENCION_CARTOLAS = 2;
   async function loadAvailableStatements() {
     if (!sb || !currentHouseholdId) return;
+    try {
+      await sb.rpc("limpiar_cartolas_vencidas");
+    } catch (err) {
+      console.warn("Pitucas sin lucas \u2014 no se pudo limpiar cartolas vencidas:", err);
+    }
     try {
       const { data, error } = await sb.from("cartolas_importadas").select("id,tipo,nombre_archivo,recibido_en").eq("household_id", currentHouseholdId).eq("procesado", false).order("recibido_en", { ascending: false });
       if (error) throw error;
@@ -2704,7 +2710,9 @@
       }
       return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;"><div style="min-width:0;"><div style="font-weight:700;font-size:13.5px;">' + label + '</div><div class="muted" style="font-size:12px;">Lleg\xF3 por correo el ' + fechaTxt + '</div></div><button class="chip" data-statement-use="' + d.id + '">Usar esta</button></div>';
     }).join("");
-    return '<div class="section-title" style="margin-top:0;">Llegaron solas por correo</div>' + filas;
+    return '<div class="section-title" style="margin-top:0;">Llegaron solas por correo</div>' + filas + // Se dice acá, donde están las cartolas a la vista, y se dice la parte que de verdad
+    // preocupa: que lo que se borra es el PDF, no lo que ya sacaste de él.
+    '<div class="file-format-hint" style="margin-top:2px;">Las cartolas se borran solas ' + MESES_RETENCION_CARTOLAS + " meses despu\xE9s de llegar. Las transacciones que hayas creado desde ellas se quedan \u2014 lo \xFAnico que se borra es el PDF del banco.</div>";
   }
   __name(renderCartolasDisponiblesBlock, "renderCartolasDisponiblesBlock");
   function renderMenuReconciliar() {
@@ -3792,6 +3800,17 @@
     });
   }
   __name(checkBudgetPushAlerts, "checkBudgetPushAlerts");
+  function rotarTokenBlock() {
+    if (state.rotandoToken || state.confirmRotarToken) {
+      return '<div class="card" style="padding:14px 16px;margin-top:12px;border-color:var(--expense-ink);"><div style="font-weight:700;font-size:13.5px;margin-bottom:6px;">\xBFCambiar el c\xF3digo?</div><div class="muted" style="font-size:12.5px;">El c\xF3digo de ahora deja de servir al instante. Tu Apps Script se queda con el viejo, as\xED que <b>las compras van a dejar de entrar solas</b> hasta que pegues el c\xF3digo nuevo all\xE1. Hazlo si crees que alguien m\xE1s pudo ver este c\xF3digo.</div><div style="display:flex;gap:10px;margin-top:12px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-rotar-token-cancelar' + (state.rotandoToken ? " disabled" : "") + '>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-rotar-token-confirmar' + (state.rotandoToken ? " disabled" : "") + ">" + (state.rotandoToken ? "Cambiando\u2026" : "S\xED, cambiarlo") + "</button></div></div>";
+    }
+    const error = state.rotarTokenError ? '<div class="file-format-hint" style="margin-top:10px;">' + state.rotarTokenError + "</div>" : "";
+    if (state.tokenRotado) {
+      return '<div class="card" style="padding:14px 16px;margin-top:12px;border-color:var(--income-ink);"><div style="font-weight:700;font-size:13.5px;color:var(--income-ink);margin-bottom:6px;">C\xF3digo cambiado</div><div class="muted" style="font-size:12.5px;">Arriba est\xE1 el nuevo. C\xF3pialo y p\xE9galo en tu Apps Script, en la l\xEDnea <b>IMPORT_TOKEN</b> \u2014 hasta que lo hagas, las compras no van a entrar solas.</div></div>' + error;
+    }
+    return '<button class="budget-add-link" style="margin-top:12px;" data-rotar-token>Cambiar este c\xF3digo</button>' + error;
+  }
+  __name(rotarTokenBlock, "rotarTokenBlock");
   function renderMenuImportarCorreo() {
     const head = menuScreenHead("Importar desde tu correo");
     if (state.emailImportLoading) {
@@ -3802,7 +3821,7 @@
       document.getElementById("view-root").innerHTML = head + '<div class="card placeholder-card">' + ICONS.ban + "<h3>No se pudo cargar</h3><p>" + state.emailImportError + '</p><button class="save-tx-btn" style="margin-top:12px;" data-reload-email-import>Reintentar</button></div>';
       return;
     }
-    const credBlock = '<div class="card" style="padding:16px;margin-bottom:14px;"><div class="sheet-block-title" style="margin-bottom:8px;">Datos para tu Apps Script</div><p class="muted" style="margin-bottom:12px;">Un script de Google Apps Script (gratis, corre dentro de tu propia cuenta de Gmail) revisa cada cierto tiempo tus correos de notificaci\xF3n bancaria y manda cada transacci\xF3n para ac\xE1. Estos dos c\xF3digos son los \xFAnicos datos que necesita \u2014 no sirven para nada m\xE1s que eso.</p><label class="draft-label">Household ID</label><div style="display:flex;gap:8px;margin-bottom:12px;"><input class="draft-input" readonly value="' + (currentHouseholdId || "") + '" style="font-size:11.5px;"><button class="budget-edit-btn" data-copy-text="' + (currentHouseholdId || "") + '" aria-label="Copiar Household ID">' + ICONS.copy + '</button></div><label class="draft-label">C\xF3digo de importaci\xF3n</label><div style="display:flex;gap:8px;"><input class="draft-input" readonly value="' + (state.importToken || "") + '" style="font-size:11.5px;"><button class="budget-edit-btn" data-copy-text="' + (state.importToken || "") + '" aria-label="Copiar c\xF3digo de importaci\xF3n">' + ICONS.copy + "</button></div></div>";
+    const credBlock = '<div class="card" style="padding:16px;margin-bottom:14px;"><div class="sheet-block-title" style="margin-bottom:8px;">Datos para tu Apps Script</div><p class="muted" style="margin-bottom:12px;">Un script de Google Apps Script (gratis, corre dentro de tu propia cuenta de Gmail) revisa cada cierto tiempo tus correos de notificaci\xF3n bancaria y manda cada transacci\xF3n para ac\xE1. Estos dos c\xF3digos son los \xFAnicos datos que necesita \u2014 no sirven para nada m\xE1s que eso.</p><label class="draft-label">Household ID</label><div style="display:flex;gap:8px;margin-bottom:12px;"><input class="draft-input" readonly value="' + (currentHouseholdId || "") + '" style="font-size:11.5px;"><button class="budget-edit-btn" data-copy-text="' + (currentHouseholdId || "") + '" aria-label="Copiar Household ID">' + ICONS.copy + '</button></div><label class="draft-label">C\xF3digo de importaci\xF3n</label><div style="display:flex;gap:8px;"><input class="draft-input" readonly value="' + (state.importToken || "") + '" style="font-size:11.5px;"><button class="budget-edit-btn" data-copy-text="' + (state.importToken || "") + '" aria-label="Copiar c\xF3digo de importaci\xF3n">' + ICONS.copy + "</button></div>" + rotarTokenBlock() + "</div>";
     const infoBlock = '<div class="card placeholder-card">' + ICONS.checkCircle + "<h3>Se agregan solas</h3><p>Cuando el script encuentre una transacci\xF3n nueva en tu correo, la agrega directo a tu pesta\xF1a de <b>Transacciones</b>, marcada como pendiente (sin categor\xEDa) para que la clasifiques ah\xED mismo \u2014 igual que cualquier otra transacci\xF3n sin clasificar. Si alguna se agreg\xF3 por error, \xE1brela y elim\xEDnala desde ah\xED.</p></div>";
     document.getElementById("view-root").innerHTML = head + credBlock + infoBlock;
   }
@@ -4424,7 +4443,13 @@
         sueldoBanner = '<div class="card sueldo-suggestion"><div class="sueldo-suggestion-title">\xBFYa te lleg\xF3 tu sueldo de ' + (MONTH_LABEL[ym] || ym) + '?</div><div class="sueldo-suggestion-sub">Como no manda correo, no se agrega sola \u2014 la \xFAltima vez fue ' + money(last.monto) + '.</div><div class="sueldo-suggestion-actions"><button class="chip" data-dismiss-salary-suggestion>Todav\xEDa no</button><button class="save-tx-btn" data-confirm-salary-suggestion="' + last.id + '">Confirmar o ajustar</button></div></div>';
       }
     }
+    const chipRowPrevio = document.querySelector("#view-root .chip-row");
+    const chipScroll = chipRowPrevio ? chipRowPrevio.scrollLeft : 0;
     document.getElementById("view-root").innerHTML = searchRow + '<div class="chip-row">' + filterPill + chipsHtml + "</div>" + (state.filter === "todas" && !state.categoryFilter && !state.searchQuery.trim() ? renderCuotasProximasBanner() : "") + sueldoBanner + '<div id="tx-results">' + renderTxResultsInner() + '</div><div style="height:64px;"></div>';
+    if (chipScroll) {
+      const chipRowNuevo = document.querySelector("#view-root .chip-row");
+      if (chipRowNuevo) chipRowNuevo.scrollLeft = chipScroll;
+    }
   }
   __name(renderTransactionsView, "renderTransactionsView");
   function renderCuotasProximasBanner() {
@@ -4482,6 +4507,22 @@
     return false;
   }
   __name(navigateBack, "navigateBack");
+  function limpiarCartolaAbierta() {
+    const R = state.reconciliar;
+    R.archivo = null;
+    R.tipo = null;
+    R.movimientos = [];
+    R.pagosTarjeta = null;
+    R.error = null;
+    R.errorPassword = null;
+    R.cargando = false;
+    R.usandoId = null;
+    R.passwordDraft = "";
+    R.archivoBuffer = null;
+    R.archivoNombrePendiente = null;
+    R.eliminarSeleccionados = [];
+  }
+  __name(limpiarCartolaAbierta, "limpiarCartolaAbierta");
   function resetTabToDefault(tab) {
     if (tab === "menu") {
       navClearType("menu-section");
@@ -4598,6 +4639,7 @@
         resetTabToDefault(tappedTab);
         return;
       }
+      if (state.tab === "menu" && state.menuSection === "reconciliar") limpiarCartolaAbierta();
       state.tab = tappedTab;
       render();
       if (state.tab === "transacciones") absorbImportedRows();
@@ -5824,7 +5866,8 @@
         loadEmailImportScreen();
         return;
       }
-      if (state.menuSection === "reconciliar" && !state.reconciliar.movimientos.length) {
+      if (state.menuSection === "reconciliar") {
+        limpiarCartolaAbierta();
         loadAvailableStatements();
       }
       if (state.menuSection === "notificaciones" && !state.notifLoaded) {
@@ -5842,6 +5885,34 @@
         return;
       }
       renderMenuView();
+      return;
+    }
+    const rotarTokenBtn = e.target.closest("[data-rotar-token]");
+    if (rotarTokenBtn) {
+      state.confirmRotarToken = true;
+      state.rotarTokenError = null;
+      state.tokenRotado = false;
+      renderMenuView();
+      return;
+    }
+    const rotarTokenCancelarBtn = e.target.closest("[data-rotar-token-cancelar]");
+    if (rotarTokenCancelarBtn) {
+      state.confirmRotarToken = false;
+      renderMenuView();
+      return;
+    }
+    const rotarTokenConfirmarBtn = e.target.closest("[data-rotar-token-confirmar]");
+    if (rotarTokenConfirmarBtn) {
+      state.rotandoToken = true;
+      state.rotarTokenError = null;
+      renderMenuView();
+      rotarImportToken().then(function(ok) {
+        state.rotandoToken = false;
+        state.confirmRotarToken = false;
+        state.tokenRotado = ok;
+        if (!ok) state.rotarTokenError = "No se pudo cambiar el c\xF3digo. Revisa tu conexi\xF3n e intenta de nuevo.";
+        renderMenuView();
+      });
       return;
     }
     const histRestaurarBtn = e.target.closest("[data-historial-restaurar]");
@@ -7889,6 +7960,20 @@
     }
   }
   __name(writeStateToSupabase, "writeStateToSupabase");
+  async function rotarImportToken() {
+    if (!sb || !currentHouseholdId) return false;
+    try {
+      const { data, error } = await sb.rpc("rotar_import_token");
+      if (error) throw error;
+      if (!data) throw new Error("el servidor no devolvi\xF3 un c\xF3digo nuevo");
+      state.importToken = data;
+      return true;
+    } catch (err) {
+      console.error("Pitucas sin lucas \u2014 error rotando el c\xF3digo de importaci\xF3n:", err);
+      return false;
+    }
+  }
+  __name(rotarImportToken, "rotarImportToken");
   async function loadHistorialSnapshots() {
     if (!sb || !currentHouseholdId) {
       state.historialSnapshots = [];
@@ -10219,6 +10304,14 @@
     // sending the test notification right now
     notifTestResult: null,
     // text with the Worker's actual result (unlike enviarPushHogar, this one DOES wait for the response)
+    // ---- Rotación del código de importación (Menú > Importar desde tu correo) ----
+    confirmRotarToken: false,
+    // mostrando el "¿seguro?" antes de cambiar el código
+    rotandoToken: false,
+    // rotación en curso (deshabilita los botones)
+    tokenRotado: false,
+    // ya se rotó en esta visita: cambia el texto para avisar que hay que pegarlo en el Apps Script
+    rotarTokenError: null,
     // ---- Historial del blob (Menú > Volver a una versión anterior) ----
     historialLoading: false,
     historialError: null,
