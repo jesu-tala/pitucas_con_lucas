@@ -1,5 +1,5 @@
 import { esc } from '../esc';
-import { GOAL_TERM, catInfo, aggregatedTxAmount, termChip } from '../helpers';
+import { GOAL_TERM, catInfo, aggregatedTxAmount, metasContables, termChip } from '../helpers';
 import { categoriesCollidingWithHue, categoryColorVars, categoryFillCss } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
 import { segmentedHtml } from '../sheet';
@@ -90,13 +90,8 @@ export function platformCurrentValue(id){
 // generalCatIdFor(...) catch-all bucket -- the only two shapes investmentCatOptions ever
 // produces), finds which platform it belongs to. Returns null for an unclassified/unknown id
 // (e.g. the transaction hasn't been categorized yet) -- callers treat that as "nothing to bump".
-export function platformIdForInvestmentCat(catId){
-  if(!catId) return null;
-  const goal = INVESTMENT_GOALS.find(g=>g.id===catId);
-  if(goal) return goal.plataformaId;
-  const GENERAL_SUFFIX = '__general';
-  return catId.slice(-GENERAL_SUFFIX.length)===GENERAL_SUFFIX ? catId.slice(0, -GENERAL_SUFFIX.length) : null;
-}
+export { platformIdForInvestmentCat } from '../helpers';
+
 // Least-surprising-baseline fix: valorHistorial is a MANUALLY-entered value curve (see the header
 // comment on PLATFORM_DATA in state.ts) -- before this, adding/editing/deleting an inversión
 // transaction only ever moved platformAportadoNeto (fully derived from transactions), never
@@ -489,13 +484,22 @@ export function renderArchivedPlatformsBlock(){
 /* ---------- salary planner ---------- */
 export function round1(n){ return Math.round(n*10)/10; }
 
+// metasContables(), no INVESTMENT_GOALS: si cerraste la plataforma, sus metas tampoco tienen por
+// qué seguir apareciendo como destino al repartir el sueldo del mes -- mismo criterio único que
+// ya usan el total invertido y el objetivo del año (ver metasContables en helpers.ts).
 export function metasPorPlazo(plazo){
-  return INVESTMENT_GOALS.filter(m=>(m.plazo||null)===plazo);
+  return metasContables().filter(m=>(m.plazo||null)===plazo);
 }
 export function planMetaRowHtml(meta){
   const pct = PLANNER.metaPcts[meta.id] || 0;
+  // aporteMensualMeta es opcional: una meta de "aporta lo que puedas" no tiene monto fijo. Antes
+  // se le pasaba igual a money(), que hace Math.round(undefined) -> NaN, y la fila mostraba
+  // literalmente "Meta de aporte: $NaN/mes" (visto en pantalla, no deducido).
+  const sub = meta.aporteMensualMeta!=null
+    ? 'Meta de aporte: '+money(meta.aporteMensualMeta)+'/mes'
+    : 'Sin monto fijo — aporta lo que puedas';
   return '<div class="plan-row">'+
-    '<div class="plan-name">'+esc(meta.nombre)+'<small>Meta de aporte: '+money(meta.aporteMensualMeta)+'/mes</small></div>'+
+    '<div class="plan-name">'+esc(meta.nombre)+'<small>'+sub+'</small></div>'+
     '<div class="plan-pctbox"><input type="text" inputmode="decimal" data-plan-goal-pct data-plan-goal-id="'+meta.id+'" value="'+pct+'"><span>%</span></div>'+
     '<div class="plan-amt tabular" data-plan-goal-amt="'+meta.id+'"></div>'+
   '</div>';
@@ -638,7 +642,14 @@ export function renderInvestmentsView(){
   const goalBlock = !INVESTMENT_GOALS.length ? '' : (objetivoAnual>0 ? (
     '<div class="platform-total-goal-block">'+
       '<div class="platform-total-label" style="color:var(--accent-ink);">Objetivo de inversión '+anio+' (aporte fijo mensual × 12)</div>'+
-      '<div class="platform-total-value tabular" style="font-size:20px;">'+money(aporteAnio)+'<span class="of-text"> de '+money(objetivoAnual)+'</span></div>'+
+      // "Lo que llevas" es tocable: lleva al desglose real de esa cifra (las transacciones de
+      // inversión del año categorizadas a las metas con aporte fijo que cuentan), mismo patrón
+      // de "tocar un número -> ver su detalle" que el drill-down del donut de Balance. El "de
+      // $objetivo" queda fuera del botón: ese no es un monto con transacciones detrás, es el
+      // compromiso (aporte mensual × 12).
+      '<div class="platform-total-value tabular" style="font-size:20px;">'+
+        '<button type="button" class="drill-num" data-drill-aporte-anio="'+anio+'">'+money(aporteAnio)+'</button>'+
+        '<span class="of-text"> de '+money(objetivoAnual)+'</span></div>'+
       '<div class="budget-track" style="margin-top:10px;"><div class="budget-fill" style="width:'+Math.max(0,Math.min(100,anualPct))+'%;background:var(--accent);"></div></div>'+
       '<div class="platform-total-sub"><span>'+Math.round(anualPct)+'% completado este año</span></div>'+
       otrosAporteLine+

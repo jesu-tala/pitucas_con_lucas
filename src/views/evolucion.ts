@@ -1,5 +1,5 @@
 import { esc } from '../esc';
-import { catInfo, aggregatedTxAmount, incomeNatureAmount, incomeNatureOf, termChip, txsOfMonth } from '../helpers';
+import { catInfo, aggregatedTxAmount, catDeInversionCuenta, incomeNatureAmount, incomeNatureOf, metasContables, termChip, txsOfMonth } from '../helpers';
 import { ICONS } from '../icons';
 import { monthLabelFor } from '../shared-expenses';
 import { segmentedHtml } from '../sheet';
@@ -274,7 +274,9 @@ export function platformGoalsSummary(id){
 //     'no_es_gasto' write-off, same exclusion aggregatedTxAmount/aportadoAcumuladoHastaMesONull
 //     already apply) lands in exactly one of aporteAnio/otrosAporteAnio.
 export function annualInvestmentGoalProgress(year){
-  const fixedGoals = INVESTMENT_GOALS.filter(m=>m.aporteMensualMeta!=null);
+  // metasContables(), no INVESTMENT_GOALS: ese era exactamente el segundo recorrido que hacía
+  // que este número se separara del total invertido (ver la nota sobre la fuente única arriba).
+  const fixedGoals = metasContables().filter(m=>m.aporteMensualMeta!=null);
   const fixedGoalIds = new Set(fixedGoals.map(m=>m.id));
   const objetivoAnual = fixedGoals.reduce((s,m)=>s+(m.aporteMensualMeta||0), 0) * 12;
   const aporteAnio = fixedGoals.reduce((s,m)=>
@@ -285,7 +287,11 @@ export function annualInvestmentGoalProgress(year){
   let otrosAporteAnio = 0;
   TRANSACTIONS.forEach(t=>{
     if(t.tipo!=='inversion' || t.estado==='no_es_gasto' || t.fecha.slice(0,4)!==year) return;
-    t.categorias.forEach(c=>{ if(!fixedGoalIds.has(c.cat)) otrosAporteAnio += c.monto; });
+    t.categorias.forEach(c=>{
+      if(fixedGoalIds.has(c.cat)) return;              // ya contado en aporteAnio
+      if(!catDeInversionCuenta(c.cat)) return;         // plataforma cerrada o categoría huérfana
+      otrosAporteAnio += c.monto;
+    });
   });
   return {objetivoAnual, aporteAnio, otrosAporteAnio};
 }
