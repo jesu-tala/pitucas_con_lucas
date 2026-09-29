@@ -6,13 +6,14 @@
    them drift out of sync with each other.
 
    Deliberately NOT a full serialization of app state -- a frame only marks the KIND of thing
-   that's open (a sheet, a Menu section, a group's detail), never nested more than one level deep
-   per kind (matches how those screens already work: you can't open a second Menu section from
-   inside one, or a second group from inside a group's detail). The actual "what to reset when
+   that's open (a sheet, a Menu section, a group's detail, una cartola abierta dentro de
+   Reconciliar), never nested more than one level deep per kind (matches how those screens
+   already work: you can't open a second Menu section from inside one, a second group from
+   inside a group's detail, ni una segunda cartola sin cerrar la anterior). The actual "what to reset when
    this frame is popped" logic lives with whoever pushed it (sheet.ts's closeSheet(), events.ts's
    navigateBack()) -- this module only owns the stack itself, kept dependency-free on purpose so
    it's trivial to unit-test in isolation (push some frames, pop them, check what comes back). */
-export type NavFrameType = 'sheet' | 'menu-section' | 'group-detail';
+export type NavFrameType = 'sheet' | 'menu-section' | 'group-detail' | 'cartola-abierta';
 export interface NavFrame { type: NavFrameType; }
 
 let stack: NavFrame[] = [];

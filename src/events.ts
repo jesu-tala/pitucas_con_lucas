@@ -1,7 +1,7 @@
 import { FILTRO_APORTE_FIJO, allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, receivableTotal, hasReceivableType, receivablesLinkedFrom, removeIncomeAssignment, assignIncomeToReceivable } from './helpers';
 import { categoryFillCss, nextCategoryHue } from './category-colors';
 import { enterDemoMode, exitDemoMode } from './demo';
-import { navClearType, navDepth, navPeek, navPop, navPush, NavFrame } from './nav';
+import { navClearType, navDepth, navPeek, navPop, navPopIfTop, navPush, NavFrame } from './nav';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
 import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter, defaultAssignAmount, conversionInnerHtml, openNotaCategoria} from './sheet';
@@ -39,7 +39,16 @@ export function navigateBack(): boolean {
     state.openGroupId = null; state.addingParticipant = false;
     renderGroupsView();
     return true;
+  }  // Volver desde una cartola abierta lleva a la LISTA de cartolas, no afuera de Reconciliar.
+  // Antes no existía este nivel: el único frame era 'menu-section', así que la flecha se
+  // saltaba la lista entera y te dejaba en el menú principal, obligando a entrar de nuevo.
+  if(frame.type==='cartola-abierta'){
+    navPop();
+    limpiarCartolaAbierta();
+    renderMenuView();
+    return true;
   }
+
   return false;
 }
 // Double-tap the active tab (or just tap it again, see the [data-tab] handler below) resets it
@@ -60,6 +69,10 @@ export function navigateBack(): boolean {
 // `disponibles` NO se toca: es la lista de las que llegaron por correo, y vaciarla haría
 // parpadear la pantalla vacía hasta que la consulta volviera a responder.
 function limpiarCartolaAbierta(){
+  // Si el nivel de "cartola abierta" sigue apilado, se saca: se puede salir de una cartola por
+  // caminos que no pasan por la flecha (cambiar de pestaña, entrar de nuevo a la sección), y un
+  // frame que queda colgado hace que el siguiente "volver" no haga nada visible.
+  navPopIfTop('cartola-abierta');
   const R = state.reconciliar;
   R.archivo = null; R.tipo = null; R.movimientos = []; R.pagosTarjeta = null;
   R.error = null; R.errorPassword = null; R.cargando = false;
@@ -99,13 +112,16 @@ function capturePeekHTML(frame: NavFrame): string | null {
     renderMenuView();
     return html;
   }
-  if(frame.type==='group-detail'){
-    const saved = state.openGroupId;
-    state.openGroupId = null;
-    renderGroupsView();
+  if(frame.type==='cartola-abierta'){
+    // Igual que los otros dos: se dibuja lo que se vería al volver (la lista de cartolas) sin
+    // dejar ese estado aplicado. Acá hay que guardar y restaurar el objeto entero porque lo
+    // que define "cartola abierta" son varios campos, no uno solo.
+    const saved = Object.assign({}, state.reconciliar);
+    limpiarCartolaAbierta();
+    renderMenuView();
     const html = root.innerHTML;
-    state.openGroupId = saved;
-    renderGroupsView();
+    Object.assign(state.reconciliar, saved);
+    renderMenuView();
     return html;
   }
   return null;

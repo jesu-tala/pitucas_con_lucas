@@ -64,8 +64,12 @@ const fs = require('fs');
     window.__debug.render();
   });
   await page.waitForTimeout(120);
-  const listado = await page.evaluate(() => Array.from(document.querySelectorAll('.section-title')).some(e => e.textContent.includes('Llegaron solas por correo')));
-  check('Aparece la sección "Llegaron solas por correo"', listado);
+  // El título cambió de "Llegaron solas por correo" a "Cartolas que llegaron por correo" cuando
+  // la lista pasó a incluir también las ya revisadas (antes se filtraban por procesado=false y
+  // desaparecían al abrirlas). Lo que este check protege es que la sección EXISTA, no cómo se
+  // llama, así que se busca por la parte estable del título.
+  const listado = await page.evaluate(() => Array.from(document.querySelectorAll('.section-title')).some(e => e.textContent.includes('llegaron por correo')));
+  check('Aparece la sección de cartolas que llegaron por correo', listado);
   const botonesUsar = await page.evaluate(() => document.querySelectorAll('[data-statement-use]').length);
   check('Hay un botón "Usar esta" por cada cartola disponible (esperado 2)', botonesUsar === 2, botonesUsar);
 
