@@ -3,7 +3,8 @@ import { catInfo, dayLabel, txsOfMonth } from '../helpers';
 import { categoriesCollidingWithHue, categoryColorVars, categoryFillCss, nextCategoryHue } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
 import { render } from '../render';
-import { buildReconcileDiff, movementLineId } from '../reconcile';
+import { buildReconcileDiff, movementLineId, statementPeriod } from '../reconcile';
+import { navPush, navPeek } from '../nav';
 import { ensureMonthExists, participantHasHistory, participantIdForUser } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
 import { CATEGORIES, TRANSFER_INFO, SHARED_EXPENSES, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, CATEGORY_MAPPINGS, PAYMENT_METHODS, BUDGETS, BUDGET_ALERTS_SENT, TRANSACTIONS, fmt, importIdCounter, money, nextImportId, setSharedExpenses, setGroups, setGroupParticipants, setCategoryMappings, setPaidBalances, state, todayISO, ultimoRespaldo, setUltimoRespaldo} from '../state';
@@ -882,10 +883,13 @@ export async function loadAvailableStatements(){
   try{ await sb.rpc('limpiar_cartolas_vencidas'); }
   catch(err){ console.warn('Pitucas sin lucas — no se pudo limpiar cartolas vencidas:', err); }
   try{
+    // Se traen TODAS, no solo las sin procesar. Antes se filtraba por `procesado = false`, y
+    // eso hacía que una cartola desapareciera de la lista apenas se abría: no se podía volver a
+    // ella, ni ver cuáles ya habías revisado, ni comparar dos meses. Con el borrado a los 2
+    // meses (fix_retencion_cartolas.sql) la lista se mantiene corta sola.
     const { data, error } = await sb.from('cartolas_importadas')
-      .select('id,tipo,nombre_archivo,recibido_en')
+      .select('id,tipo,nombre_archivo,recibido_en,periodo_desde,periodo_hasta,procesado')
       .eq('household_id', currentHouseholdId)
-      .eq('procesado', false)
       .order('recibido_en', {ascending:false});
     if(error) throw error;
     state.reconciliar.disponibles = data || [];
@@ -920,10 +924,24 @@ export async function useImportedStatement(id, password){
     state.reconciliar.movimientos = res.movimientos;
     state.reconciliar.usandoId = null;
     state.reconciliar.eliminarSeleccionados = [];
+    // Se apila un nivel de navegación: así la flecha de volver (y el swipe desde el borde, y
+    // el botón atrás del teléfono) llevan a la LISTA de cartolas y no afuera de Reconciliar.
+    // navPeek evita apilar dos veces si se abre otra cartola sin haber cerrado la anterior.
+    if(!navPeek() || navPeek().type!=='cartola-abierta') navPush({type:'cartola-abierta'});
     renderMenuView();
-    // It's marked "procesada" (processed) in the background — if this were to fail, worst
-    // case it gets offered to you again next month (no risk of losing anything by mismarking it).
-    sb.from('cartolas_importadas').update({procesado:true}).eq('id', id).then(function(){}, function(){});
+    // El período recién se puede saber acá: sale de los movimientos ya parseados, y para
+    // parsearlos hacía falta la clave del PDF. Se guarda junto con "procesada" para que la
+    // lista lo muestre exacto de ahora en adelante, en vez de la estimación.
+    const per = statementPeriod(res.movimientos);
+    const campos: any = {procesado:true};
+    if(per){ campos.periodo_desde = per.desde; campos.periodo_hasta = per.hasta; }
+    // Se actualiza también la copia en memoria, para no depender de recargar la lista: si no,
+    // al volver atrás la cartola recién abierta seguiría mostrando la estimación.
+    item.procesado = true;
+    if(per){ item.periodo_desde = per.desde; item.periodo_hasta = per.hasta; }
+    // En segundo plano — si fallara, en el peor caso se vuelve a ofrecer el mes que viene
+    // (no se pierde nada por marcarla mal).
+    sb.from('cartolas_importadas').update(campos).eq('id', id).then(function(){}, function(){});
   }catch(err){
     state.reconciliar.cargando = false;
     if(err && err.message==='PDF_PASSWORD_REQUERIDA'){
@@ -964,6 +982,10 @@ export async function tryOpenStatementFile(buffer, nombre, password){
     state.reconciliar.tipo = res.tipo;
     state.reconciliar.movimientos = res.movimientos;
     state.reconciliar.eliminarSeleccionados = [];
+    // Se apila un nivel de navegación: así la flecha de volver (y el swipe desde el borde, y
+    // el botón atrás del teléfono) llevan a la LISTA de cartolas y no afuera de Reconciliar.
+    // navPeek evita apilar dos veces si se abre otra cartola sin haber cerrado la anterior.
+    if(!navPeek() || navPeek().type!=='cartola-abierta') navPush({type:'cartola-abierta'});
     renderMenuView();
   }catch(err){
     state.reconciliar.cargando = false;
@@ -996,6 +1018,33 @@ export function findSimilarTx(mov){
 // The list of statements that already arrived by email on their own (still unused) — each
 // one with a button to open it, which asks for the PDF's password right there (that
 // password is never saved).
+const MESES_CORTOS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+// De qué período es una cartola, que es lo que de verdad sirve para elegir cuál abrir -- no
+// cuándo llegó. La que llega en septiembre cubre agosto, y si llegan dos el mismo mes (la de la
+// cuenta y la de la tarjeta) la fecha de llegada no las distingue en nada.
+//
+// El período exacto solo se conoce después de abrir el PDF con su clave, así que hasta entonces
+// se muestra una estimación -- el mes anterior al de llegada, que es como mandan las cartolas
+// los bancos. Va marcada como estimación a propósito: decir un período que no se sabe, con la
+// misma cara que uno que sí, haría que no se pudiera confiar en ninguno de los dos.
+export function periodoCartolaLabel(d){
+  if(d.periodo_desde && d.periodo_hasta){
+    const [ay, am, ad] = d.periodo_desde.split('-').map(Number);
+    const [by, bm, bd] = d.periodo_hasta.split('-').map(Number);
+    if(ay===by && am===bm) return MESES_CORTOS[am-1]+' '+ay;
+    if(ay===by) return ad+' '+MESES_CORTOS[am-1]+' – '+bd+' '+MESES_CORTOS[bm-1]+' '+by;
+    return ad+' '+MESES_CORTOS[am-1]+' '+ay+' – '+bd+' '+MESES_CORTOS[bm-1]+' '+by;
+  }
+  // Sin período guardado no se inventa uno. La tentación era estimarlo restándole un mes a
+  // recibido_en, pero recibido_en es cuándo el script IMPORTÓ la cartola, no cuándo el banco
+  // mandó el correo: la primera vez que corre, el script se trae meses de correos viejos de una
+  // sentada y todos quedan con la misma fecha. En una base real eso daba 19 cartolas de meses
+  // distintos, todas estimadas como el mismo mes -- una etiqueta segura de sí misma y falsa,
+  // que es peor que no tener ninguna.
+  return null;
+}
+
 export function renderCartolasDisponiblesBlock(){
   const R = state.reconciliar;
   if(!R.disponibles.length) return '';
@@ -1016,15 +1065,30 @@ export function renderCartolasDisponiblesBlock(){
         '</div>'+
       '</div>';
     }
+    const periodo = periodoCartolaLabel(d);
+    const yaRevisada = !!d.procesado;
     return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;">'+
       '<div style="min-width:0;">'+
-        '<div style="font-weight:700;font-size:13.5px;">'+label+'</div>'+
-        '<div class="muted" style="font-size:12px;">Llegó por correo el '+fechaTxt+'</div>'+
+        '<div style="font-weight:700;font-size:13.5px;">'+label+
+          (periodo
+            ? ' <span class="muted" style="font-weight:600;">· '+esc(periodo)+'</span>'
+            // Los bancos mandan el archivo con el mismo nombre todos los meses, así que sin el
+            // período dos cartolas distintas se ven idénticas. Se dice qué hacer para saberlo,
+            // porque abrirla una vez lo deja guardado para siempre.
+            : ' <span class="muted" style="font-weight:600;">· período sin identificar</span>')+
+        '</div>'+
+        '<div class="muted" style="font-size:12px;">'+
+          (yaRevisada ? 'Ya la revisaste · llegó el '+fechaTxt : 'Llegó por correo el '+fechaTxt)+
+        '</div>'+
       '</div>'+
-      '<button class="chip" data-statement-use="'+d.id+'">Usar esta</button>'+
+      '<button class="chip" data-statement-use="'+d.id+'">'+(yaRevisada ? 'Ver de nuevo' : 'Usar esta')+'</button>'+
     '</div>';
   }).join('');
-  return '<div class="section-title" style="margin-top:0;">Llegaron solas por correo</div>'+filas+
+  // Aviso solo mientras haya alguna sin identificar: apenas estén todas abiertas, sobra.
+  const sinPeriodo = R.disponibles.filter(function(d){ return !d.periodo_desde; }).length;
+  const avisoPeriodo = !sinPeriodo ? '' :
+    '<div class="file-format-hint" style="margin:0 0 10px;">Tu banco le pone el mismo nombre al archivo todos los meses, así que hasta abrirlas no se sabe de qué período son. Ábrela una vez con tu clave y el período queda guardado.</div>';
+  return '<div class="section-title" style="margin-top:0;">Cartolas que llegaron por correo</div>'+avisoPeriodo+filas+
     // Se dice acá, donde están las cartolas a la vista, y se dice la parte que de verdad
     // preocupa: que lo que se borra es el PDF, no lo que ya sacaste de él.
     '<div class="file-format-hint" style="margin-top:2px;">Las cartolas se borran solas '+
