@@ -78,6 +78,12 @@ export function catInfo(id){
 // what's actually stored on the transaction; `filterId` is what's being filtered by (may be a
 // platform id, from data-platform-see-more, or a Goal/General id, from a donut legend click).
 export function categoryFilterMatches(catId, filterId){
+  // El balde "sin categoría" es el único filtro que NO es un id real: lo inventa catBucketId()
+  // para juntar en un solo segmento del donut todo lo que no resuelve (una categoría borrada, un
+  // null, un id viejo). Ninguna transacción lleva ese id escrito, así que compararlo por
+  // igualdad --como hace la línea de abajo para las categorías de verdad-- no encontraba nunca
+  // nada: tocar ese segmento del donut llevaba a una lista vacía.
+  if(filterId===SIN_CATEGORIA_ID) return !catResuelve(catId);
   if(catId===filterId) return true;
   // El desglose del avance del objetivo del año: las mismas metas que suman a ese número, ni una
   // más. Se deja acá y no en una lista armada en la vista para que el filtro no pueda quedar
