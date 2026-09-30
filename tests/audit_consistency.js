@@ -107,10 +107,17 @@ function checkClose(label, a, b, tol){
   const evoDetailByMonth = {};
   for (const mKey of realMonths){
     const label = await page.$eval('.m-label', el=>el.textContent);
-    const ingresos = await page.$eval('.stat-ingresos .stat-value', el=>parseInt(el.textContent.replace(/[^\d\-]/g,''),10)||0);
+    // La primera tarjeta muestra ENTRADAS (todo lo que entró), que es lo que usa el balance, y
+    // el ingreso REAL va como línea chica debajo -- solo cuando los dos difieren. Se leen los
+    // dos: el de arriba tiene que cuadrar con la resta que se ve, y el de abajo con las metas y
+    // la tasa de ahorro, que siguen usando ingreso real.
+    const entradas = await page.$eval('.stat-ingresos .stat-value', el=>parseInt(el.textContent.replace(/[^\d\-]/g,''),10)||0);
+    const ingresoRealSub = await page.$eval('.stat-ingresos .stat-sub', el=>parseInt(el.textContent.replace(/[^\d\-]/g,''),10)||0).catch(()=>null);
+    // Sin línea chica significa "no hay diferencia", así que el ingreso real ES el de arriba.
+    const ingresos = ingresoRealSub===null ? entradas : ingresoRealSub;
     const gastos = await page.$eval('.stat-gastos .stat-value', el=>parseInt(el.textContent.replace(/[^\d\-]/g,''),10)||0);
     const inversiones = await page.$eval('.stat-inversiones .stat-value', el=>parseInt(el.textContent.replace(/[^\d\-]/g,''),10)||0);
-    balanceByMonth[mKey] = {label, ingresos, gastos, inversiones};
+    balanceByMonth[mKey] = {label, entradas, ingresos, gastos, inversiones};
     await page.click('[data-month-nav="1"]');
     await page.waitForTimeout(100);
   }
@@ -184,7 +191,10 @@ function checkClose(label, a, b, tol){
   await page.click('[data-seg="balance-periodo"] [data-seg-val="año"]');
   await page.waitForTimeout(150);
   const balanceAnioTiles = await page.evaluate(() => ({
-    ingresos: document.querySelector('.stat-ingresos .stat-value')?.textContent,
+    // La primera tarjeta muestra ENTRADAS; el ingreso REAL va en la línea chica de abajo, y
+    // solo aparece cuando los dos difieren (si no está, es que son iguales).
+    entradas: document.querySelector('.stat-ingresos .stat-value')?.textContent,
+    ingresoRealSub: document.querySelector('.stat-ingresos .stat-sub')?.textContent || null,
     gastos: document.querySelector('.stat-gastos .stat-value')?.textContent,
     inversiones: document.querySelector('.stat-inversiones .stat-value')?.textContent,
   }));
@@ -258,7 +268,8 @@ function checkClose(label, a, b, tol){
   const pm = s => parseInt((s||'0').replace(/[^\d\-]/g,''),10)||0;
   realMonths.forEach(m=>{
     const t = truth.perMonth[m];
-    checkClose('Balance ingresos '+m, balanceByMonth[m].ingresos, t.ingresos);
+    checkClose('Balance entradas '+m, balanceByMonth[m].entradas, t.entradas);
+    checkClose('Balance ingreso real '+m, balanceByMonth[m].ingresos, t.ingresos);
     checkClose('Balance gastos '+m, balanceByMonth[m].gastos, t.gastos);
     checkClose('Balance inversiones '+m, balanceByMonth[m].inversiones, t.inversiones);
     checkClose('Presupuesto total gasto '+m, presupuestoByMonth[m].totalGastado, t.gastos);
@@ -280,8 +291,16 @@ function checkClose(label, a, b, tol){
   const evoIngresos = pm(yearCardText.match(/Ingresos\n(\$[\d.]+)/)?.[1]);
   const evoGastos = pm(yearCardText.match(/Gastos\n(\$[\d.]+)/)?.[1]);
   const evoInversiones = pm(yearCardText.match(/Inversiones\n(\$[\d.]+)/)?.[1]);
-  check('Balance (año) Ingresos == Evolución "Total del año" Ingresos, EXACTO',
-    pm(balanceAnioTiles.ingresos) === evoIngresos, { balance: balanceAnioTiles.ingresos, evolucion: evoIngresos });
+  // El ingreso REAL del año: de la línea chica si está, y si no es que coincide con entradas.
+  const balanceAnioIngresoReal = balanceAnioTiles.ingresoRealSub === null
+    ? pm(balanceAnioTiles.entradas) : pm(balanceAnioTiles.ingresoRealSub);
+  check('Balance (año) ingreso real == Evolución "Total del año" Ingresos, EXACTO',
+    balanceAnioIngresoReal === evoIngresos, { balance: balanceAnioIngresoReal, evolucion: evoIngresos });
+  // Y la tarjeta de arriba, contra las entradas -- que es lo que de verdad muestra, y lo que
+  // tiene que cuadrar con el balance que se ve al lado.
+  check('Balance (año) Entradas == yearTotals(2026).entradas, EXACTO',
+    pm(balanceAnioTiles.entradas) === truth.year2026.entradas,
+    { tarjeta: balanceAnioTiles.entradas, verdad: truth.year2026.entradas });
   check('Balance (año) Gastos == Evolución "Total del año" Gastos, EXACTO',
     pm(balanceAnioTiles.gastos) === evoGastos, { balance: balanceAnioTiles.gastos, evolucion: evoGastos });
   check('Balance (año) Inversiones == Evolución "Total del año" Inversiones, EXACTO',
@@ -289,7 +308,9 @@ function checkClose(label, a, b, tol){
   // Also against the from-scratch truth (yearTotals called directly, not scraped from either
   // view's DOM) -- so this doesn't just prove the two views agree with EACH OTHER while both
   // being wrong the same way.
-  check('Balance (año) Ingresos == yearTotals(2026).ingresos, EXACTO', pm(balanceAnioTiles.ingresos) === truth.year2026.ingresos);
+  check('Balance (año) ingreso real == yearTotals(2026).ingresos, EXACTO',
+    balanceAnioIngresoReal === truth.year2026.ingresos,
+    { tarjeta: balanceAnioIngresoReal, verdad: truth.year2026.ingresos });
   check('Balance (año) Gastos == yearTotals(2026).gastos, EXACTO', pm(balanceAnioTiles.gastos) === truth.year2026.gastos);
   check('Balance (año) Inversiones == yearTotals(2026).inversiones, EXACTO', pm(balanceAnioTiles.inversiones) === truth.year2026.inversiones);
 

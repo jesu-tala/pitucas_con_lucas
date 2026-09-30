@@ -1,14 +1,16 @@
-// Balance muestra cuatro cifras que se leen como una cuenta: Ingreso − Gastos − Inversiones =
-// Balance. Pero no lo son, y cuando no dan, nada en pantalla lo decía.
+// Las cuatro tarjetas de Balance se leen como una cuenta, y ahora lo son: la primera muestra
+// TODO lo que entró, que es lo que el balance usa, así Entradas − Gastos − Inversiones = Balance
+// cierra a la vista.
 //
-// "Ingreso" es el ingreso REAL (naturaleza 'ingreso', ver incomeNatureOf). "Balance" usa TODAS
-// las entradas, para cuadrar con lo que de verdad entró a la cuenta. Un depósito sin clasificar
-// entra en el segundo y no en el primero.
+// Antes decía "Ingreso" y mostraba solo el ingreso REAL (naturaleza 'ingreso', ver
+// incomeNatureOf), mientras el balance sumaba todas las entradas. Un depósito sin clasificar
+// entra en el segundo y no en el primero, así que la resta no daba y nada lo explicaba: con
+// $2.881.025 de ingreso, $868.207 de gastos y $400.000 de inversiones el balance mostraba
+// $2.855.380, y parecía que se había quedado pegado en un valor viejo de antes de borrar un
+// sueldo duplicado. Estaba bien calculado; lo que faltaba era mostrar el número que usaba.
 //
-// El caso real: con $2.881.025 de ingreso, $868.207 de gastos y $400.000 de inversiones, el
-// Balance mostraba $2.855.380. La cuenta no daba por $1.242.562 de entradas sin clasificar, y
-// desde afuera parecía que el Balance se había quedado pegado en un valor viejo de antes de
-// borrar un sueldo duplicado. Estaba bien calculado; lo que faltaba era decirlo.
+// El ingreso real no se esconde: va como línea chica bajo Entradas cuando los dos difieren, y
+// sigue siendo el que usan las metas y la tasa de ahorro.
 const { openApp, check, finish } = require('./lib/test_kit');
 
 const tx = (id, fecha, tipo, monto, cats) => ({
@@ -43,7 +45,10 @@ const tx = (id, fecha, tipo, monto, cats) => ({
     totales.entradas === 1000000 && totales.gastos === 200000, totales);
   check('(control) con todo clasificado, entradas e ingresos coinciden', totales.entradas === totales.ingresos, totales);
   let txt = await page.textContent('#resumen-content');
-  check('cuando la cuenta cierra, NO aparece la nota', !/El balance usa/.test(txt), txt.slice(0, 300));
+  check('la tarjeta se llama Entradas, no Ingreso', /Entradas/.test(txt) && !/Ingreso\$/.test(txt), txt.slice(0, 200));
+  // Sin diferencia no hay nada que aclarar: repetir el mismo número dos veces sería ruido.
+  check('cuando entradas e ingreso real coinciden, no se repite la línea chica',
+    !/ingreso real:/.test(txt), txt.slice(0, 300));
 
   // ---------- caso 2: una entrada sin clasificar ----------
   // Un depósito sin categoría de sueldo tiene naturaleza 'por_clasificar': entra en `entradas`
@@ -65,18 +70,20 @@ const tx = (id, fecha, tipo, monto, cats) => ({
     totales.ingresos - totales.gastos - totales.inversiones !== totales.balance, totales);
 
   txt = await page.textContent('#resumen-content');
-  check('cuando la cuenta no cierra, la nota aparece', /El balance usa/.test(txt), txt.slice(0, 500));
-  check('la nota dice cuánto entró en total', /1\.500\.000/.test(txt), txt.slice(0, 500));
-  // Acotado al texto de la nota, no a toda la vista: "$500.000" también sale en la tarjeta de
-  // "Por clasificar" de más abajo, así que buscarlo suelto pasaba aunque la nota no existiera.
-  const nota = await page.evaluate(() => {
-    const el = [...document.querySelectorAll('#resumen-content .file-format-hint')]
-      .find(e => /El balance usa/.test(e.textContent));
-    return el ? el.textContent : null;
+  check('la tarjeta muestra TODO lo que entró', /1\.500\.000/.test(txt), txt.slice(0, 400));
+  check('el ingreso real aparece como línea chica', /ingreso real: \$1\.000\.000/.test(txt), txt.slice(0, 400));
+  // Lo que se buscaba con todo esto: que la resta que se ve en pantalla efectivamente dé.
+  const tarjetas = await page.evaluate(() => {
+    const val = (cls) => {
+      const el = document.querySelector('#resumen-content .' + cls + ' .stat-value');
+      return el ? Number(el.textContent.replace(/[^0-9-]/g, '')) : null;
+    };
+    return { entradas: val('stat-ingresos'), gastos: val('stat-gastos'),
+             inversiones: val('stat-inversiones'), balance: val('stat-balance') };
   });
-  check('(control) la nota existe como su propio elemento', !!nota, nota);
-  check('la nota dice cuánto es lo que no es ingreso real', !!nota && /500\.000/.test(nota), nota);
-  check('la nota explica por qué la resta no da', /no da el balance/.test(txt), txt.slice(0, 500));
+  check('(control) se leyeron las cuatro tarjetas', Object.values(tarjetas).every(v => v !== null), tarjetas);
+  check('la resta que se ve en pantalla ahora SÍ da',
+    tarjetas.entradas - tarjetas.gastos - tarjetas.inversiones === tarjetas.balance, tarjetas);
 
   // Y el balance en pantalla sigue siendo el correcto, no uno "arreglado" para que cierre.
   check('el balance mostrado sigue siendo entradas − gastos − inversiones',

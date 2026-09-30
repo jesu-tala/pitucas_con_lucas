@@ -405,6 +405,10 @@
   .stat-tile{padding:14px 14px 13px;border-radius:var(--radius-card);}
   .stat-tile .stat-label{font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em;}
   .stat-tile .stat-value{font-size:19px;font-weight:500;margin-top:5px;letter-spacing:-0.01em;}
+  /* Línea chica bajo una cifra, para el ingreso real debajo de Entradas: la tarjeta muestra
+     TODO lo que entró (que es lo que usa el balance) y el ingreso real queda a la vista sin
+     competirle el tamaño. */
+  .stat-tile .stat-sub{font-size:11px;font-weight:600;color:var(--text-secondary);margin-top:3px;letter-spacing:0;}
   .stat-ingresos{background:color-mix(in srgb, var(--income-fill) 16%, var(--surface));}
   .stat-gastos{background:color-mix(in srgb, var(--expense-fill) 16%, var(--surface));}
   .stat-inversiones{background:color-mix(in srgb, var(--invest-fill) 16%, var(--surface));}
