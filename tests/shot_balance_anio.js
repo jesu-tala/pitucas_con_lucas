@@ -125,13 +125,20 @@ function parseMoney(txt){
 
   // ---------- Stat tiles: year mode ----------
   const tiles = await page.evaluate(() => ({
-    ingresos: document.querySelector('.stat-ingresos .stat-value').textContent,
+    // La primera tarjeta muestra ENTRADAS (todo lo que entró), que es lo que usa el balance; el
+    // ingreso REAL va en la línea chica, y solo aparece cuando los dos difieren.
+    entradas: document.querySelector('.stat-ingresos .stat-value').textContent,
+    ingresoRealSub: document.querySelector('.stat-ingresos .stat-sub')?.textContent || null,
     gastos: document.querySelector('.stat-gastos .stat-value').textContent,
     inversiones: document.querySelector('.stat-inversiones .stat-value').textContent,
     balance: document.querySelector('.stat-balance .stat-value').textContent,
   }));
-  check('Stat tile Ingresos (año) == verdad recalculada desde TRANSACTIONS crudas',
-    parseMoney(tiles.ingresos) === setup.yearIngresos, { ui: tiles.ingresos, esperado: setup.yearIngresos });
+  check('Stat tile Entradas (año) == verdad recalculada desde TRANSACTIONS crudas',
+    parseMoney(tiles.entradas) === setup.yearEntradas, { ui: tiles.entradas, esperado: setup.yearEntradas });
+  // El ingreso real no desaparece de la vista: sigue verificado contra la misma verdad cruda.
+  const ingresoRealAnio = tiles.ingresoRealSub === null ? parseMoney(tiles.entradas) : parseMoney(tiles.ingresoRealSub);
+  check('Ingreso real (año) == verdad recalculada desde TRANSACTIONS crudas',
+    ingresoRealAnio === setup.yearIngresos, { ui: tiles.ingresoRealSub, esperado: setup.yearIngresos });
   check('Stat tile Gastos (año) == verdad recalculada desde TRANSACTIONS crudas',
     parseMoney(tiles.gastos) === setup.yearGastos, { ui: tiles.gastos, esperado: setup.yearGastos });
   check('Stat tile Inversiones (año) == verdad recalculada desde TRANSACTIONS crudas',

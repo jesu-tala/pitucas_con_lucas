@@ -71,7 +71,18 @@ const { openApp, check, finish } = require('./lib/test_kit');
     if (idx >= 0) { D.state.monthIndex = idx; D.render(); }
   });
   await page.waitForTimeout(150);
-  const balanceAntes = await page.evaluate(() => document.querySelector('.stat-ingresos .stat-value')?.textContent || null);
+  // Este check es sobre el INGRESO, no sobre el total de entradas: la primera tarjeta de Balance
+  // muestra todo lo que entró (para que la resta con Gastos/Inversiones cierre), y el ingreso
+  // real va en la línea chica de abajo cuando los dos difieren -- que es el caso de agosto en
+  // este fixture, por la transferencia de Fran. Se lee el ingreso real, que es lo que el monto
+  // editado tiene que mover.
+  const leerIngresoReal = () => page.evaluate(() => {
+    const sub = document.querySelector('.stat-ingresos .stat-sub');
+    if(sub) return sub.textContent;
+    const val = document.querySelector('.stat-ingresos .stat-value');
+    return val ? val.textContent : null;
+  });
+  const balanceAntes = await leerIngresoReal();
   // Ingresos de agosto en el fixture: t6 Sueldo ($1.250.000) + t11 Freelance ($180.000) =
   // $1.430.000 (t72 Transferencia de Fran no cuenta -- es la parte de otra persona en un gasto
   // compartido, se netea a 0 por ingresoNetoTx()).
@@ -89,7 +100,7 @@ const { openApp, check, finish } = require('./lib/test_kit');
   await page.waitForTimeout(100);
   await page.click('[data-tab="resumen"]');
   await page.waitForTimeout(200);
-  const balanceTrasEditar = await page.evaluate(() => document.querySelector('.stat-ingresos .stat-value')?.textContent || null);
+  const balanceTrasEditar = await leerIngresoReal();
   // 1.430.000 + (1.300.000 - 1.250.000) = 1.480.000
   check('(c) Balance > Ingresos ya refleja el monto editado sin más pasos ($1.480.000)', /1\.480\.000/.test(balanceTrasEditar || ''), { balanceTrasEditar, montoOriginalT6 });
 
