@@ -11,6 +11,25 @@ import { monthTotals, yearTotals, fullYearMonths } from './evolucion';
 // se muestran agrupadas y menos prominentes que Ingreso/Reembolsos (que sí tienen su propia
 // tarjeta destacada), nunca sumadas dentro de esas dos. Mismo look que renderReembolsoCard
 // (.reembolso-card) para que se vean como parte de la misma familia visual, no un componente aparte.
+// Las 4 tarjetas de arriba se leen como una cuenta: Ingreso - Gastos - Inversiones = Balance.
+// Pero no lo son. "Ingreso" es el ingreso REAL (naturaleza 'ingreso'), y Balance usa TODAS las
+// entradas, para cuadrar con lo que de verdad entró a la cuenta. Cuando hay entradas que no son
+// ingreso real -- un depósito sin clasificar, un cobro que te devolvieron, un movimiento de
+// capital -- los cuatro números dejan de cerrar y no hay nada en pantalla que lo diga.
+//
+// Caso real que lo destapó: con $2.881.025 de ingreso, $868.207 de gastos y $400.000 de
+// inversiones, el Balance mostraba $2.855.380. La cuenta "no daba" por $1.242.562 de entradas
+// sin clasificar, y desde afuera parecía que el Balance se había quedado pegado en un valor
+// viejo. Estaba bien calculado; lo que faltaba era decirlo.
+function renderBalanceDescuadreNota(t){
+  const otras = t.entradas - t.ingresos;
+  if(otras <= 0) return '';
+  return '<div class="file-format-hint" style="margin:-4px 0 12px;">'+
+    'El balance usa <b>todo lo que entró</b> a tu cuenta ('+money(t.entradas)+'), no solo el ingreso real: '+
+    'suma además '+money(otras)+' de las entradas de abajo. Por eso Ingreso − Gastos − Inversiones no da el balance.'+
+  '</div>';
+}
+
 function renderOtrasEntradasCards(t){
   let html = '';
   if(t.cobros>0) html += '<div class="card reembolso-card"><span class="reembolso-icon">'+ICONS.users+'</span><div><div class="reembolso-label">Cobros</div><div class="reembolso-value tabular">'+money(t.cobros)+'</div></div></div>';
@@ -279,6 +298,7 @@ export function renderBalanceView(){
       '<div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">'+money(mt.inversiones)+'</div></div>'+
       '<div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:'+(mt.balance>=0?'var(--income-ink)':'var(--expense-ink)')+'">'+money(mt.balance)+'</div></div>'+
     '</div>'+
+    renderBalanceDescuadreNota(mt)+
     renderReembolsoCard(monthlyReimbursementTotal(month), 'Reembolsado este mes')+
     renderOtrasEntradasCards(mt)+
     renderGoalSummaryCard(monthTx, mt.ingresos, investmentGoalPct())+
@@ -330,6 +350,7 @@ function renderBalanceViewAnio(){
       '<div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">'+money(yr.inversiones)+'</div></div>'+
       '<div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:'+(yr.balance>=0?'var(--income-ink)':'var(--expense-ink)')+'">'+money(yr.balance)+'</div></div>'+
     '</div>'+
+    renderBalanceDescuadreNota(yr)+
     renderReembolsoCard(reimbursementTotalForMonths(fullYearMonths(year)), 'Reembolsado este año')+
     renderOtrasEntradasCards(yr)+
     renderGoalSummaryCard(yearTx, yr.ingresos, metaInvPctAnio)+
