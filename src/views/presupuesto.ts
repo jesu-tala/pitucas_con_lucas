@@ -156,11 +156,26 @@ export function renderBudgetCatCard(catId){
     '<button class="budget-ver-mas" data-budget-see-more="'+catId+'">Ver transacciones →</button>'+
   '</div>';
 }
-// How much the budgets you've already set per category add up to, in total — so we can flag
-// (small, without interrupting) whether those categories already match the month's total budget
-// or whether there's still a difference left to assign/adjust.
+// Las categorías de gasto que HOY tienen presupuesto. Única fuente de verdad para las dos cosas
+// que tienen que coincidir: las tarjetas que se dibujan en la vista y la suma que se compara con
+// el presupuesto total.
+//
+// BUG QUE SE ARREGLA ACÁ: eran dos listas distintas. La vista filtraba por "la categoría existe
+// y es de tipo gasto"; la suma recorría BUDGETS entero, sin filtrar. Un presupuesto que quedó
+// huérfano --porque a esa categoría le cambiaron el tipo de gasto a ingreso/inversión, o por
+// datos viejos-- seguía sumando aunque su tarjeta no se dibujara en ninguna parte. Reportado
+// así: "la app dice 1.400.000 asignados pero cuando sumo mis categorías me da 1.350.000", con
+// un huérfano de exactamente $50.000 que no se veía por ningún lado.
+export function catIdsConPresupuesto(){
+  return Object.keys(CATEGORIES)
+    .filter(id => CATEGORIES[id].tipo==='gasto')
+    .filter(id => BUDGETS[id]);
+}
+// Cuánto suman los presupuestos por categoría ya fijados — para avisar (chico, sin interrumpir)
+// si esas categorías ya calzan con el presupuesto total del mes o si todavía queda diferencia
+// por asignar/ajustar.
 export function sumaPresupuestosCategorias(){
-  return Object.keys(BUDGETS).reduce((s,id)=>s+(BUDGETS[id].meta||0),0);
+  return catIdsConPresupuesto().reduce((s,id)=>s+(BUDGETS[id].meta||0),0);
 }
 export function renderBudgetCatsCalce(meta){
   const sumaCats = sumaPresupuestosCategorias();
@@ -250,7 +265,9 @@ export function renderMetasGastoCard(){
 export function renderBudgetView(){
   const month = MONTHS[state.monthIndex];
   const gastoCatIds = Object.keys(CATEGORIES).filter(k=>CATEGORIES[k].tipo==='gasto');
-  const conPresupuesto = gastoCatIds.filter(id=>BUDGETS[id]);
+  // La MISMA lista que usa sumaPresupuestosCategorias(), para que la suma que se muestra no
+  // pueda volver a discrepar de las tarjetas que se dibujan.
+  const conPresupuesto = catIdsConPresupuesto();
   const sinPresupuesto = gastoCatIds.filter(id=>!BUDGETS[id]);
 
   const conHtml = conPresupuesto.length
