@@ -487,7 +487,7 @@ export const state: AppState = {
   catDraft:{nombre:'', tipo:'gasto', colorHue:95, colorHueTouched:false, icon:'more'},
   editingPaymentMethodId:null, // medioId being edited, 'nueva', or null (different from the mini-form inside the new-transaction sheet)
   confirmDeletePaymentMethodId:null, // medioId showing "are you sure?" before actually deleting it
-  medioDraft:{nombre:'', corto:'', icon:'card'},
+  medioDraft:{nombre:'', corto:'', icon:'card', diaCorte:''},
   confirmDeleteRuleComercio:null, // comercio (rule key) showing "are you sure?" before actually deleting it
   confirmDeleteGroupRuleCatId:null, // categoryId with a pending "are you sure?" before deleting its group rule (refinamiento C)
   demoMode:false,
@@ -508,7 +508,12 @@ export const state: AppState = {
     // ids of eliminarPropuesto transactions checked in the automatic-reconciliation review
     // (see reconcile.ts/renderReconcileDiffSection) -- "Eliminar seleccionadas" only acts on
     // these, and only after this per-item confirmation; reset whenever a (new) statement loads.
-    eliminarSeleccionados:[]
+    eliminarSeleccionados:[]    ,
+    // fuenteLineaId de la línea de cartola para la que se está eligiendo el calce a mano, o
+    // null. Elegir a mano existe porque el matching difuso no siempre acierta: un comercio que
+    // el banco escribe distinto, una fecha corrida, un monto que no se parece. La persona sabe
+    // cuál es; la app solo tiene que dejarla decirlo.
+    eligiendoParaLinea:null
   },
 
   // ---- Pending charges and reimbursements (link a deposit to a pending item, or vice versa) ----

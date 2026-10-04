@@ -74,6 +74,10 @@ const { openApp, check, finish } = require('./lib/test_kit');
       eliminarOrigenesTodosAutomaticos: diff1.eliminarPropuesto.every(i => D.isAutomaticOrigin(i.tx)),
       revisarConfianzas: diff1.revisar.map(i => i.confianza),
       revisarCandidatoIds: diff1.revisar.map(i => i.candidatos.map(t => t.id)),
+      mergearIds: diff1.mergear.map(i => i.tx.id),
+      mergearConfianzas: diff1.mergear.map(i => i.confianza),
+      mergearConfirman: diff1.mergear.map(i => i.requiereConfirmacion),
+      mergearDifs: diff1.mergear.map(i => i.diferenciaMonto),
       manualesIds: diff1.manualesIgnoradas.map(i => i.tx.id).sort(),
       manualAnuladoMotivo: (diff1.manualesIgnoradas.find(i => i.tx.id==='m-anulado') || {}).motivo
     };
@@ -123,8 +127,18 @@ const { openApp, check, finish } = require('./lib/test_kit');
   /* ---------- 0) matchConfidence ---------- */
   check('matchConfidence: mismo monto+fecha cercana+comercio parecido -> alta', resultado.confAlta==='alta', resultado.confAlta);
   check('matchConfidence: mismo monto+fecha exacta, comercio no calza -> media', resultado.confMediaComercioDistinto==='media', resultado.confMediaComercioDistinto);
-  check('matchConfidence: monto redondeado (1 peso) -> baja', resultado.confBajaMontoRedondeo==='baja', resultado.confBajaMontoRedondeo);
+  // Un peso de diferencia con el comercio y la fecha calzando ya no es 'baja' sino 'media': ver
+  // toleranciaMonto en reconcile.ts. 'media' nunca actúa sola --siempre pide confirmación-- así
+  // que lo que esto protegía (que un monto inexacto no dispare nada automático) sigue valiendo.
+  // El límite real de lo automático es 'alta', que sigue exigiendo monto EXACTO.
+  check('matchConfidence: un peso de diferencia llega a media, nunca a alta',
+    resultado.confBajaMontoRedondeo==='media', resultado.confBajaMontoRedondeo);
   check('matchConfidence: fecha más lejana (4 días) con monto exacto -> baja', resultado.confBajaFechaLejana==='baja', resultado.confBajaFechaLejana);
+  // El techo de la tolerancia: una compra del doble NO puede calzar con otra por mucho que el
+  // comercio y la fecha coincidan. Sin este control, ensanchar la tolerancia podría pasar
+  // inadvertido hasta que emparejara dos gastos distintos.
+  check('(control) matchConfidence: un monto del doble sigue sin calzar (la tolerancia tiene techo)',
+    resultado.confNullMontoMuyDistinto===null, resultado.confNullMontoMuyDistinto);
   check('matchConfidence: monto muy distinto -> null (nada)', resultado.confNullMontoMuyDistinto===null, resultado.confNullMontoMuyDistinto);
   check('matchConfidence: tipo distinto (gasto vs ingreso) -> null', resultado.confNullTipoDistinto===null, resultado.confNullTipoDistinto);
 
@@ -143,8 +157,31 @@ const { openApp, check, finish } = require('./lib/test_kit');
   check('diff: eliminarPropuesto NUNCA contiene m-anulado/m-unbacked/legacy/baja-cand (protegidas o ambiguas)', !d1.eliminarIds.some(id => ['m-anulado','m-unbacked','legacy-unbacked','baja-cand'].includes(id)), d1);
   check('diff: TODO lo que llega a eliminarPropuesto tiene origen automático', d1.eliminarOrigenesTodosAutomaticos===true, d1);
   check('diff: eliminarPropuesto tiene exactamente 1 ítem (a-unbacked)', d1.eliminarIds.length===1, d1);
-  check('diff: "Copec Las Condes" (monto -1 peso, confianza baja) queda en revisar, no en agregar ni eliminar', d1.revisarConfianzas.length===1 && d1.revisarConfianzas[0]==='baja', d1);
-  check('diff: el candidato de "revisar" para Copec es baja-cand', JSON.stringify(d1.revisarCandidatoIds)===JSON.stringify([['baja-cand']]), d1);
+  // "Copec Las Condes" ($19.999 contra un Copec de $20.000 registrado, un día de diferencia).
+  //
+  // ANTES iba a "revisar": el matcher exigía monto EXACTO para pasar de 'baja', así que un peso
+  // de diferencia bastaba para mandarlo a revisión manual. Ahora, con la tolerancia de monto
+  // (ver toleranciaMonto en reconcile.ts), llega a 'media' y se propone EMPAREJAR -- que es lo
+  // útil: "esta línea probablemente es tu Copec, ¿confirmas?" en vez de "revisalo a mano".
+  //
+  // Lo que este check protege no cambió, y es lo que importa: la línea NO se agrega (no hay
+  // duplicado), la transacción NO se propone para eliminar, y nada pasa sin confirmación. Solo
+  // cambió en qué grupo se presenta.
+  check('diff: "Copec Las Condes" (un peso de diferencia) NO se agrega como transacción nueva',
+    !d1.agregarIds.includes('Copec Las Condes'), d1);
+  check('diff: y tampoco se propone eliminar el Copec registrado', !d1.eliminarIds.includes('baja-cand'), d1);
+  check('diff: se propone emparejarla con el Copec que ya existe',
+    d1.mergearIds.includes('baja-cand'), d1);
+  check('diff: ese merge exige confirmación (no es confianza alta)',
+    d1.mergearConfianzas[d1.mergearIds.indexOf('baja-cand')]==='media' &&
+    d1.mergearConfirman[d1.mergearIds.indexOf('baja-cand')]===true, d1);
+  // -1 y no 1: la cartola dice $19.999 y el gasto registrado $20.000, así que la diferencia es
+  // negativa. El signo importa, porque la pantalla muestra "(+$X)" o "(-$X)" tal cual.
+  check('diff: el merge informa el peso de diferencia con su signo, para poder mostrarlo',
+    d1.mergearDifs[d1.mergearIds.indexOf('baja-cand')]===-1, d1);
+  // Y ya no queda nada en "revisar": era el único ítem ambiguo del escenario.
+  check('diff: "revisar" queda vacío, porque lo ambiguo pasó a ser una propuesta de merge',
+    d1.revisarConfianzas.length===0, d1);
   check('diff: manualesIgnoradas contiene m-anulado, m-unbacked y legacy-unbacked (y solo esas)', JSON.stringify(d1.manualesIds)===JSON.stringify(['legacy-unbacked','m-anulado','m-unbacked']), d1);
   check('diff: el motivo de m-anulado menciona que la cartola la muestra anulada', /anulad/i.test(d1.manualAnuladoMotivo||''), d1.manualAnuladoMotivo);
 

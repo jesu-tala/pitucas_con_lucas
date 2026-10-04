@@ -160,6 +160,14 @@ export interface Transaction {
   // if fuzzy matching (matchConfidence) would fail to recognize it a second time -- this is the
   // hard guarantee idempotency needs; fuzzy matching alone is only ever a probabilistic signal.
   fuenteLineaId?: string;
+  // conciliada: esta transacción ya fue respaldada por una línea de una cartola, y la línea
+  // quedó registrada en fuenteLineaId. Es lo que distingue "la cartola la confirma" de "la
+  // cartola no la menciona", que son dos cosas muy distintas al revisar un mes: la segunda es
+  // candidata a eliminar (si es automática) y la primera no se toca nunca más.
+  //
+  // Se escribe SOLO al aplicar un merge, nunca al construir el diff -- buildReconcileDiff no
+  // muta nada, es la regla de ese archivo.
+  conciliada?: boolean;
   // ---- Splitting an expense with people (no group) ----
   // pagador: who actually paid, for the NO-group porCobrar path only -- a transaction WITH a
   // group (groupId set, below) already has its own equivalent concept (SharedExpense.pagado_por
@@ -321,6 +329,13 @@ export interface PaymentMethod {
   nombre: string;
   corto: string;
   icon: string;     // an ICONS name ('card' | 'bank' | 'cash' | ...)
+  // Día del mes en que cierra la facturación de esta tarjeta (1-31). Cada tarjeta cierra
+  // distinto, y el mes calendario no calza con ninguna: una cartola puede ir del 25 al 24.
+  //
+  // Aplica SOLO a la reconciliación -- define qué período se compara con la cartola. No cambia
+  // el mes calendario del resto de la app: Balance, Presupuesto y Evolución siguen por mes
+  // calendario, y eso no se negocia (ver periodoDeReconciliacion en reconcile.ts).
+  diaCorte?: number;
 }
 
 /* ---- Investments: goals + platforms (see the notes on INVESTMENT_GOALS/PLATFORM_DATA in

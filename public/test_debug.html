@@ -2125,6 +2125,14 @@
     return Math.abs(d1 - d2) / 864e5;
   }
   __name(daysBetween, "daysBetween");
+  var TOLERANCIA_PCT = 0.015;
+  var TOLERANCIA_MIN = 100;
+  var TOLERANCIA_MAX = 3e3;
+  function toleranciaMonto(monto) {
+    const prop = Math.abs(monto) * TOLERANCIA_PCT;
+    return Math.min(TOLERANCIA_MAX, Math.max(TOLERANCIA_MIN, prop));
+  }
+  __name(toleranciaMonto, "toleranciaMonto");
   function matchConfidence(mov, tx) {
     if (tx.tipo !== mov.tipoMov) return null;
     if (mov.cuotaNumero != null && tx.cuotaNumero != null && mov.cuotaNumero !== tx.cuotaNumero) return null;
@@ -2136,6 +2144,7 @@
     const comercioClose = comerciosSonParecidos(na, nb);
     if (montoDiff === 0 && diffDias <= 2 && comercioClose) return "alta";
     if (montoDiff === 0 && diffDias <= 2) return "media";
+    if (montoDiff <= toleranciaMonto(tx.monto) && diffDias <= 2 && comercioClose) return "media";
     if (montoDiff <= 2 && diffDias <= 5) return "baja";
     return null;
   }
@@ -2144,6 +2153,52 @@
     return c === "alta" ? 3 : c === "media" ? 2 : 1;
   }
   __name(nivel, "nivel");
+  function diasCorteDeFamilia(tipoCartola) {
+    const iconEsperado = tipoCartola === "tarjeta_nacional" ? "card" : tipoCartola === "cuenta_corriente" ? "bank" : null;
+    if (!iconEsperado) return [];
+    return Object.keys(PAYMENT_METHODS).filter((id) => PAYMENT_METHODS[id] && PAYMENT_METHODS[id].icon === iconEsperado).map((id) => PAYMENT_METHODS[id].diaCorte).filter((d) => typeof d === "number" && d >= 1 && d <= 31);
+  }
+  __name(diasCorteDeFamilia, "diasCorteDeFamilia");
+  function ventanaDeCorte(fechaISO, dia) {
+    const [y, m, d] = fechaISO.split("-").map(Number);
+    const pad = /* @__PURE__ */ __name((n) => String(n).padStart(2, "0"), "pad");
+    const ultimoDia = /* @__PURE__ */ __name((yy, mm) => new Date(yy, mm, 0).getDate(), "ultimoDia");
+    const cierreEsteMes = Math.min(dia, ultimoDia(y, m));
+    let yHasta = y, mHasta = m;
+    if (d > cierreEsteMes) {
+      mHasta = m + 1;
+      if (mHasta > 12) {
+        mHasta = 1;
+        yHasta = y + 1;
+      }
+    }
+    const cierre = Math.min(dia, ultimoDia(yHasta, mHasta));
+    let yDesde = yHasta, mDesde = mHasta - 1;
+    if (mDesde < 1) {
+      mDesde = 12;
+      yDesde = yHasta - 1;
+    }
+    const aperturaDia = Math.min(dia, ultimoDia(yDesde, mDesde)) + 1;
+    return {
+      desde: yDesde + "-" + pad(mDesde) + "-" + pad(aperturaDia),
+      hasta: yHasta + "-" + pad(mHasta) + "-" + pad(cierre)
+    };
+  }
+  __name(ventanaDeCorte, "ventanaDeCorte");
+  function periodoDeReconciliacion(movimientos, tipoCartola) {
+    const derivado = statementPeriod(movimientos);
+    if (!derivado) return null;
+    const dias = diasCorteDeFamilia(tipoCartola);
+    if (!dias.length) return derivado;
+    let desde = derivado.desde, hasta = derivado.hasta;
+    dias.forEach((dia) => {
+      const v = ventanaDeCorte(derivado.hasta, dia);
+      if (v.desde < desde) desde = v.desde;
+      if (v.hasta > hasta) hasta = v.hasta;
+    });
+    return { desde, hasta };
+  }
+  __name(periodoDeReconciliacion, "periodoDeReconciliacion");
   function statementPeriod(movimientos) {
     const fechas = movimientos.map((m) => m.fecha).filter(Boolean).sort();
     if (!fechas.length) return null;
@@ -2177,11 +2232,26 @@
   __name(buildTxPropuesta, "buildTxPropuesta");
   function buildReconcileDiff(movimientos, tipoCartola) {
     const normales = movimientos.filter((m) => m.esEspecial !== "pago_tarjeta" && m.esEspecial !== "pago_recibido");
-    const periodo = statementPeriod(movimientos);
+    const periodo = periodoDeReconciliacion(movimientos, tipoCartola);
     const agregar = [];
+    const mergear = [];
     const revisar = [];
     const eliminarPropuesto = [];
     const manualesIgnoradas = [];
+    const proponerMerge = /* @__PURE__ */ __name((mov, tx, confianza) => {
+      if (tx.conciliada) return;
+      const dif = Math.round(Math.abs(mov.monto)) - Math.round(tx.monto);
+      mergear.push({
+        movimiento: mov,
+        tx,
+        confianza,
+        // Toda transacción protegida (manual, o sin origen) exige confirmación explícita, sin
+        // importar la confianza del calce: es la regla no negociable de este archivo aplicada al
+        // merge, no solo al borrado.
+        requiereConfirmacion: isProtectedOrigin(tx) || confianza !== "alta",
+        diferenciaMonto: dif === 0 ? null : dif
+      });
+    }, "proponerMerge");
     normales.forEach((mov) => {
       if (mov.fuenteLineaId && TRANSACTIONS.some((t) => t.fuenteLineaId === mov.fuenteLineaId)) return;
       const candidatosAlta = [], candidatosMedia = [], candidatosBaja = [];
@@ -2191,12 +2261,18 @@
         else if (c === "media") candidatosMedia.push(t);
         else if (c === "baja") candidatosBaja.push(t);
       });
-      if (candidatosAlta.length === 1) return;
+      if (candidatosAlta.length === 1) {
+        proponerMerge(mov, candidatosAlta[0], "alta");
+        return;
+      }
       if (candidatosAlta.length > 1) {
         revisar.push({ movimiento: mov, confianza: "alta", candidatos: candidatosAlta });
         return;
       }
-      if (candidatosMedia.length === 1) return;
+      if (candidatosMedia.length === 1) {
+        proponerMerge(mov, candidatosMedia[0], "media");
+        return;
+      }
       if (candidatosMedia.length > 1) {
         revisar.push({ movimiento: mov, confianza: "media", candidatos: candidatosMedia });
         return;
@@ -2230,9 +2306,23 @@
         }
       });
     }
-    return { agregar, eliminarPropuesto, revisar, manualesIgnoradas };
+    return { agregar, mergear, eliminarPropuesto, revisar, manualesIgnoradas };
   }
   __name(buildReconcileDiff, "buildReconcileDiff");
+  function aplicarMerge(tx, mov, actualizarMonto) {
+    const montoAntes = tx.monto;
+    const porCobrarTotal = (tx.porCobrar || []).reduce((s, p) => s + (p.monto || 0), 0);
+    if (!tx || !mov) return { ok: false, montoAntes, montoDespues: montoAntes, porCobrarTotal, porCobrarRecalculado: false };
+    tx.conciliada = true;
+    if (mov.fuenteLineaId) tx.fuenteLineaId = mov.fuenteLineaId;
+    const montoCartola = Math.round(Math.abs(mov.monto));
+    if (actualizarMonto && montoCartola !== Math.round(tx.monto)) {
+      tx.monto = montoCartola;
+      if ((tx.categorias || []).length === 1) tx.categorias[0].monto = tx.monto;
+    }
+    return { ok: true, montoAntes, montoDespues: tx.monto, porCobrarTotal, porCobrarRecalculado: false };
+  }
+  __name(aplicarMerge, "aplicarMerge");
 
   // src/currency.ts
   var MAX_DIAS_ATRAS = 7;
@@ -3667,7 +3757,9 @@
   function renderMenuPaymentMethodEditForm() {
     const d = state.medioDraft;
     const isNew = state.editingPaymentMethodId === "nueva";
-    return '<div class="card" style="padding:16px;"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-payment-method-draft-field="nombre" value="' + esc(d.nombre) + '" placeholder="Ej: Mastercard Falabella"><label class="draft-label" style="margin-top:12px;">Detalle (opcional)</label><input type="text" class="draft-input" data-payment-method-draft-field="corto" value="' + esc(d.corto) + '" placeholder="Ej: \u2022\u2022\u2022\u2022 1234"><label class="draft-label" style="margin-top:12px;">\xCDcono</label><div class="icon-picker" style="grid-template-columns:repeat(4,1fr);">' + MEDIO_ICON_CHOICES.map((ic) => '<button type="button" data-payment-method-draft-icon="' + ic + '" class="' + (d.icon === ic ? "active" : "") + '">' + ICONS[ic] + "</button>").join("") + '</div><div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-payment-method-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-payment-method="' + (isNew ? "nueva" : state.editingPaymentMethodId) + '">Guardar</button></div>' + (!isNew && !isPaymentMethodInUse(state.editingPaymentMethodId) ? state.confirmDeletePaymentMethodId === state.editingPaymentMethodId ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar el medio de pago "' + esc(d.nombre) + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-payment-method>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-payment-method="' + state.editingPaymentMethodId + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-payment-method="' + state.editingPaymentMethodId + '">Eliminar medio de pago</button>' : "") + (!isNew && isPaymentMethodInUse(state.editingPaymentMethodId) ? '<div class="file-format-hint">No se puede eliminar: tiene transacciones asociadas.</div>' : "") + "</div>";
+    return '<div class="card" style="padding:16px;"><label class="draft-label">Nombre</label><input type="text" class="draft-input" data-payment-method-draft-field="nombre" value="' + esc(d.nombre) + '" placeholder="Ej: Mastercard Falabella"><label class="draft-label" style="margin-top:12px;">Detalle (opcional)</label><input type="text" class="draft-input" data-payment-method-draft-field="corto" value="' + esc(d.corto) + '" placeholder="Ej: \u2022\u2022\u2022\u2022 1234">' + // Solo para tarjetas: una cuenta corriente no tiene día de corte, y ofrecerlo ahí sería
+    // pedir un dato que no existe.
+    (d.icon === "card" ? '<label class="draft-label" style="margin-top:12px;">D\xEDa de corte (opcional)</label><input type="text" inputmode="numeric" class="draft-input tabular" data-payment-method-draft-field="diaCorte" value="' + esc(d.diaCorte == null ? "" : String(d.diaCorte)) + '" placeholder="Ej: 24"><div class="file-format-hint" style="margin:6px 0 0;">El d\xEDa del mes en que cierra la facturaci\xF3n de esta tarjeta. Se usa <b>solo para reconciliar</b> con la cartola: Balance, Presupuesto y Evoluci\xF3n siguen por mes calendario.</div>' : "") + '<label class="draft-label" style="margin-top:12px;">\xCDcono</label><div class="icon-picker" style="grid-template-columns:repeat(4,1fr);">' + MEDIO_ICON_CHOICES.map((ic) => '<button type="button" data-payment-method-draft-icon="' + ic + '" class="' + (d.icon === ic ? "active" : "") + '">' + ICONS[ic] + "</button>").join("") + '</div><div style="display:flex;gap:10px;margin-top:16px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-payment-method-edit>Cancelar</button><button class="save-tx-btn" style="flex:1;" data-save-payment-method="' + (isNew ? "nueva" : state.editingPaymentMethodId) + '">Guardar</button></div>' + (!isNew && !isPaymentMethodInUse(state.editingPaymentMethodId) ? state.confirmDeletePaymentMethodId === state.editingPaymentMethodId ? '<div class="file-format-hint" style="margin:12px 0 8px;">\xBFSeguro que quieres eliminar el medio de pago "' + esc(d.nombre) + '"? No se puede deshacer.</div><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);flex:1;" data-cancel-delete-payment-method>Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-payment-method="' + state.editingPaymentMethodId + '">S\xED, eliminar</button></div>' : '<button class="budget-delete-link" data-ask-delete-payment-method="' + state.editingPaymentMethodId + '">Eliminar medio de pago</button>' : "") + (!isNew && isPaymentMethodInUse(state.editingPaymentMethodId) ? '<div class="file-format-hint">No se puede eliminar: tiene transacciones asociadas.</div>' : "") + "</div>";
   }
   __name(renderMenuPaymentMethodEditForm, "renderMenuPaymentMethodEditForm");
   function renderMenuMedios() {
@@ -4189,6 +4281,12 @@
   }
   __name(tryOpenStatementFile, "tryOpenStatementFile");
   function findSimilarTx(mov) {
+    if (mov.fuenteLineaId) {
+      const yaRegistrada = TRANSACTIONS.find(function(t) {
+        return t.fuenteLineaId === mov.fuenteLineaId;
+      });
+      if (yaRegistrada) return yaRegistrada;
+    }
     const montoAbs = Math.abs(mov.monto);
     return TRANSACTIONS.find(function(t) {
       if (t.tipo !== mov.tipoMov) return false;
@@ -4290,20 +4388,57 @@
     document.getElementById("view-root").innerHTML = head + '<div class="card placeholder-card" style="padding:14px;margin-bottom:14px;"><p class="muted" style="margin:0;">' + R.archivo + " \u2014 " + normales.length + " movimiento" + (normales.length === 1 ? "" : "s") + ", " + conMatch.length + " ya registrado" + (conMatch.length === 1 ? "" : "s") + ", " + sinMatch.length + " para revisar.</p></div>" + resumenTarjeta + (sinMatch.length ? '<button class="budget-add-link" data-reconcile-add-all style="margin-bottom:10px;">Agregar los ' + sinMatch.length + " que faltan</button>" : "") + listaHtml + renderReconcileDiffSection(R) + '<button class="budget-add-link" data-reconcile-reset style="margin-top:10px;">Probar con otro archivo</button>';
   }
   __name(renderMenuReconciliar, "renderMenuReconciliar");
+  var DIAS_VENTANA_ELEGIR = 20;
+  function candidatosParaElegir(mov) {
+    if (!mov) return [];
+    const f0 = (/* @__PURE__ */ new Date(mov.fecha + "T00:00:00")).getTime();
+    return TRANSACTIONS.filter(function(t) {
+      if (t.tipo !== mov.tipoMov) return false;
+      if (t.conciliada) return false;
+      const d = Math.abs((/* @__PURE__ */ new Date(t.fecha + "T00:00:00")).getTime() - f0) / 864e5;
+      return d <= DIAS_VENTANA_ELEGIR;
+    }).slice().sort(function(a, b) {
+      return b.fecha.localeCompare(a.fecha);
+    });
+  }
+  __name(candidatosParaElegir, "candidatosParaElegir");
+  function renderElegirCalceHtml(mov) {
+    const cands = candidatosParaElegir(mov);
+    if (!cands.length) {
+      return '<div class="file-format-hint" style="margin-top:8px;">No hay transacciones cercanas a esta fecha para emparejar. Puedes agregarla como nueva desde la lista de arriba.</div><button class="budget-add-link" data-elegir-calce-cancelar style="margin-top:6px;">Cancelar</button>';
+    }
+    return '<div style="margin-top:8px;"><div class="muted" style="font-size:11.5px;margin-bottom:6px;">Elige cu\xE1l de tus transacciones es esta l\xEDnea. Se empareja sin tocar su categor\xEDa, su nota ni sus cobros a personas.</div>' + cands.map(function(t) {
+      return '<button class="chip" style="display:block;width:100%;text-align:left;margin-bottom:6px;" data-elegir-calce-tx="' + t.id + '" data-elegir-calce-linea="' + esc(mov.fuenteLineaId || "") + '">' + esc(t.comercio) + " \xB7 " + money(t.monto) + " \xB7 " + dayLabel(t.fecha) + (isProtectedOrigin(t) ? " \xB7 a mano" : "") + "</button>";
+    }).join("") + '<button class="budget-add-link" data-elegir-calce-cancelar>Cancelar</button></div>';
+  }
+  __name(renderElegirCalceHtml, "renderElegirCalceHtml");
   function renderReconcileDiffSection(R) {
     if (!R.movimientos.length) return "";
     const diff = buildReconcileDiff(R.movimientos, R.tipo);
     const totalAltas = diff.agregar.filter(function(i) {
       return i.confianza === "alta";
     }).length;
-    if (!diff.agregar.length && !diff.eliminarPropuesto.length && !diff.revisar.length && !diff.manualesIgnoradas.length) {
+    if (!diff.agregar.length && !diff.mergear.length && !diff.eliminarPropuesto.length && !diff.revisar.length && !diff.manualesIgnoradas.length) {
       return "";
     }
     let html = '<div class="section-title">Revisi\xF3n autom\xE1tica de este per\xEDodo</div>';
+    if (diff.mergear.length) {
+      const autos = diff.mergear.filter(function(i) {
+        return !i.requiereConfirmacion;
+      }).length;
+      html += '<div class="card" style="padding:14px;margin-bottom:10px;"><div class="sheet-block-title" style="margin-bottom:6px;">Ya est\xE1n en la app (' + diff.mergear.length + ')</div><p class="muted" style="margin-bottom:10px;">Estas l\xEDneas de la cartola corresponden a transacciones que ya tienes. Emparejarlas las deja marcadas como respaldadas por la cartola; <b>no se borra ni se cambia nada de lo que ya escribiste</b>.</p>' + (autos ? '<button class="budget-add-link" data-reconcile-merge-autos style="margin-bottom:8px;">Emparejar las ' + autos + " que calzan exacto</button>" : "") + diff.mergear.map(function(item) {
+        const m = item.movimiento, t = item.tx;
+        const dif = item.diferenciaMonto;
+        const difTxt = dif === null ? "" : '<div class="muted" style="font-size:11.5px;margin-top:3px;">Tu monto: ' + money(t.monto) + " \xB7 la cartola dice " + money(Math.abs(m.monto)) + " (" + (dif > 0 ? "+" : "") + money(dif) + "). Se mantiene el tuyo.</div>";
+        const cobrosTxt = (t.porCobrar || []).length ? '<div class="muted" style="font-size:11.5px;margin-top:3px;">Tiene ' + t.porCobrar.length + " cobro" + (t.porCobrar.length === 1 ? "" : "s") + " a personas \u2014 no se tocan.</div>" : "";
+        return '<div style="padding:10px 0;border-top:1px solid var(--border);"><div style="font-weight:600;font-size:13px;">' + esc(m.comercioSugerido || m.detalle) + " \u2014 " + money(Math.abs(m.monto)) + '</div><div class="muted" style="font-size:11.5px;">' + dayLabel(m.fecha) + " \xB7 calza con <b>" + esc(t.comercio) + "</b> (" + dayLabel(t.fecha) + ") \xB7 confianza " + item.confianza + (item.requiereConfirmacion && isProtectedOrigin(t) ? " \xB7 la subiste a mano" : "") + "</div>" + difTxt + cobrosTxt + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;"><button class="chip" data-reconcile-merge="' + esc(m.fuenteLineaId || "") + '" data-merge-tx="' + t.id + '">Es la misma</button>' + (dif !== null ? '<button class="chip" data-reconcile-merge="' + esc(m.fuenteLineaId || "") + '" data-merge-tx="' + t.id + '" data-merge-monto="1">Es la misma y usar ' + money(Math.abs(m.monto)) + "</button>" : "") + "</div></div>";
+      }).join("") + "</div>";
+    }
     if (diff.agregar.length) {
       html += '<div class="card" style="padding:14px;margin-bottom:10px;"><div class="sheet-block-title" style="margin-bottom:6px;">Faltan en la app (' + diff.agregar.length + ')</div><p class="muted" style="margin-bottom:10px;">Est\xE1n en la cartola pero ninguna transacci\xF3n registrada calza con ellos.</p>' + (totalAltas ? '<button class="budget-add-link" data-reconcile-diff-add-altas style="margin-bottom:8px;">Agregar las ' + totalAltas + " de confianza alta</button>" : "") + diff.agregar.map(function(item) {
         const m = item.movimiento;
-        return '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--border);"><div style="min-width:0;"><div style="font-weight:600;font-size:13px;">' + esc(m.comercioSugerido || m.detalle) + '</div><div class="muted" style="font-size:11.5px;">' + dayLabel(m.fecha) + " \xB7 confianza " + item.confianza + '</div></div><span class="tabular" style="font-weight:600;flex-shrink:0;">' + (m.tipoMov === "ingreso" ? "+" : "") + money(Math.abs(m.monto)) + "</span></div>";
+        const eligiendo = R.eligiendoParaLinea && R.eligiendoParaLinea === m.fuenteLineaId;
+        return '<div style="padding:8px 0;border-top:1px solid var(--border);"><div style="display:flex;justify-content:space-between;gap:10px;"><div style="min-width:0;"><div style="font-weight:600;font-size:13px;">' + esc(m.comercioSugerido || m.detalle) + '</div><div class="muted" style="font-size:11.5px;">' + dayLabel(m.fecha) + " \xB7 confianza " + item.confianza + '</div></div><span class="tabular" style="font-weight:600;flex-shrink:0;">' + (m.tipoMov === "ingreso" ? "+" : "") + money(Math.abs(m.monto)) + "</span></div>" + (eligiendo ? renderElegirCalceHtml(m) : '<button class="budget-add-link" data-elegir-calce-abrir="' + esc(m.fuenteLineaId || "") + '" style="margin-top:4px;">Ya la tengo \u2014 elegir cu\xE1l es</button>') + "</div>";
       }).join("") + "</div>";
     }
     if (diff.eliminarPropuesto.length) {
@@ -4319,7 +4454,8 @@
         const candidatosTxt = item.candidatos.map(function(t) {
           return esc(t.comercio) + " (" + dayLabel(t.fecha) + ", " + money(t.monto) + ")";
         }).join(" \xB7 ");
-        return '<div style="padding:8px 0;border-top:1px solid var(--border);"><div style="font-weight:600;font-size:13px;">' + esc(m.comercioSugerido || m.detalle) + " \u2014 " + money(Math.abs(m.monto)) + " (" + dayLabel(m.fecha) + ')</div><div class="muted" style="font-size:11.5px;">confianza ' + item.confianza + " \xB7 posibles: " + candidatosTxt + "</div></div>";
+        const eligiendo = R.eligiendoParaLinea && R.eligiendoParaLinea === m.fuenteLineaId;
+        return '<div style="padding:8px 0;border-top:1px solid var(--border);"><div style="font-weight:600;font-size:13px;">' + esc(m.comercioSugerido || m.detalle) + " \u2014 " + money(Math.abs(m.monto)) + " (" + dayLabel(m.fecha) + ')</div><div class="muted" style="font-size:11.5px;">confianza ' + item.confianza + " \xB7 posibles: " + candidatosTxt + "</div>" + (eligiendo ? renderElegirCalceHtml(m) : '<button class="budget-add-link" data-elegir-calce-abrir="' + esc(m.fuenteLineaId || "") + '" style="margin-top:6px;">Elegir a mano cu\xE1l es</button>') + "</div>";
       }).join("") + "</div>";
     }
     if (diff.manualesIgnoradas.length) {
@@ -7506,6 +7642,91 @@
       });
       return;
     }
+    const refrescarMatchesDeCartola = /* @__PURE__ */ __name(function() {
+      (state.reconciliar.movimientos || []).forEach(function(m) {
+        m.__match = findSimilarTx(m);
+      });
+    }, "refrescarMatchesDeCartola");
+    const elegirAbrirBtn = e.target.closest("[data-elegir-calce-abrir]");
+    if (elegirAbrirBtn) {
+      state.reconciliar.eligiendoParaLinea = elegirAbrirBtn.getAttribute("data-elegir-calce-abrir");
+      renderMenuView();
+      return;
+    }
+    const elegirCancelarBtn = e.target.closest("[data-elegir-calce-cancelar]");
+    if (elegirCancelarBtn) {
+      state.reconciliar.eligiendoParaLinea = null;
+      renderMenuView();
+      return;
+    }
+    const elegirTxBtn = e.target.closest("[data-elegir-calce-tx]");
+    if (elegirTxBtn) {
+      const txId = elegirTxBtn.getAttribute("data-elegir-calce-tx");
+      const lineaId = elegirTxBtn.getAttribute("data-elegir-calce-linea");
+      const mov = state.reconciliar.movimientos.find(function(m) {
+        return m.fuenteLineaId === lineaId;
+      });
+      const tx = getTx(txId);
+      if (!mov || !tx) {
+        toast("No encontr\xE9 esa l\xEDnea");
+        return;
+      }
+      const res = aplicarMerge(tx, mov, false);
+      state.reconciliar.eligiendoParaLinea = null;
+      if (!res.ok) {
+        toast("No se pudo emparejar");
+        return;
+      }
+      toast("Emparejada con " + tx.comercio);
+      refrescarMatchesDeCartola();
+      renderMenuView();
+      renderIfListVisible();
+      return;
+    }
+    const mergeBtn = e.target.closest("[data-reconcile-merge]");
+    if (mergeBtn) {
+      const lineaId = mergeBtn.getAttribute("data-reconcile-merge");
+      const txId = mergeBtn.getAttribute("data-merge-tx");
+      const conMonto = mergeBtn.hasAttribute("data-merge-monto");
+      const mov = state.reconciliar.movimientos.find(function(m) {
+        return m.fuenteLineaId === lineaId;
+      });
+      const tx = getTx(txId);
+      if (!mov || !tx) {
+        toast("No encontr\xE9 esa l\xEDnea");
+        return;
+      }
+      const res = aplicarMerge(tx, mov, conMonto);
+      if (!res.ok) {
+        toast("No se pudo emparejar");
+        return;
+      }
+      if (conMonto && res.montoAntes !== res.montoDespues && res.porCobrarTotal > 0) {
+        toast("Emparejada y monto actualizado \u2014 lo que te deben no se recalcul\xF3");
+      } else if (conMonto && res.montoAntes !== res.montoDespues) {
+        toast("Emparejada y monto actualizado a " + money(res.montoDespues));
+      } else {
+        toast("Emparejada con la cartola");
+      }
+      refrescarMatchesDeCartola();
+      renderMenuView();
+      renderIfListVisible();
+      return;
+    }
+    const mergeAutosBtn = e.target.closest("[data-reconcile-merge-autos]");
+    if (mergeAutosBtn) {
+      const diff = buildReconcileDiff(state.reconciliar.movimientos, state.reconciliar.tipo);
+      let n = 0;
+      diff.mergear.forEach(function(item) {
+        if (item.requiereConfirmacion) return;
+        if (aplicarMerge(item.tx, item.movimiento, false).ok) n++;
+      });
+      toast(n ? "Se emparejaron " + n : "No hab\xEDa ninguna para emparejar sola");
+      refrescarMatchesDeCartola();
+      renderMenuView();
+      renderIfListVisible();
+      return;
+    }
     const notifToggleBtn = e.target.closest("[data-notif-toggle]");
     if (notifToggleBtn) {
       if (state.notifSubscribed) disableNotifications();
@@ -8063,7 +8284,7 @@
     const addPaymentMethodBtn = e.target.closest("[data-add-payment-method]");
     if (addPaymentMethodBtn) {
       state.editingPaymentMethodId = "nueva";
-      state.medioDraft = { nombre: "", corto: "", icon: "card" };
+      state.medioDraft = { nombre: "", corto: "", icon: "card", diaCorte: "" };
       renderMenuView();
       return;
     }
@@ -8073,7 +8294,7 @@
       const m = PAYMENT_METHODS[id];
       state.editingPaymentMethodId = id;
       state.confirmDeletePaymentMethodId = null;
-      state.medioDraft = { nombre: m.nombre, corto: m.corto, icon: m.icon };
+      state.medioDraft = { nombre: m.nombre, corto: m.corto, icon: m.icon, diaCorte: m.diaCorte == null ? "" : String(m.diaCorte) };
       renderMenuView();
       return;
     }
@@ -8098,13 +8319,16 @@
         toast("Ponle un nombre al medio de pago");
         return;
       }
+      const diaCorte = d.icon === "card" ? parseInt(String(d.diaCorte || "").replace(/[^\d]/g, ""), 10) : NaN;
+      const corteValido = !isNaN(diaCorte) && diaCorte >= 1 && diaCorte <= 31 ? diaCorte : void 0;
       if (idAttr === "nueva") {
-        PAYMENT_METHODS["medio_" + Date.now()] = { nombre: d.nombre.trim(), corto: d.corto.trim(), icon: d.icon };
+        PAYMENT_METHODS["medio_" + Date.now()] = { nombre: d.nombre.trim(), corto: d.corto.trim(), icon: d.icon, diaCorte: corteValido };
         toast("Medio de pago creado");
       } else {
         PAYMENT_METHODS[idAttr].nombre = d.nombre.trim();
         PAYMENT_METHODS[idAttr].corto = d.corto.trim();
         PAYMENT_METHODS[idAttr].icon = d.icon;
+        PAYMENT_METHODS[idAttr].diaCorte = corteValido;
         toast("Medio de pago actualizado");
       }
       state.editingPaymentMethodId = null;
@@ -11942,7 +12166,7 @@
     // medioId being edited, 'nueva', or null (different from the mini-form inside the new-transaction sheet)
     confirmDeletePaymentMethodId: null,
     // medioId showing "are you sure?" before actually deleting it
-    medioDraft: { nombre: "", corto: "", icon: "card" },
+    medioDraft: { nombre: "", corto: "", icon: "card", diaCorte: "" },
     confirmDeleteRuleComercio: null,
     // comercio (rule key) showing "are you sure?" before actually deleting it
     confirmDeleteGroupRuleCatId: null,
@@ -11974,7 +12198,12 @@
       // ids of eliminarPropuesto transactions checked in the automatic-reconciliation review
       // (see reconcile.ts/renderReconcileDiffSection) -- "Eliminar seleccionadas" only acts on
       // these, and only after this per-item confirmation; reset whenever a (new) statement loads.
-      eliminarSeleccionados: []
+      eliminarSeleccionados: [],
+      // fuenteLineaId de la línea de cartola para la que se está eligiendo el calce a mano, o
+      // null. Elegir a mano existe porque el matching difuso no siempre acierta: un comercio que
+      // el banco escribe distinto, una fecha corrida, un monto que no se parece. La persona sabe
+      // cuál es; la app solo tiene que dejarla decirlo.
+      eligiendoParaLinea: null
     },
     // ---- Pending charges and reimbursements (link a deposit to a pending item, or vice versa) ----
     linkFlow: null,
@@ -12254,7 +12483,7 @@
     get CONTACTS(){ return CONTACTS; }, set CONTACTS(v){ CONTACTS = v; },
     get OCR_WORKER_URL(){ return OCR_WORKER_URL; }, set OCR_WORKER_URL(v){ OCR_WORKER_URL = v; },
     openReceiptFlow: openReceiptFlow,
-    buildReconcileDiff: buildReconcileDiff, matchConfidence: matchConfidence, movementLineId: movementLineId,
+    buildReconcileDiff: buildReconcileDiff, aplicarMerge: aplicarMerge, periodoDeReconciliacion: periodoDeReconciliacion, candidatosParaElegir: candidatosParaElegir, diasCorteDeFamilia: diasCorteDeFamilia, matchConfidence: matchConfidence, movementLineId: movementLineId,
     normalizeComercio: normalizeComercio, isAutomaticOrigin: isAutomaticOrigin, isProtectedOrigin: isProtectedOrigin,
     statementPeriod: statementPeriod, regenerateInstallmentsFor: regenerateInstallmentsFor,
     buildIntegrantesRows: buildIntegrantesRows, buildTransaccionesRows: buildTransaccionesRows,
