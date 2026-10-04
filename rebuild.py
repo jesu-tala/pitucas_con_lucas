@@ -97,7 +97,7 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  get TRANSFER_INFO(){ return TRANSFER_INFO; }, set TRANSFER_INFO(v){ TRANSFER_INFO = v; },
 """ + indent + """  buildChargeWhatsAppText: buildChargeWhatsAppText, transferInfoComplete: transferInfoComplete,
 """ + indent + """  ensureCheckingAccountMethod: ensureCheckingAccountMethod, ensureUnknownPaymentMethod: ensureUnknownPaymentMethod,
-""" + indent + """  importStatementRows: importStatementRows, catInfo: catInfo, writeOffReceivable: writeOffReceivable,
+""" + indent + """  importStatementRows: importStatementRows, catInfo: catInfo, writeOffReceivable: writeOffReceivable, deshacerWriteOff: deshacerWriteOff, allCollected: allCollected,
 """ + indent + """  catIconMarkup: catIconMarkup, updateSyncIndicator: updateSyncIndicator,
 """ + indent + """  inversionesMonthsCalendarYear: inversionesMonthsCalendarYear, moneyShort: moneyShort,
 """ + indent + """  activePlatformIds: activePlatformIds, allPendingReceivables: allPendingReceivables,

@@ -158,6 +158,23 @@ export function renderTxItem(t){
   // ya definitivo (lo que de verdad terminó siendo tuyo, ej. $25.000 tachado -> $10.000 al lado).
   const montoRealInline = isCobrado ? '<span class="tx-amount-real tabular">'+money(netExpenseTx(t))+'</span>' : '';
 
+  // La confirmación de borrado va como HERMANA del botón de la fila, nunca adentro: un <button>
+  // dentro de otro <button> es HTML inválido y el navegador reacomoda el DOM, lo que rompe el
+  // tap de la fila entera. Mismo texto y mismos botones que la confirmación del detalle
+  // (renderSheet en sheet.ts), para que el gesto y el botón pidan lo mismo de la misma forma.
+  if(state.confirmDeleteTxId===t.id && !state.openTxId){
+    return '<div class="tx-swipe-confirm">'+
+      '<div class="tx-swipe-confirm-texto">'+
+        '<span class="tx-swipe-confirm-nombre">'+esc(t.comercio)+'</span>'+
+        '<span class="muted">¿Eliminar esta transacción? No se puede deshacer.</span>'+
+      '</div>'+
+      '<div class="tx-swipe-confirm-acciones">'+
+        '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="'+t.id+'">Cancelar</button>'+
+        '<button class="save-tx-btn" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="'+t.id+'">Sí, eliminar</button>'+
+      '</div>'+
+    '</div>';
+  }
+
   return '<button class="tx-item" data-tx="'+t.id+'">'+
     '<span class="tx-avatar" style="'+categoryColorVars(primaryCat)+'">'+catIconMarkup(primaryCat.icon)+'</span>'+
     '<span class="tx-info">'+

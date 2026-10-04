@@ -188,6 +188,10 @@
     p.montoRecibido = receivableAssignedTotal(p);
   }
   __name(syncPagadoFromAsignaciones, "syncPagadoFromAsignaciones");
+  function confirmarSiEstabaPendiente(incomeTx) {
+    if (incomeTx && incomeTx.estado === "pendiente") incomeTx.estado = "confirmado";
+  }
+  __name(confirmarSiEstabaPendiente, "confirmarSiEstabaPendiente");
   function assignIncomeToReceivable(expenseTxId, idx, incomeTxId, monto) {
     const expenseTx = getTx(expenseTxId), incomeTx = getTx(incomeTxId);
     if (!expenseTx || !incomeTx || !expenseTx.porCobrar[idx]) return false;
@@ -198,10 +202,20 @@
     const existing = p.asignaciones.find((a) => a.incomeTxId === incomeTxId);
     if (existing) existing.monto += amt;
     else p.asignaciones.push({ incomeTxId, monto: amt });
+    confirmarSiEstabaPendiente(incomeTx);
     syncPagadoFromAsignaciones(p);
     return true;
   }
   __name(assignIncomeToReceivable, "assignIncomeToReceivable");
+  function volverAPendienteSiQuedoSinNada(incomeTxId) {
+    const incomeTx = getTx(incomeTxId);
+    if (!incomeTx || incomeTx.estado !== "confirmado") return;
+    if (receivablesLinkedFrom(incomeTxId).length) return;
+    if ((incomeTx.categorias || []).length) return;
+    if (incomeTx.naturalezaEntrada) return;
+    incomeTx.estado = "pendiente";
+  }
+  __name(volverAPendienteSiQuedoSinNada, "volverAPendienteSiQuedoSinNada");
   function removeIncomeAssignment(expenseTxId, idx, incomeTxId) {
     const expenseTx = getTx(expenseTxId);
     if (!expenseTx || !expenseTx.porCobrar[idx]) return false;
@@ -211,12 +225,14 @@
       p.asignaciones = p.asignaciones.filter((a) => a.incomeTxId !== incomeTxId);
       if (p.asignaciones.length === before) return false;
       syncPagadoFromAsignaciones(p);
+      volverAPendienteSiQuedoSinNada(incomeTxId);
       return true;
     }
     if (p.linkedTxId === incomeTxId) {
       p.pagado = false;
       p.montoRecibido = null;
       p.linkedTxId = null;
+      volverAPendienteSiQuedoSinNada(incomeTxId);
       return true;
     }
     return false;
@@ -366,6 +382,7 @@
       linkedTxId: incomeTx.id
     });
     gastoTx.estado = "por_cobrar";
+    confirmarSiEstabaPendiente(incomeTx);
     return true;
   }
   __name(applyUnexpectedReimbursement, "applyUnexpectedReimbursement");
@@ -373,7 +390,7 @@
     const expenseTx = getTx(expenseTxId);
     if (!expenseTx || !expenseTx.porCobrar[idx]) return false;
     const p = expenseTx.porCobrar[idx];
-    if (p.pagado || p.tipo !== "persona") return false;
+    if (p.pagado || p.tipo !== "persona" || p.perdidaTxId) return false;
     const amount = Math.round(p.monto || 0);
     if (amount <= 0) {
       expenseTx.porCobrar.splice(idx, 1);
@@ -400,7 +417,7 @@
     };
     TRANSACTIONS.push(newTx);
     ensureMonthExists(newTx.fecha.slice(0, 7));
-    expenseTx.porCobrar.splice(idx, 1);
+    p.perdidaTxId = newTx.id;
     return true;
   }
   __name(writeOffReceivable, "writeOffReceivable");
@@ -476,9 +493,20 @@
   }
   __name(applyCuotaMonto, "applyCuotaMonto");
   function allCollected(t) {
-    return t.porCobrar.length > 0 && t.porCobrar.every((p) => p.pagado);
+    return t.porCobrar.length > 0 && t.porCobrar.every((p) => p.pagado || !!p.perdidaTxId);
   }
   __name(allCollected, "allCollected");
+  function deshacerWriteOff(expenseTxId, idx) {
+    const expenseTx = getTx(expenseTxId);
+    if (!expenseTx || !expenseTx.porCobrar[idx]) return false;
+    const p = expenseTx.porCobrar[idx];
+    if (!p.perdidaTxId) return false;
+    const i = TRANSACTIONS.findIndex((t) => t.id === p.perdidaTxId);
+    if (i >= 0) TRANSACTIONS.splice(i, 1);
+    delete p.perdidaTxId;
+    return true;
+  }
+  __name(deshacerWriteOff, "deshacerWriteOff");
   function hasReceivableType(t, tipo) {
     return (t.porCobrar || []).some((p) => p.tipo === tipo);
   }
@@ -4441,6 +4469,9 @@
     else if (t.estado === "no_es_gasto") stateTag = '<span class="tx-state state-noesgasto">' + (isIncome ? "No es ingreso" : "No es gasto") + "</span>";
     const medio = paymentMethodInfo(t.medio);
     const montoRealInline = isCobrado ? '<span class="tx-amount-real tabular">' + money(netExpenseTx(t)) + "</span>" : "";
+    if (state.confirmDeleteTxId === t.id && !state.openTxId) {
+      return '<div class="tx-swipe-confirm"><div class="tx-swipe-confirm-texto"><span class="tx-swipe-confirm-nombre">' + esc(t.comercio) + '</span><span class="muted">\xBFEliminar esta transacci\xF3n? No se puede deshacer.</span></div><div class="tx-swipe-confirm-acciones"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="' + t.id + '">Cancelar</button><button class="save-tx-btn" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="' + t.id + '">S\xED, eliminar</button></div></div>';
+    }
     return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="' + categoryColorVars(primaryCat) + '">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name">' + esc(t.comercio) + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + esc(leftLabel) + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + (isCobrado ? " tachado" : "") + '">' + amtDisplay + "</span>" + montoRealInline + '<div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + esc(medio.corto) + "</div></span></button>";
   }
   __name(renderTxItem, "renderTxItem");
@@ -4672,6 +4703,7 @@
     if (cancelDeleteTxBtn) {
       state.confirmDeleteTxId = null;
       renderSheet();
+      renderIfListVisible();
       return;
     }
     const confirmDeleteTxBtn = e.target.closest("[data-confirm-delete-tx]");
@@ -4861,6 +4893,10 @@
     }
     const txItem = e.target.closest("[data-tx]");
     if (txItem && txItem.classList.contains("tx-item")) {
+      if (suppressRowSwipeClick) {
+        suppressRowSwipeClick = false;
+        return;
+      }
       openSheet(txItem.getAttribute("data-tx"));
       return;
     }
@@ -5750,6 +5786,16 @@
       const idx = parseInt(writeOffBtn.getAttribute("data-write-off"), 10);
       if (writeOffReceivable(state.openTxId, idx)) {
         toast("Registrada como gasto de este mes");
+        renderSheet();
+        renderIfListVisible();
+      }
+      return;
+    }
+    const undoWriteOffBtn = e.target.closest("[data-undo-write-off]");
+    if (undoWriteOffBtn) {
+      const idx = parseInt(undoWriteOffBtn.getAttribute("data-undo-write-off"), 10);
+      if (deshacerWriteOff(state.openTxId, idx)) {
+        toast("Volvi\xF3 a quedar pendiente de cobro");
         renderSheet();
         renderIfListVisible();
       }
@@ -7671,6 +7717,37 @@
   __name(endSubtabDrag, "endSubtabDrag");
   phone.addEventListener("pointerup", endSubtabDrag);
   phone.addEventListener("pointercancel", endSubtabDrag);
+  var ROW_SWIPE_THRESHOLD_PX = 55;
+  var suppressRowSwipeClick = false;
+  var rowSwipe = null;
+  phone.addEventListener("pointerdown", function(e) {
+    if (state.openTxId || state.confirmDeleteTxId) return;
+    const row = e.target.closest ? e.target.closest(".tx-item[data-tx]") : null;
+    if (!row) return;
+    rowSwipe = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      txId: row.getAttribute("data-tx"),
+      armado: false
+    };
+  }, { passive: true });
+  phone.addEventListener("pointermove", function(e) {
+    if (!rowSwipe || e.pointerId !== rowSwipe.pointerId || rowSwipe.armado) return;
+    const dx = e.clientX - rowSwipe.startX;
+    const dy = e.clientY - rowSwipe.startY;
+    if (dx > -ROW_SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
+    rowSwipe.armado = true;
+    suppressRowSwipeClick = true;
+    state.confirmDeleteTxId = rowSwipe.txId;
+    renderIfListVisible();
+  }, { passive: true });
+  phone.addEventListener("pointerup", function(e) {
+    if (rowSwipe && e.pointerId === rowSwipe.pointerId) rowSwipe = null;
+  }, { passive: true });
+  phone.addEventListener("pointercancel", function(e) {
+    if (rowSwipe && e.pointerId === rowSwipe.pointerId) rowSwipe = null;
+  }, { passive: true });
   var EDGE_ZONE_PX = 24;
   var EDGE_SWIPE_THRESHOLD_PX = 80;
   var EDGE_SWIPE_VELOCITY_PXMS = 0.5;
@@ -8859,8 +8936,9 @@
       const parcialHint = receivableEstado(p) === "parcial" ? '<span class="pend-esperado muted">ya pag\xF3 ' + moneyPlainMasked(receivableAssignedTotal(p)) + "</span>" : "";
       const amtField = '<span class="persona-amt tabular" style="font-size:13px;font-weight:500;width:96px;text-align:right;flex-shrink:0;">' + moneyPlainMasked(pendingEffectiveAmount(p)) + parcialHint + "</span>";
       const linkBtn = !p.pagado && !isDebo && !isDraft ? '<button class="link-btn" data-link-pending="' + idx + '" aria-label="Vincular a un dep\xF3sito">' + ICONS.inbox + "</button>" : "";
-      const writeOffLink = !p.pagado && !isDebo && !isDraft ? '<button class="split-toggle-link" data-write-off="' + idx + '" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida \u2014 pasarla a gasto de este mes</button>' : "";
-      return '<div><div class="split-row' + (p.pagado ? " paid" : "") + '" data-charge-row="' + idx + '"><button class="chk-pagado' + (p.pagado ? " checked" : "") + '" data-toggle-paid="' + idx + '" aria-label="Marcar como ' + (isDebo ? "pagado" : "cobrado") + '" aria-pressed="' + (p.pagado ? "true" : "false") + '">' + ICONS.check + "</button>" + nameField + amtField + linkBtn + '<button class="rm-btn" data-charge-remove="' + idx + '">' + ICONS.trash + "</button></div>" + writeOffLink + "</div>";
+      const yaPerdida = !!p.perdidaTxId;
+      const writeOffLink = isDraft || isDebo || p.pagado ? "" : yaPerdida ? '<button class="split-toggle-link" data-undo-write-off="' + idx + '" style="display:block;margin:-2px 0 10px;font-size:11px;">Dada por perdida \u2014 volver a dejarla pendiente</button>' : '<button class="split-toggle-link" data-write-off="' + idx + '" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida \u2014 pasarla a gasto de este mes</button>';
+      return '<div><div class="split-row' + (p.pagado ? " paid" : "") + (yaPerdida ? " perdida" : "") + '" data-charge-row="' + idx + '"><button class="chk-pagado' + (p.pagado ? " checked" : "") + '" data-toggle-paid="' + idx + '" aria-label="Marcar como ' + (isDebo ? "pagado" : "cobrado") + '" aria-pressed="' + (p.pagado ? "true" : "false") + '"' + (yaPerdida ? " disabled" : "") + ">" + ICONS.check + "</button>" + nameField + amtField + linkBtn + '<button class="rm-btn" data-charge-remove="' + idx + '">' + ICONS.trash + "</button></div>" + writeOffLink + "</div>";
     }).join("");
     return rows + '<button class="split-toggle-link" data-charge-split-open="' + t.id + '" style="display:block;margin-top:4px;">Editar reparto</button>';
   }
