@@ -3,7 +3,7 @@ import { catInfo, dayLabel, txsOfMonth } from '../helpers';
 import { categoriesCollidingWithHue, categoryColorVars, categoryFillCss, nextCategoryHue } from '../category-colors';
 import { ICONS, catIconMarkup } from '../icons';
 import { render } from '../render';
-import { buildReconcileDiff, movementLineId, statementPeriod } from '../reconcile';
+import { buildReconcileDiff, movementLineId, statementPeriod, isProtectedOrigin } from '../reconcile';
 import { navPush, navPeek } from '../nav';
 import { ensureMonthExists, participantHasHistory, participantIdForUser } from '../shared-expenses';
 import { getTx, segmentedHtml } from '../sheet';
@@ -287,6 +287,13 @@ export function renderMenuPaymentMethodEditForm(){
     '<input type="text" class="draft-input" data-payment-method-draft-field="nombre" value="'+esc(d.nombre)+'" placeholder="Ej: Mastercard Falabella">'+
     '<label class="draft-label" style="margin-top:12px;">Detalle (opcional)</label>'+
     '<input type="text" class="draft-input" data-payment-method-draft-field="corto" value="'+esc(d.corto)+'" placeholder="Ej: •••• 1234">'+
+    // Solo para tarjetas: una cuenta corriente no tiene día de corte, y ofrecerlo ahí sería
+    // pedir un dato que no existe.
+    (d.icon==='card'
+      ? '<label class="draft-label" style="margin-top:12px;">Día de corte (opcional)</label>'+
+        '<input type="text" inputmode="numeric" class="draft-input tabular" data-payment-method-draft-field="diaCorte" value="'+esc(d.diaCorte==null?'':String(d.diaCorte))+'" placeholder="Ej: 24">'+
+        '<div class="file-format-hint" style="margin:6px 0 0;">El día del mes en que cierra la facturación de esta tarjeta. Se usa <b>solo para reconciliar</b> con la cartola: Balance, Presupuesto y Evolución siguen por mes calendario.</div>'
+      : '')+
     '<label class="draft-label" style="margin-top:12px;">Ícono</label>'+
     '<div class="icon-picker" style="grid-template-columns:repeat(4,1fr);">'+MEDIO_ICON_CHOICES.map(ic=>'<button type="button" data-payment-method-draft-icon="'+ic+'" class="'+(d.icon===ic?'active':'')+'">'+ICONS[ic]+'</button>').join('')+'</div>'+
     '<div style="display:flex;gap:10px;margin-top:16px;">'+
@@ -1005,6 +1012,18 @@ export async function tryOpenStatementFile(buffer, nombre, password){
 // Looks for whether a similar transaction already exists (same date ±1 day, same amount,
 // same ingreso/gasto direction) — so we don't suggest adding what's already there.
 export function findSimilarTx(mov){
+  // Primero lo que no es difuso: si alguna transacción ya lleva registrada ESTA línea
+  // (fuenteLineaId), la línea está resuelta y punto -- sea porque se creó desde ella o porque se
+  // emparejó a mano con un gasto que ya existía.
+  //
+  // Sin esto quedaba un hueco: emparejar una línea de $45.990 con un gasto subido a mano de
+  // $46.000 la dejaba conciliada, pero esta función --que exige el monto con $1 de tolerancia--
+  // seguía sin verla, así que la lista de arriba ofrecía "+ Agregar" para esa misma línea. Un
+  // toque ahí creaba justo el duplicado que el merge acababa de evitar.
+  if(mov.fuenteLineaId){
+    const yaRegistrada = TRANSACTIONS.find(function(t){ return t.fuenteLineaId===mov.fuenteLineaId; });
+    if(yaRegistrada) return yaRegistrada;
+  }
   const montoAbs = Math.abs(mov.monto);
   return TRANSACTIONS.find(function(t){
     if(t.tipo !== mov.tipoMov) return false;
@@ -1191,15 +1210,89 @@ export function renderMenuReconciliar(){
 // replacement: this section is the "review screen" for the whole statement at once. Every
 // deletion still requires an explicit per-item checkbox + a confirm click -- never a single
 // bulk-delete-everything button (non-negotiable, see DOCUMENTACION.md).
+// Las transacciones entre las que se puede elegir al emparejar a mano una línea de cartola.
+//
+// A propósito NO se filtra por monto ni por comercio: si el matching difuso hubiera acertado,
+// no estaríamos acá. El filtro es solo lo que no puede estar equivocado --el tipo (un cargo no
+// puede ser un ingreso) y una ventana de fechas amplia-- más dejar fuera las ya conciliadas,
+// que ya tienen su línea. Incluye las manuales: emparejar una de esas es justamente el caso
+// central de esta función.
+const DIAS_VENTANA_ELEGIR = 20;
+export function candidatosParaElegir(mov){
+  if(!mov) return [];
+  const f0 = new Date(mov.fecha+'T00:00:00').getTime();
+  return TRANSACTIONS
+    .filter(function(t){
+      if(t.tipo !== mov.tipoMov) return false;
+      if(t.conciliada) return false;
+      const d = Math.abs(new Date(t.fecha+'T00:00:00').getTime() - f0) / 86400000;
+      return d <= DIAS_VENTANA_ELEGIR;
+    })
+    .slice()
+    .sort(function(a,b){ return b.fecha.localeCompare(a.fecha); });
+}
+// El panel para elegir a mano, que reemplaza en su lugar a la fila de "revisar".
+function renderElegirCalceHtml(mov){
+  const cands = candidatosParaElegir(mov);
+  if(!cands.length){
+    return '<div class="file-format-hint" style="margin-top:8px;">No hay transacciones cercanas a esta fecha para emparejar. Puedes agregarla como nueva desde la lista de arriba.</div>'+
+      '<button class="budget-add-link" data-elegir-calce-cancelar style="margin-top:6px;">Cancelar</button>';
+  }
+  return '<div style="margin-top:8px;">'+
+    '<div class="muted" style="font-size:11.5px;margin-bottom:6px;">Elige cuál de tus transacciones es esta línea. Se empareja sin tocar su categoría, su nota ni sus cobros a personas.</div>'+
+    cands.map(function(t){
+      return '<button class="chip" style="display:block;width:100%;text-align:left;margin-bottom:6px;" '+
+        'data-elegir-calce-tx="'+t.id+'" data-elegir-calce-linea="'+esc(mov.fuenteLineaId||'')+'">'+
+        esc(t.comercio)+' · '+money(t.monto)+' · '+dayLabel(t.fecha)+
+        (isProtectedOrigin(t) ? ' · a mano' : '')+
+      '</button>';
+    }).join('')+
+    '<button class="budget-add-link" data-elegir-calce-cancelar>Cancelar</button>'+
+  '</div>';
+}
+
 export function renderReconcileDiffSection(R){
   if(!R.movimientos.length) return '';
   const diff = buildReconcileDiff(R.movimientos, R.tipo);
   const totalAltas = diff.agregar.filter(function(i){ return i.confianza==='alta'; }).length;
-  if(!diff.agregar.length && !diff.eliminarPropuesto.length && !diff.revisar.length && !diff.manualesIgnoradas.length){
+  if(!diff.agregar.length && !diff.mergear.length && !diff.eliminarPropuesto.length && !diff.revisar.length && !diff.manualesIgnoradas.length){
     return '';
   }
 
   let html = '<div class="section-title">Revisión automática de este período</div>';
+
+  // Va PRIMERO, antes de "faltan en la app": emparejar es lo que evita terminar con el gasto
+  // duplicado, así que es la acción más valiosa y la que conviene ver antes de agregar nada.
+  if(diff.mergear.length){
+    const autos = diff.mergear.filter(function(i){ return !i.requiereConfirmacion; }).length;
+    html += '<div class="card" style="padding:14px;margin-bottom:10px;">'+
+      '<div class="sheet-block-title" style="margin-bottom:6px;">Ya están en la app ('+diff.mergear.length+')</div>'+
+      '<p class="muted" style="margin-bottom:10px;">Estas líneas de la cartola corresponden a transacciones que ya tienes. Emparejarlas las deja marcadas como respaldadas por la cartola; <b>no se borra ni se cambia nada de lo que ya escribiste</b>.</p>'+
+      (autos ? '<button class="budget-add-link" data-reconcile-merge-autos style="margin-bottom:8px;">Emparejar las '+autos+' que calzan exacto</button>' : '')+
+      diff.mergear.map(function(item){
+        const m = item.movimiento, t = item.tx;
+        const dif = item.diferenciaMonto;
+        // La diferencia se dice en los términos de la decisión: cuál es tu monto, cuál el del
+        // banco, y que el tuyo se mantiene salvo que pidas lo contrario.
+        const difTxt = dif===null ? ''
+          : '<div class="muted" style="font-size:11.5px;margin-top:3px;">Tu monto: '+money(t.monto)+' · la cartola dice '+money(Math.abs(m.monto))+
+            ' ('+(dif>0?'+':'')+money(dif)+'). Se mantiene el tuyo.</div>';
+        const cobrosTxt = (t.porCobrar||[]).length
+          ? '<div class="muted" style="font-size:11.5px;margin-top:3px;">Tiene '+(t.porCobrar.length)+' cobro'+(t.porCobrar.length===1?'':'s')+' a personas — no se tocan.</div>'
+          : '';
+        return '<div style="padding:10px 0;border-top:1px solid var(--border);">'+
+          '<div style="font-weight:600;font-size:13px;">'+esc(m.comercioSugerido||m.detalle)+' — '+money(Math.abs(m.monto))+'</div>'+
+          '<div class="muted" style="font-size:11.5px;">'+dayLabel(m.fecha)+' · calza con <b>'+esc(t.comercio)+'</b> ('+dayLabel(t.fecha)+')'+
+            ' · confianza '+item.confianza+(item.requiereConfirmacion && isProtectedOrigin(t) ? ' · la subiste a mano' : '')+'</div>'+
+          difTxt+ cobrosTxt+
+          '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">'+
+            '<button class="chip" data-reconcile-merge="'+esc(m.fuenteLineaId||'')+'" data-merge-tx="'+t.id+'">Es la misma</button>'+
+            (dif!==null ? '<button class="chip" data-reconcile-merge="'+esc(m.fuenteLineaId||'')+'" data-merge-tx="'+t.id+'" data-merge-monto="1">Es la misma y usar '+money(Math.abs(m.monto))+'</button>' : '')+
+          '</div>'+
+        '</div>';
+      }).join('')+
+    '</div>';
+  }
 
   if(diff.agregar.length){
     html += '<div class="card" style="padding:14px;margin-bottom:10px;">'+
@@ -1208,10 +1301,20 @@ export function renderReconcileDiffSection(R){
       (totalAltas ? '<button class="budget-add-link" data-reconcile-diff-add-altas style="margin-bottom:8px;">Agregar las '+totalAltas+' de confianza alta</button>' : '')+
       diff.agregar.map(function(item){
         const m = item.movimiento;
-        return '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--border);">'+
-          '<div style="min-width:0;"><div style="font-weight:600;font-size:13px;">'+esc(m.comercioSugerido||m.detalle)+'</div>'+
-          '<div class="muted" style="font-size:11.5px;">'+dayLabel(m.fecha)+' · confianza '+item.confianza+'</div></div>'+
-          '<span class="tabular" style="font-weight:600;flex-shrink:0;">'+(m.tipoMov==='ingreso'?'+':'')+money(Math.abs(m.monto))+'</span>'+
+        // "Elegir a mano" va también acá, y no solo en "revisar". Es el caso MÁS común: cuando el
+        // banco escribe el comercio distinto y el monto tampoco se parece, la línea no calza con
+        // nada y cae en "faltan en la app" -- aunque sí corresponda a un gasto que ya existe.
+        // Sin este botón, el único camino era agregarla y terminar con el gasto duplicado.
+        const eligiendo = R.eligiendoParaLinea && R.eligiendoParaLinea===m.fuenteLineaId;
+        return '<div style="padding:8px 0;border-top:1px solid var(--border);">'+
+          '<div style="display:flex;justify-content:space-between;gap:10px;">'+
+            '<div style="min-width:0;"><div style="font-weight:600;font-size:13px;">'+esc(m.comercioSugerido||m.detalle)+'</div>'+
+            '<div class="muted" style="font-size:11.5px;">'+dayLabel(m.fecha)+' · confianza '+item.confianza+'</div></div>'+
+            '<span class="tabular" style="font-weight:600;flex-shrink:0;">'+(m.tipoMov==='ingreso'?'+':'')+money(Math.abs(m.monto))+'</span>'+
+          '</div>'+
+          (eligiendo
+            ? renderElegirCalceHtml(m)
+            : '<button class="budget-add-link" data-elegir-calce-abrir="'+esc(m.fuenteLineaId||'')+'" style="margin-top:4px;">Ya la tengo — elegir cuál es</button>')+
         '</div>';
       }).join('')+
     '</div>';
@@ -1242,9 +1345,13 @@ export function renderReconcileDiffSection(R){
       diff.revisar.map(function(item){
         const m = item.movimiento;
         const candidatosTxt = item.candidatos.map(function(t){ return esc(t.comercio)+' ('+dayLabel(t.fecha)+', '+money(t.monto)+')'; }).join(' · ');
+        const eligiendo = R.eligiendoParaLinea && R.eligiendoParaLinea===m.fuenteLineaId;
         return '<div style="padding:8px 0;border-top:1px solid var(--border);">'+
           '<div style="font-weight:600;font-size:13px;">'+esc(m.comercioSugerido||m.detalle)+' — '+money(Math.abs(m.monto))+' ('+dayLabel(m.fecha)+')</div>'+
           '<div class="muted" style="font-size:11.5px;">confianza '+item.confianza+' · posibles: '+candidatosTxt+'</div>'+
+          (eligiendo
+            ? renderElegirCalceHtml(m)
+            : '<button class="budget-add-link" data-elegir-calce-abrir="'+esc(m.fuenteLineaId||'')+'" style="margin-top:6px;">Elegir a mano cuál es</button>')+
         '</div>';
       }).join('')+
     '</div>';

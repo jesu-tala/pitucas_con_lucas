@@ -45,9 +45,31 @@ export interface AgregarDiffItem { movimiento: StatementMovement; confianza: Mat
 export interface EliminarDiffItem { tx: Transaction; motivo: string; }
 export interface RevisarDiffItem { movimiento: StatementMovement; confianza: MatchConfidence; candidatos: Transaction[]; }
 export interface ManualIgnoradaDiffItem { tx: Transaction; motivo: string; }
+// Una línea de la cartola que SÍ corresponde a una transacción que ya existe en la app.
+//
+// Antes esto no era un grupo: cuando el matching encontraba un único calce claro, el código
+// hacía `return` y la línea desaparecía del diff sin dejar rastro. Funcionaba para no duplicar,
+// pero perdía todo lo demás: la transacción no quedaba marcada como respaldada por la cartola,
+// no había forma de revisar el calce, y --el caso que motivó esto-- un gasto subido a mano con
+// un monto aproximado nunca podía quedar emparejado con su línea real.
+//
+// `requiereConfirmacion` es true para toda transacción protegida (manual o sin origen): un
+// merge sobre algo que la usuaria escribió a mano SIEMPRE lo confirma ella, aunque el calce sea
+// de confianza alta.
+export interface MergearDiffItem {
+  movimiento: StatementMovement;
+  tx: Transaction;
+  confianza: MatchConfidence;
+  requiereConfirmacion: boolean;
+  // El monto de la cartola difiere del de la transacción -- el caso típico del gasto subido a
+  // mano "más o menos". null si son iguales. Actualizar el monto es opcional y lo decide la
+  // usuaria al aplicar el merge (ver aplicarMerge).
+  diferenciaMonto: number | null;
+}
 
 export interface ReconcileDiff {
   agregar: AgregarDiffItem[];
+  mergear: MergearDiffItem[];
   eliminarPropuesto: EliminarDiffItem[];
   revisar: RevisarDiffItem[];
   manualesIgnoradas: ManualIgnoradaDiffItem[];
@@ -119,6 +141,17 @@ function daysBetween(fechaA: string, fechaB: string): number {
 }
 
 /* ---------- confidence ---------- */
+// Cuánto puede diferir el monto para seguir considerándose "el mismo gasto, tipeado a ojo".
+// Proporcional, porque errar $500 en una compra de $46.000 es normal y en una de $900 no lo es;
+// con un piso para que los montos chicos tengan algo de holgura, y un techo para que una compra
+// grande no se coma otra distinta ($50.000 contra $46.000 NO deben calzar).
+const TOLERANCIA_PCT = 0.015;      // 1,5%
+const TOLERANCIA_MIN = 100;
+const TOLERANCIA_MAX = 3000;
+function toleranciaMonto(monto: number): number {
+  const prop = Math.abs(monto) * TOLERANCIA_PCT;
+  return Math.min(TOLERANCIA_MAX, Math.max(TOLERANCIA_MIN, prop));
+}
 // Extends findSimilarTx's old "same tipo + amount + date within a couple days" idea into three
 // levels instead of a single yes/no -- findSimilarTx itself is left completely untouched (still
 // used by the old movement-by-movement "+ Agregar" flow) so its existing behavior/tests keep
@@ -140,9 +173,21 @@ export function matchConfidence(mov: StatementMovement, tx: Transaction): MatchC
   const comercioClose = comerciosSonParecidos(na, nb);
 
   // Alta: exact amount, close date, comercio clearly the same.
+  // El monto EXACTO es requisito de 'alta' y no se negocia: 'alta' es el único nivel con el que
+  // algo puede pasar sin que la usuaria confirme, así que no puede depender de una tolerancia.
   if(montoDiff===0 && diffDias<=2 && comercioClose) return 'alta';
   // Media: exact amount + close date, but comercio doesn't match well or is missing on one side.
   if(montoDiff===0 && diffDias<=2) return 'media';
+  // Media también cuando el monto es APROXIMADO pero el comercio y la fecha calzan bien. Este es
+  // el caso central del merge: un gasto subido a mano "más o menos" ($46.000 cuando la cartola
+  // dice $45.990) antes no calzaba con NADA --montoDiff tenía que ser 0-- así que la línea de la
+  // cartola se proponía como una transacción nueva y terminabas con el gasto duplicado.
+  //
+  // Queda en 'media', nunca en 'alta', y eso es lo que lo hace seguro: un merge de confianza
+  // media siempre pide confirmación, y un calce de cualquier nivel impide que se proponga
+  // eliminar la transacción -- así que ensanchar acá reduce las propuestas equivocadas de los
+  // tres lados (menos duplicados, menos borrados, menos ruido en "revisar"), no las aumenta.
+  if(montoDiff<=toleranciaMonto(tx.monto) && diffDias<=2 && comercioClose) return 'media';
   // Baja: everything else still worth surfacing -- a peso or two of rounding, or a wider date
   // window (statement cut-off dates aren't always calendar-month-aligned, and a card
   // installment's projected date is only ever a guess -- see regenerateInstallmentsFor).
@@ -150,6 +195,62 @@ export function matchConfidence(mov: StatementMovement, tx: Transaction): MatchC
   return null;
 }
 function nivel(c: MatchConfidence): number { return c==='alta' ? 3 : c==='media' ? 2 : 1; }
+
+/* ---------- período a reconciliar: el del corte de la tarjeta, no el mes calendario ----------
+   statementPeriod() devuelve el rango de las fechas que la cartola TRAE. Sirve, pero está
+   sesgado: si la cartola no tiene ningún movimiento el día 25, el rango arranca el 27 o el 28, y
+   entonces una transacción del 25 parece "no respaldada por esta cartola" y se propone eliminar.
+
+   Esta función corrige eso alineando la ventana al día de corte configurado en el medio de pago.
+   Con corte el 24, la ventana es del 25 del mes anterior al 24 de este -- el período real de la
+   facturación, tenga o no movimientos en los bordes.
+
+   Una cartola no dice de QUÉ tarjeta es, solo si es de tarjeta o de cuenta. Con varias tarjetas
+   de cortes distintos se toma la ventana más ANCHA que cubra a todas: ensanchar solo puede
+   reducir las propuestas de borrado equivocadas (más transacciones quedan "dentro del período y
+   respaldadas"), mientras angostar podría proponer borrar algo legítimo. Ante la duda, la opción
+   que no borra. */
+export function diasCorteDeFamilia(tipoCartola: string | null): number[] {
+  const iconEsperado = tipoCartola==='tarjeta_nacional' ? 'card' : tipoCartola==='cuenta_corriente' ? 'bank' : null;
+  if(!iconEsperado) return [];
+  return Object.keys(PAYMENT_METHODS)
+    .filter(id => PAYMENT_METHODS[id] && PAYMENT_METHODS[id].icon===iconEsperado)
+    .map(id => PAYMENT_METHODS[id].diaCorte)
+    .filter(d => typeof d==='number' && d>=1 && d<=31) as number[];
+}
+// La ventana de facturación con corte `dia` que CONTIENE a la fecha dada.
+function ventanaDeCorte(fechaISO: string, dia: number): {desde: string; hasta: string} {
+  const [y, m, d] = fechaISO.split('-').map(Number);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  // El último día del mes acota el corte: con corte 31 en febrero, cierra el 28/29.
+  const ultimoDia = (yy: number, mm: number) => new Date(yy, mm, 0).getDate();
+  const cierreEsteMes = Math.min(dia, ultimoDia(y, m));
+  // Si la fecha ya pasó el cierre de su propio mes, la ventana es la que cierra el mes siguiente.
+  let yHasta = y, mHasta = m;
+  if(d > cierreEsteMes){ mHasta = m + 1; if(mHasta > 12){ mHasta = 1; yHasta = y + 1; } }
+  const cierre = Math.min(dia, ultimoDia(yHasta, mHasta));
+  let yDesde = yHasta, mDesde = mHasta - 1;
+  if(mDesde < 1){ mDesde = 12; yDesde = yHasta - 1; }
+  const aperturaDia = Math.min(dia, ultimoDia(yDesde, mDesde)) + 1;
+  return {
+    desde: yDesde+'-'+pad(mDesde)+'-'+pad(aperturaDia),
+    hasta: yHasta+'-'+pad(mHasta)+'-'+pad(cierre)
+  };
+}
+export function periodoDeReconciliacion(movimientos: StatementMovement[], tipoCartola: string | null): {desde: string; hasta: string} | null {
+  const derivado = statementPeriod(movimientos);
+  if(!derivado) return null;
+  const dias = diasCorteDeFamilia(tipoCartola);
+  if(!dias.length) return derivado;   // sin corte configurado, el comportamiento de siempre
+
+  let desde = derivado.desde, hasta = derivado.hasta;
+  dias.forEach(dia => {
+    const v = ventanaDeCorte(derivado.hasta, dia);
+    if(v.desde < desde) desde = v.desde;
+    if(v.hasta > hasta) hasta = v.hasta;
+  });
+  return {desde, hasta};
+}
 
 /* ---------- statement period (NOT a hardcoded calendar month) ---------- */
 export function statementPeriod(movimientos: StatementMovement[]): {desde: string; hasta: string} | null {
@@ -200,12 +301,36 @@ function buildTxPropuesta(mov: StatementMovement, tipoCartola: string | null): P
 // a proposal. `tipoCartola` is `state.reconciliar.tipo` ('cuenta_corriente' | 'tarjeta_nacional').
 export function buildReconcileDiff(movimientos: StatementMovement[], tipoCartola: string | null): ReconcileDiff {
   const normales = movimientos.filter(m => m.esEspecial!=='pago_tarjeta' && m.esEspecial!=='pago_recibido');
-  const periodo = statementPeriod(movimientos);
+  // La ventana del CORTE de la tarjeta si está configurado, no solo las fechas que la cartola
+  // trae -- ver periodoDeReconciliacion. Solo afecta a qué transacciones se consideran parte de
+  // este período; el mes calendario del resto de la app no se toca.
+  const periodo = periodoDeReconciliacion(movimientos, tipoCartola);
 
   const agregar: AgregarDiffItem[] = [];
+  const mergear: MergearDiffItem[] = [];
   const revisar: RevisarDiffItem[] = [];
   const eliminarPropuesto: EliminarDiffItem[] = [];
   const manualesIgnoradas: ManualIgnoradaDiffItem[] = [];
+
+  // Un calce único deja de ser un `return` silencioso y pasa a ser una propuesta de merge. Las
+  // ya conciliadas sí se saltean: su línea quedó registrada en fuenteLineaId y volver a
+  // proponerlas sería ruido en cada re-run.
+  const proponerMerge = (mov: StatementMovement, tx: Transaction, confianza: MatchConfidence) => {
+    if(tx.conciliada) return;
+    // Math.abs: en una cartola de tarjeta los cargos llegan con signo negativo (ver
+    // parseTarjetaNacionalMovs) mientras las transacciones guardan el monto en positivo.
+    // matchConfidence ya compara con abs; sin hacerlo acá, la diferencia de un cargo de $19.999
+    // contra un gasto de $20.000 daba -$39.999 en vez de -$1.
+    const dif = Math.round(Math.abs(mov.monto)) - Math.round(tx.monto);
+    mergear.push({
+      movimiento: mov, tx, confianza,
+      // Toda transacción protegida (manual, o sin origen) exige confirmación explícita, sin
+      // importar la confianza del calce: es la regla no negociable de este archivo aplicada al
+      // merge, no solo al borrado.
+      requiereConfirmacion: isProtectedOrigin(tx) || confianza!=='alta',
+      diferenciaMonto: dif===0 ? null : dif
+    });
+  };
 
   // ---- side A: for each statement line, is it already backed by something in the app? ----
   normales.forEach(mov => {
@@ -222,9 +347,9 @@ export function buildReconcileDiff(movimientos: StatementMovement[], tipoCartola
       else if(c==='baja') candidatosBaja.push(t);
     });
 
-    if(candidatosAlta.length===1) return; // clearly already registered
+    if(candidatosAlta.length===1){ proponerMerge(mov, candidatosAlta[0], 'alta'); return; }
     if(candidatosAlta.length>1){ revisar.push({movimiento:mov, confianza:'alta', candidatos:candidatosAlta}); return; }
-    if(candidatosMedia.length===1) return; // single decent match (exact amount+date, weak comercio)
+    if(candidatosMedia.length===1){ proponerMerge(mov, candidatosMedia[0], 'media'); return; }
     if(candidatosMedia.length>1){ revisar.push({movimiento:mov, confianza:'media', candidatos:candidatosMedia}); return; }
     if(candidatosBaja.length>=1){ revisar.push({movimiento:mov, confianza:'baja', candidatos:candidatosBaja}); return; }
 
@@ -271,5 +396,50 @@ export function buildReconcileDiff(movimientos: StatementMovement[], tipoCartola
       });
   }
 
-  return {agregar, eliminarPropuesto, revisar, manualesIgnoradas};
+  return {agregar, mergear, eliminarPropuesto, revisar, manualesIgnoradas};
+}
+
+/* ---------- aplicar un merge ----------
+   Esto SÍ muta, y por eso vive aparte de buildReconcileDiff: el diff solo propone.
+
+   Por defecto escribe DOS cosas y nada más: `conciliada` y `fuenteLineaId`. Es deliberadamente
+   conservador, porque del otro lado hay trabajo que la usuaria hizo a mano y que no se puede
+   reconstruir: la categoría que eligió, su nota, y sobre todo sus filas de porCobrar --muchas
+   veces el gasto se subió a mano justamente para poder cobrarle a alguien, y perder eso sería
+   caótico.
+
+   El monto NO se sobrescribe salvo que se pida con `actualizarMonto`. Y aun pidiéndolo, los
+   montos de porCobrar NO se reescalan: lo que alguien te debe es un acuerdo con esa persona, no
+   algo que deba moverse porque el banco redondeó distinto. La función devuelve el efecto para
+   que la pantalla lo muestre en vez de que pase callado. */
+export interface MergeResult {
+  ok: boolean;
+  montoAntes: number;
+  montoDespues: number;
+  // Lo que seguía debiendo gente antes y después: si cambian, es un descuadre que avisar.
+  porCobrarTotal: number;
+  porCobrarRecalculado: boolean;
+}
+export function aplicarMerge(tx: Transaction, mov: StatementMovement, actualizarMonto: boolean): MergeResult {
+  const montoAntes = tx.monto;
+  const porCobrarTotal = (tx.porCobrar||[]).reduce((s,p)=>s+(p.monto||0), 0);
+  if(!tx || !mov) return {ok:false, montoAntes, montoDespues:montoAntes, porCobrarTotal, porCobrarRecalculado:false};
+
+  tx.conciliada = true;
+  // Guardar la línea es lo que hace idempotente el re-run: buildReconcileDiff ya saltea toda
+  // línea cuyo fuenteLineaId aparezca en alguna transacción.
+  if(mov.fuenteLineaId) tx.fuenteLineaId = mov.fuenteLineaId;
+
+  // Math.abs por el mismo motivo que en proponerMerge: sin esto, actualizar el monto desde una
+  // línea de tarjeta dejaba el gasto con monto NEGATIVO, que descuadra todos los agregados.
+  const montoCartola = Math.round(Math.abs(mov.monto));
+  if(actualizarMonto && montoCartola!==Math.round(tx.monto)){
+    tx.monto = montoCartola;
+    // Si el gasto tenía UNA sola categoría, su monto es el monto del gasto: dejarlo viejo
+    // descuadraría la transacción consigo misma. Con varias categorías no se reparte a ciegas
+    // --no hay forma de saber a cuál corresponde la diferencia-- y se deja como está.
+    if((tx.categorias||[]).length===1) tx.categorias[0].monto = tx.monto;
+  }
+
+  return {ok:true, montoAntes, montoDespues: tx.monto, porCobrarTotal, porCobrarRecalculado:false};
 }

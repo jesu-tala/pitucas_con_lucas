@@ -149,7 +149,7 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  get CONTACTS(){ return CONTACTS; }, set CONTACTS(v){ CONTACTS = v; },
 """ + indent + """  get OCR_WORKER_URL(){ return OCR_WORKER_URL; }, set OCR_WORKER_URL(v){ OCR_WORKER_URL = v; },
 """ + indent + """  openReceiptFlow: openReceiptFlow,
-""" + indent + """  buildReconcileDiff: buildReconcileDiff, matchConfidence: matchConfidence, movementLineId: movementLineId,
+""" + indent + """  buildReconcileDiff: buildReconcileDiff, aplicarMerge: aplicarMerge, periodoDeReconciliacion: periodoDeReconciliacion, candidatosParaElegir: candidatosParaElegir, diasCorteDeFamilia: diasCorteDeFamilia, matchConfidence: matchConfidence, movementLineId: movementLineId,
 """ + indent + """  normalizeComercio: normalizeComercio, isAutomaticOrigin: isAutomaticOrigin, isProtectedOrigin: isProtectedOrigin,
 """ + indent + """  statementPeriod: statementPeriod, regenerateInstallmentsFor: regenerateInstallmentsFor,
 """ + indent + """  buildIntegrantesRows: buildIntegrantesRows, buildTransaccionesRows: buildTransaccionesRows,

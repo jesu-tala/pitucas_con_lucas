@@ -16,7 +16,7 @@ import { activePlatformIds, bumpPlatformValueForContribution, generalCatIdFor, g
 import { absorbImportedRows, enableNotifications, addParticipantWithoutAccount, buildBackupJSON, buildChargeWhatsAppText, buildTransactionsCSV, findSimilarTx, loadAvailableStatements, isCategoryInUse, classifySharedExpenseFromOthers, shareExistingTransaction, updateSharedTransaction, removeSharedTransaction, createGroup, createTxFromMovement, transferInfoComplete, disableNotifications, downloadFile, deleteGroup, deleteGroupParticipant, editGroupParticipant, leerBoletaConOCR, sendTestPush, importStatementRows, tryOpenStatementFile, loadEmailImportScreen, loadNotifStatus, isPaymentMethodInUse, parseStatementCSV, registerPaidBalance, renderMenuView, fechaHoraSnapshot, joinGroup, fetchGroupRoster, claimParticipant, useImportedStatement } from './views/menu';
 import { renderBalanceView, renderBudgetView } from './views/presupuesto';
 import { openSalarySuggestionSheet, renderTransactionsView, renderTxResultsOnly } from './views/transacciones';
-import { buildReconcileDiff } from './reconcile';
+import { buildReconcileDiff, aplicarMerge } from './reconcile';
 /* ===================== EVENT HANDLING (delegated) ===================== */
 export const phone = document.getElementById('phone');
 
@@ -1539,6 +1539,92 @@ phone.addEventListener('click', function(e: any){
     });
     return;
   }
+  // Vuelve a calcular, para cada línea de la cartola abierta, si ya hay algo en la app que la
+  // respalde. Se llama después de cualquier cambio que afecte esa respuesta (hoy: emparejar).
+  const refrescarMatchesDeCartola = function(){
+    (state.reconciliar.movimientos||[]).forEach(function(m){ m.__match = findSimilarTx(m); });
+  };
+  // Elegir a mano cuál de mis transacciones es una línea de la cartola. Existe porque el
+  // matching difuso no siempre acierta --un comercio que el banco escribe distinto, una fecha
+  // corrida, un monto que no se parece-- y la persona sabe cuál es.
+  const elegirAbrirBtn = e.target.closest('[data-elegir-calce-abrir]');
+  if(elegirAbrirBtn){
+    state.reconciliar.eligiendoParaLinea = elegirAbrirBtn.getAttribute('data-elegir-calce-abrir');
+    renderMenuView();
+    return;
+  }
+  const elegirCancelarBtn = e.target.closest('[data-elegir-calce-cancelar]');
+  if(elegirCancelarBtn){
+    state.reconciliar.eligiendoParaLinea = null;
+    renderMenuView();
+    return;
+  }
+  const elegirTxBtn = e.target.closest('[data-elegir-calce-tx]');
+  if(elegirTxBtn){
+    const txId = elegirTxBtn.getAttribute('data-elegir-calce-tx');
+    const lineaId = elegirTxBtn.getAttribute('data-elegir-calce-linea');
+    const mov = state.reconciliar.movimientos.find(function(m){ return m.fuenteLineaId===lineaId; });
+    const tx = getTx(txId);
+    if(!mov || !tx){ toast('No encontré esa línea'); return; }
+    // Elegido a mano es, por definición, confirmado: se aplica el merge conservador (sin tocar
+    // el monto). Si además quiere el monto de la cartola, el botón para eso aparece después, en
+    // la fila de "ya están en la app" -- una decisión por vez.
+    const res = aplicarMerge(tx, mov, false);
+    state.reconciliar.eligiendoParaLinea = null;
+    if(!res.ok){ toast('No se pudo emparejar'); return; }
+    toast('Emparejada con '+tx.comercio);
+    refrescarMatchesDeCartola();
+    renderMenuView(); renderIfListVisible();
+    return;
+  }
+  // Emparejar una línea de la cartola con una transacción que ya existe. El merge es
+  // conservador por diseño (ver aplicarMerge en reconcile.ts): marca la transacción como
+  // respaldada y guarda la línea, sin tocar categoría, nota, origen ni cobros a personas. El
+  // monto solo se actualiza si se apretó el botón que lo dice explícitamente.
+  const mergeBtn = e.target.closest('[data-reconcile-merge]');
+  if(mergeBtn){
+    const lineaId = mergeBtn.getAttribute('data-reconcile-merge');
+    const txId = mergeBtn.getAttribute('data-merge-tx');
+    const conMonto = mergeBtn.hasAttribute('data-merge-monto');
+    const mov = state.reconciliar.movimientos.find(function(m){ return m.fuenteLineaId===lineaId; });
+    const tx = getTx(txId);
+    if(!mov || !tx){ toast('No encontré esa línea'); return; }
+    const res = aplicarMerge(tx, mov, conMonto);
+    if(!res.ok){ toast('No se pudo emparejar'); return; }
+    // El aviso dice lo que de verdad pasó, incluido lo que NO pasó: si había cobros a personas y
+    // el monto cambió, esas deudas quedaron como estaban y hay que decirlo, porque es justo lo
+    // que la usuaria no puede adivinar mirando la pantalla.
+    if(conMonto && res.montoAntes!==res.montoDespues && res.porCobrarTotal>0){
+      toast('Emparejada y monto actualizado — lo que te deben no se recalculó');
+    } else if(conMonto && res.montoAntes!==res.montoDespues){
+      toast('Emparejada y monto actualizado a '+money(res.montoDespues));
+    } else {
+      toast('Emparejada con la cartola');
+    }
+    // __match se calcula al parsear la cartola, así que hay que refrescarlo: acaba de cambiar lo
+    // que findSimilarTx ve (la transacción ya lleva registrada esta línea). Sin esto la lista de
+    // arriba seguía ofreciendo "+ Agregar" para la línea recién emparejada.
+    refrescarMatchesDeCartola();
+    renderMenuView(); renderIfListVisible();
+    return;
+  }
+  // Las que calzan exacto y no son manuales: se emparejan todas juntas.
+  const mergeAutosBtn = e.target.closest('[data-reconcile-merge-autos]');
+  if(mergeAutosBtn){
+    const diff = buildReconcileDiff(state.reconciliar.movimientos, state.reconciliar.tipo);
+    let n = 0;
+    diff.mergear.forEach(function(item){
+      if(item.requiereConfirmacion) return;
+      if(aplicarMerge(item.tx, item.movimiento, false).ok) n++;
+    });
+    toast(n ? 'Se emparejaron '+n : 'No había ninguna para emparejar sola');
+    // __match se calcula al parsear la cartola, así que hay que refrescarlo: acaba de cambiar lo
+    // que findSimilarTx ve (la transacción ya lleva registrada esta línea). Sin esto la lista de
+    // arriba seguía ofreciendo "+ Agregar" para la línea recién emparejada.
+    refrescarMatchesDeCartola();
+    renderMenuView(); renderIfListVisible();
+    return;
+  }
   const notifToggleBtn = e.target.closest('[data-notif-toggle]');
   if(notifToggleBtn){
     if(state.notifSubscribed) disableNotifications(); else enableNotifications();
@@ -2084,7 +2170,7 @@ phone.addEventListener('click', function(e: any){
   const addPaymentMethodBtn = e.target.closest('[data-add-payment-method]');
   if(addPaymentMethodBtn){
     state.editingPaymentMethodId = 'nueva';
-    state.medioDraft = {nombre:'', corto:'', icon:'card'};
+    state.medioDraft = {nombre:'', corto:'', icon:'card', diaCorte:''};
     renderMenuView();
     return;
   }
@@ -2094,7 +2180,7 @@ phone.addEventListener('click', function(e: any){
     const m = PAYMENT_METHODS[id];
     state.editingPaymentMethodId = id;
     state.confirmDeletePaymentMethodId = null; // a stale "are you sure?" from a different medio shouldn't carry over
-    state.medioDraft = {nombre:m.nombre, corto:m.corto, icon:m.icon};
+    state.medioDraft = {nombre:m.nombre, corto:m.corto, icon:m.icon, diaCorte:(m.diaCorte==null?'':String(m.diaCorte))};
     renderMenuView();
     return;
   }
@@ -2107,13 +2193,19 @@ phone.addEventListener('click', function(e: any){
     const idAttr = savePaymentMethodBtn.getAttribute('data-save-payment-method');
     const d = state.medioDraft;
     if(!d.nombre.trim()){ toast('Ponle un nombre al medio de pago'); return; }
+    // El día de corte solo tiene sentido en una tarjeta, y solo entre 1 y 31. Lo que no calce se
+    // guarda como "sin corte" en vez de como un número inválido que después haría calcular una
+    // ventana absurda.
+    const diaCorte = d.icon==='card' ? parseInt(String(d.diaCorte||'').replace(/[^\d]/g,''),10) : NaN;
+    const corteValido = !isNaN(diaCorte) && diaCorte>=1 && diaCorte<=31 ? diaCorte : undefined;
     if(idAttr==='nueva'){
-      PAYMENT_METHODS['medio_'+Date.now()] = {nombre:d.nombre.trim(), corto:d.corto.trim(), icon:d.icon};
+      PAYMENT_METHODS['medio_'+Date.now()] = {nombre:d.nombre.trim(), corto:d.corto.trim(), icon:d.icon, diaCorte:corteValido};
       toast('Medio de pago creado');
     } else {
       PAYMENT_METHODS[idAttr].nombre = d.nombre.trim();
       PAYMENT_METHODS[idAttr].corto = d.corto.trim();
       PAYMENT_METHODS[idAttr].icon = d.icon;
+      PAYMENT_METHODS[idAttr].diaCorte = corteValido;
       toast('Medio de pago actualizado');
     }
     state.editingPaymentMethodId = null;
