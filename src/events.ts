@@ -1,4 +1,4 @@
-import { FILTRO_APORTE_FIJO, allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, dayLabel, paymentMethodInfo, receivableTotal, hasReceivableType, receivablesLinkedFrom, removeIncomeAssignment, assignIncomeToReceivable } from './helpers';
+import { FILTRO_APORTE_FIJO, allCollected, applyCuotaMonto, applyLockRule, applyUnexpectedReimbursement, catInfo, writeOffReceivable, deshacerWriteOff, dayLabel, paymentMethodInfo, receivableTotal, hasReceivableType, receivablesLinkedFrom, removeIncomeAssignment, assignIncomeToReceivable } from './helpers';
 import { categoryFillCss, nextCategoryHue } from './category-colors';
 import { enterDemoMode, exitDemoMode } from './demo';
 import { navClearType, navDepth, navPeek, navPop, navPopIfTop, navPush, NavFrame } from './nav';
@@ -151,7 +151,15 @@ phone.addEventListener('click', function(e: any){
   const askDeleteTxBtn = e.target.closest('[data-ask-delete-tx]');
   if(askDeleteTxBtn){ state.confirmDeleteTxId = askDeleteTxBtn.getAttribute('data-ask-delete-tx'); renderSheet(); return; }
   const cancelDeleteTxBtn = e.target.closest('[data-cancel-delete-tx]');
-  if(cancelDeleteTxBtn){ state.confirmDeleteTxId = null; renderSheet(); return; }
+  if(cancelDeleteTxBtn){
+    state.confirmDeleteTxId = null;
+    // La confirmación puede estar en el detalle O en la lista (si vino del gesto de deslizar),
+    // así que se repintan las dos: renderSheet sola dejaba la fila de la lista en modo
+    // confirmación para siempre, sin forma de salir.
+    renderSheet();
+    renderIfListVisible();
+    return;
+  }
   const confirmDeleteTxBtn = e.target.closest('[data-confirm-delete-tx]');
   if(confirmDeleteTxBtn){
     const delId = confirmDeleteTxBtn.getAttribute('data-confirm-delete-tx');
@@ -333,6 +341,11 @@ phone.addEventListener('click', function(e: any){
 
   const txItem = e.target.closest('[data-tx]');
   if(txItem && txItem.classList.contains('tx-item')){
+    // Al terminar un deslizamiento, el navegador dispara igual un click sobre la fila (fue un
+    // mousedown + mouseup encima de ella). Sin esto, ese click abría el detalle justo encima de
+    // la confirmación que el gesto acababa de abrir, y la confirmación desaparecía de la lista.
+    // Mismo patrón que suppressNextSubtabClick para el arrastre de los subtabs.
+    if(suppressRowSwipeClick){ suppressRowSwipeClick = false; return; }
     openSheet(txItem.getAttribute('data-tx'));
     return;
   }
@@ -1248,6 +1261,15 @@ phone.addEventListener('click', function(e: any){
     const idx = parseInt(writeOffBtn.getAttribute('data-write-off'),10);
     if(writeOffReceivable(state.openTxId, idx)){
       toast('Registrada como gasto de este mes');
+      renderSheet(); renderIfListVisible();
+    }
+    return;
+  }
+  const undoWriteOffBtn = e.target.closest('[data-undo-write-off]');
+  if(undoWriteOffBtn){
+    const idx = parseInt(undoWriteOffBtn.getAttribute('data-undo-write-off'),10);
+    if(deshacerWriteOff(state.openTxId, idx)){
+      toast('Volvió a quedar pendiente de cobro');
       renderSheet(); renderIfListVisible();
     }
     return;
@@ -3161,6 +3183,48 @@ export function endSubtabDrag(e){
 }
 phone.addEventListener('pointerup', endSubtabDrag);
 phone.addEventListener('pointercancel', endSubtabDrag);
+
+/* ---------- deslizar una fila de Transacciones para eliminarla ----------
+   El gesto NO borra: abre la misma confirmación que el botón del detalle (state.confirmDeleteTxId),
+   y recién el "Sí, eliminar" borra. Un gesto que borra solo es demasiado fácil de disparar sin
+   querer justo en la pantalla donde se hace scroll todo el tiempo.
+
+   Dos cosas lo mantienen fuera del camino de los otros gestos:
+    · solo cuenta el arrastre hacia la IZQUIERDA; el edge-swipe-back va hacia la derecha.
+    · tiene que ser claramente horizontal (más X que Y) y pasar un umbral, así que un scroll
+      vertical normal nunca lo dispara. */
+const ROW_SWIPE_THRESHOLD_PX = 55;
+// Se consume en el próximo click sobre una fila, y solo uno: ver la nota en el handler de
+// [data-tx] sobre por qué el gesto genera un click que hay que ignorar.
+let suppressRowSwipeClick = false;
+let rowSwipe: { pointerId:number, startX:number, startY:number, txId:string, armado:boolean } | null = null;
+
+phone.addEventListener('pointerdown', function(e: any){
+  if(state.openTxId || state.confirmDeleteTxId) return;   // ya hay una hoja o una confirmación abierta
+  const row = e.target.closest ? e.target.closest('.tx-item[data-tx]') : null;
+  if(!row) return;
+  rowSwipe = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY,
+               txId: row.getAttribute('data-tx'), armado: false };
+}, {passive:true});
+
+phone.addEventListener('pointermove', function(e: any){
+  if(!rowSwipe || e.pointerId!==rowSwipe.pointerId || rowSwipe.armado) return;
+  const dx = e.clientX - rowSwipe.startX;
+  const dy = e.clientY - rowSwipe.startY;
+  // Hacia la izquierda, claramente horizontal, y pasado el umbral.
+  if(dx > -ROW_SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
+  rowSwipe.armado = true;
+  suppressRowSwipeClick = true;
+  state.confirmDeleteTxId = rowSwipe.txId;
+  renderIfListVisible();
+}, {passive:true});
+
+phone.addEventListener('pointerup', function(e: any){
+  if(rowSwipe && e.pointerId===rowSwipe.pointerId) rowSwipe = null;
+}, {passive:true});
+phone.addEventListener('pointercancel', function(e: any){
+  if(rowSwipe && e.pointerId===rowSwipe.pointerId) rowSwipe = null;
+}, {passive:true});
 
 /* ---------- edge-swipe-back: drag left-to-right starting from a thin strip on the left edge
    pops the nav stack, same as the back arrow. Scoped to that edge strip (never the whole

@@ -48,6 +48,12 @@ export interface ReceivableItem {
   persona: string;
   monto: number | null;
   pagado: boolean;
+  // Si esta fila se dio por perdida, el id del gasto que se creó al hacerlo. Existe por dos
+  // motivos: deja la acción reversible (deshacerla es borrar ESE gasto y limpiar este campo), y
+  // marca la fila como resuelta sin tocar `pagado` -- que significa "me pagaron" y acá
+  // justamente no pagaron. La fila se CONSERVA con todos sus datos: antes se borraba del array,
+  // y con ella se perdían la persona y el monto, lo que hacía imposible volver atrás.
+  perdidaTxId?: string;
   tipo: 'persona' | 'reembolso';
   montoRecibido: number | null;
   linkedTxId: string | null;

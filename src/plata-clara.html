@@ -334,6 +334,18 @@
      sueltas con espacio entre cada una. */
   .tx-list{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-sm);border:1px solid var(--border);overflow:hidden;}
   .tx-item{
+  /* Confirmación de borrado al deslizar una fila. Ocupa el lugar de la fila (no se superpone),
+     así no tapa las de al lado ni empuja la lista. */
+  .tx-swipe-confirm{
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    background:var(--cat-pink-fill);border-radius:var(--radius-card);
+    padding:12px 14px;margin:2px 0;
+  }
+  .tx-swipe-confirm-texto{flex:1;min-width:140px;display:flex;flex-direction:column;gap:2px;}
+  .tx-swipe-confirm-nombre{font-weight:700;font-size:13.5px;color:var(--expense-ink);}
+  .tx-swipe-confirm-texto .muted{font-size:12px;color:var(--expense-ink);opacity:.8;}
+  .tx-swipe-confirm-acciones{display:flex;gap:8px;flex:none;}
+  .tx-swipe-confirm-acciones .save-tx-btn{padding:8px 14px;font-size:12.5px;width:auto;}
     display:flex;align-items:center;gap:12px;padding:11px 12px;cursor:pointer;
     text-align:left;width:100%;border:none;border-bottom:1px solid var(--border);
   }
@@ -816,6 +828,10 @@
   .chk-pagado svg{width:14px;height:14px;}
   .chk-pagado.checked{background:var(--income-fill);border-color:var(--income-fill);color:var(--income-ink);}
   .split-row.paid .persona-label,.split-row.paid .persona-amt{text-decoration:line-through;color:var(--text-tertiary);}
+  /* Dada por perdida: se ve atenuada como una pagada, pero sin el verde de "cobrado" --
+     no se cobró nada, se asumió como gasto. */
+  .split-row.perdida{opacity:.55;}
+  .split-row.perdida .persona-amt{text-decoration:line-through;}
   .cobro-banner-done{
     display:flex;align-items:center;gap:8px;background:var(--income-fill);color:var(--income-ink);
     font-size:12.5px;font-weight:700;padding:9px 12px;border-radius:12px;margin-bottom:10px;

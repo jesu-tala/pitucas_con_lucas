@@ -206,6 +206,15 @@ function syncPagadoFromAsignaciones(p){
 // por-cobrar -- un depósito puede superar lo que se debía (sobre-reembolso/sobre-cobro, caso
 // real y ya soportado: ver reimbursementExcess), y esa plata de más se sigue viendo reflejada en
 // `asignaciones` para que el cálculo del excedente (netIncomeTx) tenga con qué trabajar.
+// Un depósito que todavía estaba "pendiente de clasificar" deja de estarlo al vincularlo: su
+// naturaleza ya quedó determinada por el vínculo (incomeNatureOf la deriva de ahí, y el vínculo
+// manda incluso por sobre naturalezaEntrada). Sin esto el depósito se quedaba para siempre en el
+// filtro Pendientes aunque la app ya supiera perfectamente qué era -- reportado así: "una
+// transacción pendiente de clasificación, una vez que la pongo como reembolso recibido, no se
+// sale de pendientes".
+function confirmarSiEstabaPendiente(incomeTx){
+  if(incomeTx && incomeTx.estado==='pendiente') incomeTx.estado = 'confirmado';
+}
 export function assignIncomeToReceivable(expenseTxId, idx, incomeTxId, monto): boolean {
   const expenseTx = getTx(expenseTxId), incomeTx = getTx(incomeTxId);
   if(!expenseTx || !incomeTx || !expenseTx.porCobrar[idx]) return false;
@@ -215,11 +224,26 @@ export function assignIncomeToReceivable(expenseTxId, idx, incomeTxId, monto): b
   if(!p.asignaciones) p.asignaciones = [];
   const existing = p.asignaciones.find(a=>a.incomeTxId===incomeTxId);
   if(existing) existing.monto += amt; else p.asignaciones.push({incomeTxId, monto: amt});
+  confirmarSiEstabaPendiente(incomeTx);
   syncPagadoFromAsignaciones(p);
   return true;
 }
 // Deshace lo que un depósito puntual le había aportado a un por-cobrar -- lo que hayan aportado
 // otros depósitos a esa misma fila queda intacto.
+// Desvincular es la vuelta exacta de vincular, incluido el estado del depósito: si al sacarle el
+// vínculo el depósito se queda sin ningún otro, sin categoría y sin una naturaleza elegida a
+// mano, volvió a no tener nada que diga qué es -- o sea, está otra vez pendiente de clasificar,
+// y tiene que reaparecer en ese filtro. Sin esta vuelta, vincular y desvincular dejaba el
+// depósito marcado como "confirmado" sin que nada lo clasificara.
+function volverAPendienteSiQuedoSinNada(incomeTxId){
+  const incomeTx = getTx(incomeTxId);
+  if(!incomeTx || incomeTx.estado!=='confirmado') return;
+  if(receivablesLinkedFrom(incomeTxId).length) return;
+  if((incomeTx.categorias||[]).length) return;
+  if(incomeTx.naturalezaEntrada) return;
+  incomeTx.estado = 'pendiente';
+}
+
 export function removeIncomeAssignment(expenseTxId, idx, incomeTxId): boolean {
   const expenseTx = getTx(expenseTxId);
   if(!expenseTx || !expenseTx.porCobrar[idx]) return false;
@@ -229,12 +253,14 @@ export function removeIncomeAssignment(expenseTxId, idx, incomeTxId): boolean {
     p.asignaciones = p.asignaciones.filter(a=>a.incomeTxId!==incomeTxId);
     if(p.asignaciones.length===before) return false;
     syncPagadoFromAsignaciones(p);
+    volverAPendienteSiQuedoSinNada(incomeTxId);
     return true;
   }
   // Dato de un solo vínculo directo, de antes de `asignaciones` -- desvincularlo es volver a
   // como estaba antes de resolvePending().
   if(p.linkedTxId===incomeTxId){
     p.pagado = false; p.montoRecibido = null; p.linkedTxId = null;
+    volverAPendienteSiQuedoSinNada(incomeTxId);
     return true;
   }
   return false;
@@ -509,16 +535,30 @@ export function applyUnexpectedReimbursement(gastoTxId, incomeTxId){
   // contenido en porCobrar queda en estado 'por_cobrar', sin importar si ya está paga -- así se
   // le pinta el tag "Reembolso" (sheet.ts) y aparece donde corresponde en Transacciones.
   gastoTx.estado = 'por_cobrar';
+  confirmarSiEstabaPendiente(incomeTx);
   return true;
 }
 // Turns a receivable (type 'persona') that was never paid into a real expense in the CURRENT
 // month — a new transaction is created (the original isn't edited, since it already closed its
 // month with the netting applied) and the pending item is removed from the original transaction.
+// Dar por perdida un cobro: la otra persona nunca pagó su parte, así que esa plata pasa a ser
+// un gasto tuyo de ESTE mes (que es lo que dice el botón).
+//
+// BUG DE DOBLE CONTEO QUE SE ARREGLA ACÁ: esta función borraba la fila de porCobrar Y creaba el
+// gasto nuevo. Cada una de las dos cosas por sí sola da el resultado correcto, pero juntas
+// contaban el monto dos veces. Con una cena de $10.000 donde Fran no pagó sus $5.000: quitar la
+// fila hace que la cena pase de $5.000 (tu parte) a $10.000 netos, y encima aparecía un gasto
+// extra de $5.000 -- $15.000 de gastos por una cena de $10.000.
+//
+// Ahora la fila se CONSERVA y solo se marca con perdidaTxId. La cena sigue valiendo $5.000 (tu
+// parte real) y la pérdida de $5.000 es un gasto aparte de este mes: $10.000 en total, que es
+// lo que de verdad te costó. Y como los datos de la fila quedan intactos, la acción se puede
+// deshacer (ver deshacerWriteOff más abajo).
 export function writeOffReceivable(expenseTxId, idx){
   const expenseTx = getTx(expenseTxId);
   if(!expenseTx || !expenseTx.porCobrar[idx]) return false;
   const p = expenseTx.porCobrar[idx];
-  if(p.pagado || p.tipo!=='persona') return false;
+  if(p.pagado || p.tipo!=='persona' || p.perdidaTxId) return false;
   const amount = Math.round(p.monto||0);
   if(amount<=0){ expenseTx.porCobrar.splice(idx,1); return true; }
   // It used to fall into a fixed "otros_gastos" category that no longer exists in the default
@@ -538,7 +578,8 @@ export function writeOffReceivable(expenseTxId, idx){
   };
   TRANSACTIONS.push(newTx);
   ensureMonthExists(newTx.fecha.slice(0,7));
-  expenseTx.porCobrar.splice(idx,1);
+  // La fila NO se borra: se marca. Ver la nota de arriba sobre el doble conteo.
+  p.perdidaTxId = newTx.id;
   return true;
 }
 // How much you got reimbursed across a set of months — counted in the month the deposit arrived
@@ -625,7 +666,23 @@ export function applyCuotaMonto(t: Transaction, newMonto: number){
 }
 
 export function allCollected(t){
-  return t.porCobrar.length>0 && t.porCobrar.every(p=>p.pagado);
+  // Una fila dada por perdida está RESUELTA aunque no esté pagada: ya se registró como gasto, no
+  // hay nada más que esperar. Sin esto la transacción quedaba para siempre en los filtros de
+  // "por cobrar", pidiendo cobrar una plata que ya se asumió como perdida.
+  return t.porCobrar.length>0 && t.porCobrar.every(p=>p.pagado || !!p.perdidaTxId);
+}
+// Deshacer "dar por perdida". Es de ida y vuelta porque la fila nunca se borró: se elimina el
+// gasto que se había creado y se limpia la marca, y el cobro vuelve a estar pendiente con su
+// persona y su monto originales.
+export function deshacerWriteOff(expenseTxId, idx){
+  const expenseTx = getTx(expenseTxId);
+  if(!expenseTx || !expenseTx.porCobrar[idx]) return false;
+  const p = expenseTx.porCobrar[idx];
+  if(!p.perdidaTxId) return false;
+  const i = TRANSACTIONS.findIndex(t=>t.id===p.perdidaTxId);
+  if(i>=0) TRANSACTIONS.splice(i,1);
+  delete p.perdidaTxId;
+  return true;
 }
 // 'persona' (you split a bill with someone) and 'reembolso' (health insurer/insurance/employer)
 // look similar but are different cases — this allows filtering and showing them separately.

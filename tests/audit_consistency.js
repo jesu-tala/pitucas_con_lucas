@@ -369,6 +369,55 @@ function checkClose(label, a, b, tol){
       antes: { ingresos: antes.ingresos, entradas: antes.entradas, cobros: antes.cobros },
       despues: { ingresos: despues.ingresos, entradas: despues.entradas, cobros: despues.cobros } };
   });
+  // ---- Invariante: dar un cobro por perdida no puede contar el monto dos veces ----
+  // Si compartiste una cena de $10.000 y la otra persona nunca paga sus $5.000, esa cena te
+  // costó $10.000: exactamente lo que pagaste. Ni $5.000 (ignorar la pérdida) ni $15.000
+  // (contarla dos veces), que es lo que pasaba -- writeOffReceivable borraba la fila del cobro
+  // (subiendo el gasto neto de la cena de $5.000 a $10.000) Y además creaba un gasto nuevo de
+  // $5.000.
+  //
+  // Se verifica sobre la MISMA transacción antes y después, para que la única variable sea la
+  // acción, y se mide el DELTA del gasto anual (este audit corre sobre el fixture completo, así
+  // que el total absoluto no dice nada). El delta esperado es exactamente la parte que no se
+  // pagó: la cena pasa de costarte tu mitad a costarte el total. Con el bug el delta era el
+  // doble, porque el monto entraba por los dos lados a la vez.
+  const perdida = await page.evaluate(() => {
+    const D = window.__debug;
+    const mes = D.MONTHS[0];
+    const BRUTO = 10000, PARTE_AJENA = 5000;
+    D.TRANSACTIONS.push({ id: 'perd-g', fecha: mes + '-04', hora: '21:00', comercio: 'Cena a medias',
+      monto: BRUTO, medio: 'efectivo', tipo: 'gasto', recurrencia: 'variable', estado: 'por_cobrar',
+      categorias: [{ cat: 'restoranes', monto: BRUTO }],
+      porCobrar: [{ persona: 'Fran', monto: PARTE_AJENA, pagado: false, tipo: 'persona', montoRecibido: null, linkedTxId: null }],
+      reglaAuto: false, nota: '' });
+
+    const gastosAnio = () => D.yearTotals(Number(mes.slice(0, 4))).gastos;
+    const netoCena = () => D.netExpenseTx(D.TRANSACTIONS.find(t => t.id === 'perd-g'));
+    const antes = gastosAnio();
+    const netoAntes = netoCena();
+    const ok = D.writeOffReceivable('perd-g', 0);
+    const despues = gastosAnio();
+    const okUndo = D.deshacerWriteOff('perd-g', 0);
+    const trasDeshacer = gastosAnio();
+
+    // Se deja todo como estaba, para no contaminar lo que corra después.
+    const perdidaExtra = D.TRANSACTIONS.filter(t => /^perdida-/.test(t.id)).map(t => t.id);
+    perdidaExtra.forEach(id => D.TRANSACTIONS.splice(D.TRANSACTIONS.findIndex(t => t.id === id), 1));
+    D.TRANSACTIONS.splice(D.TRANSACTIONS.findIndex(t => t.id === 'perd-g'), 1);
+    D.render();
+    return { BRUTO, PARTE_AJENA, ok, okUndo, antes, despues, trasDeshacer, netoAntes, sobrantes: perdidaExtra.length };
+  });
+  check('(control) dar por perdida se ejecutó', perdida.ok === true, perdida);
+  // Sin este control, "no cuenta dos veces" podría salir verde porque la acción no hizo nada.
+  check('(control) antes de darla por perdida, la cena contaba solo tu parte',
+    perdida.netoAntes === perdida.BRUTO - perdida.PARTE_AJENA, perdida);
+  check('Invariante: dar por perdida suma la parte no pagada UNA vez, no dos',
+    perdida.despues - perdida.antes === perdida.PARTE_AJENA,
+    { delta: perdida.despues - perdida.antes, esperado: perdida.PARTE_AJENA, conElBug: perdida.PARTE_AJENA * 2 });
+  check('(control) deshacerlo se ejecutó', perdida.okUndo === true, perdida);
+  check('Invariante: deshacerlo devuelve el gasto total a como estaba',
+    perdida.trasDeshacer === perdida.antes, { antes: perdida.antes, trasDeshacer: perdida.trasDeshacer });
+
   // ---- Invariante: el avance del objetivo del año y el total invertido no pueden divergir ----
   // No se exige que sean IGUALES -- no lo son ni pueden serlo: el total invertido es un stock
   // (todo lo acumulado, incluyendo años anteriores y el startingAmount cargado a mano) y el

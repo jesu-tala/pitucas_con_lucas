@@ -127,12 +127,17 @@ function renderPersonaSettlementRows(t){
     // Same reasoning for "dar por perdida": that only ever applies to money owed TO you that
     // never arrives — you can't "write off" a debt you owe (and, same as linking, not before
     // this transaction is even saved).
-    const writeOffLink = (!p.pagado && !isDebo && !isDraft)
-      ? '<button class="split-toggle-link" data-write-off="'+idx+'" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida — pasarla a gasto de este mes</button>'
-      : '';
+    // Ya dada por perdida: en vez del link para darla por perdida, el de deshacerlo. Es de ida y
+    // vuelta porque la fila se conserva con sus datos (ver writeOffReceivable en helpers.ts), así
+    // que volver atrás no reconstruye nada: borra el gasto que se creó y saca la marca.
+    const yaPerdida = !!p.perdidaTxId;
+    const writeOffLink = isDraft || isDebo || p.pagado ? ''
+      : yaPerdida
+        ? '<button class="split-toggle-link" data-undo-write-off="'+idx+'" style="display:block;margin:-2px 0 10px;font-size:11px;">Dada por perdida — volver a dejarla pendiente</button>'
+        : '<button class="split-toggle-link" data-write-off="'+idx+'" style="display:block;margin:-2px 0 10px;font-size:11px;">Dar por perdida — pasarla a gasto de este mes</button>';
     return '<div>'+
-      '<div class="split-row'+(p.pagado?' paid':'')+'" data-charge-row="'+idx+'">'+
-        '<button class="chk-pagado'+(p.pagado?' checked':'')+'" data-toggle-paid="'+idx+'" aria-label="Marcar como '+(isDebo?'pagado':'cobrado')+'" aria-pressed="'+(p.pagado?'true':'false')+'">'+ICONS.check+'</button>'+
+      '<div class="split-row'+(p.pagado?' paid':'')+(yaPerdida?' perdida':'')+'" data-charge-row="'+idx+'">'+
+        '<button class="chk-pagado'+(p.pagado?' checked':'')+'" data-toggle-paid="'+idx+'" aria-label="Marcar como '+(isDebo?'pagado':'cobrado')+'" aria-pressed="'+(p.pagado?'true':'false')+'"'+(yaPerdida?' disabled':'')+'>'+ICONS.check+'</button>'+
         nameField+ amtField+ linkBtn+
         '<button class="rm-btn" data-charge-remove="'+idx+'">'+ICONS.trash+'</button>'+
       '</div>'+
