@@ -2845,8 +2845,12 @@
     return '<div class="card budget-cat-card"><div class="budget-cat-head"><span class="budget-cat-icon" style="' + categoryColorVars(cat) + '">' + catIconMarkup(cat.icon) + '</span><span class="budget-cat-name">' + esc(cat.nombre) + '</span><button class="budget-edit-btn" data-edit-budget="' + catId + '" aria-label="Editar presupuesto de ' + esc(cat.nombre) + '">' + ICONS.edit + '</button></div><div class="budget-cat-figs"><span class="tabular gastado">' + money(gastado) + '</span><span class="of-text"> de ' + money(meta) + '</span><span class="budget-pct tabular">' + Math.round(pct) + "%</span></div>" + renderBudgetBar(pct) + budgetAlertBadge(pct, cfg.alertas) + '<div class="budget-context muted">' + contexto + '</div><button class="budget-ver-mas" data-budget-see-more="' + catId + '">Ver transacciones \u2192</button></div>';
   }
   __name(renderBudgetCatCard, "renderBudgetCatCard");
+  function catIdsConPresupuesto() {
+    return Object.keys(CATEGORIES).filter((id) => CATEGORIES[id].tipo === "gasto").filter((id) => BUDGETS[id]);
+  }
+  __name(catIdsConPresupuesto, "catIdsConPresupuesto");
   function sumaPresupuestosCategorias() {
-    return Object.keys(BUDGETS).reduce((s, id) => s + (BUDGETS[id].meta || 0), 0);
+    return catIdsConPresupuesto().reduce((s, id) => s + (BUDGETS[id].meta || 0), 0);
   }
   __name(sumaPresupuestosCategorias, "sumaPresupuestosCategorias");
   function renderBudgetCatsCalce(meta) {
@@ -2890,7 +2894,7 @@
   function renderBudgetView() {
     const month = MONTHS[state.monthIndex];
     const gastoCatIds = Object.keys(CATEGORIES).filter((k) => CATEGORIES[k].tipo === "gasto");
-    const conPresupuesto = gastoCatIds.filter((id) => BUDGETS[id]);
+    const conPresupuesto = catIdsConPresupuesto();
     const sinPresupuesto = gastoCatIds.filter((id) => !BUDGETS[id]);
     const conHtml = conPresupuesto.length ? conPresupuesto.map(renderBudgetCatCard).join("") : '<div class="empty-state" style="padding:20px 4px;">' + ICONS.inbox + "<div>Todav\xEDa no tienes categor\xEDas con presupuesto.</div></div>";
     const sinHtml = sinPresupuesto.map(renderBudgetCatCard).join("");
