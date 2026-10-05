@@ -1,5 +1,5 @@
 import { esc } from '../esc';
-import { catInfo, catBucketId, catNetAmount, catTotalAmount, netExpenseTx, netIncomeFactor, lastSalaryTx } from '../helpers';
+import { catInfo, catBucketId, catNetAmount, catTotalAmount, metasContables, netExpenseTx, netIncomeFactor, lastSalaryTx } from '../helpers';
 import { categoryFillCss } from '../category-colors';
 import { ICONS, catIconMarkup, icon } from '../icons';
 import { SPENDING_GOAL_PCT, INVESTMENT_GOALS, MONTHS, MONTH_LABEL, money, moneyPlainMasked, state, todayISO, notaCategoria} from '../state';
@@ -156,7 +156,20 @@ export function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro
 // NOT defined here — it comes by itself from the sum of "monthly goal contribution" of your
 // goals in the Investments tab, so both views always tell the same story.
 export function monthlyInvestmentGoalCLP(){
-  return INVESTMENT_GOALS.reduce((s,m)=>s+(m.aporteMensualMeta||0),0);
+  // metasContables(), no INVESTMENT_GOALS: la misma fuente única que ya usan el total invertido
+  // y el objetivo del AÑO (ver annualInvestmentGoalProgress en views/evolucion.ts). Esta función
+  // se había quedado atrás con el recorrido crudo, y por eso contaba metas que no deberían
+  // contar: las de una plataforma CERRADA y las HUÉRFANAS (su plataforma ya no existe).
+  //
+  // El efecto era grande y visible en la misma tarjeta: con una sola meta viva de $200.000, el
+  // "aporte mensual objetivo" mostraba $1.600.000 --sumándole una meta de plataforma cerrada y
+  // otra huérfana-- mientras el objetivo anual, justo debajo, mostraba $2.400.000, que son
+  // $200.000 al mes. Dos números contradiciéndose a un centímetro de distancia, y un % de
+  // Inversión en Balance que llegaba al 111% de los ingresos.
+  //
+  // Las metas SIN aporte mensual fijo ya aportaban 0 correctamente (aporteMensualMeta||0): eso
+  // no era parte del bug.
+  return metasContables().reduce((s,m)=>s+(m.aporteMensualMeta||0),0);
 }
 // Reference income to compare your goals against — the current month if it already has income
 // registered; if not (just starting the month), your last known salary, more stable than

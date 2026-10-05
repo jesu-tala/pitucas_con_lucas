@@ -1344,7 +1344,7 @@
   }
   __name(renderDonutBlock, "renderDonutBlock");
   function monthlyInvestmentGoalCLP() {
-    return INVESTMENT_GOALS.reduce((s, m) => s + (m.aporteMensualMeta || 0), 0);
+    return metasContables().reduce((s, m) => s + (m.aporteMensualMeta || 0), 0);
   }
   __name(monthlyInvestmentGoalCLP, "monthlyInvestmentGoalCLP");
   function referenceMonthlyIncome() {

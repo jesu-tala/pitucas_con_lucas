@@ -84,7 +84,7 @@ debug_block = anchor + "\n\n" + indent + """window.__debug = {
 """ + indent + """  ensurePaymentMethodForSuggestion: ensurePaymentMethodForSuggestion, guessPaymentMethodIdFromSuggestion: guessPaymentMethodIdFromSuggestion,
 """ + indent + """  lastSalaryTx: lastSalaryTx, currentMonthHasSalary: currentMonthHasSalary, todayISO: todayISO,
 """ + indent + """  parseStatementPDF: parseStatementPDF, findSimilarTx: findSimilarTx, createTxFromMovement: createTxFromMovement,
-""" + indent + """  SPENDING_GOAL_PCT: SPENDING_GOAL_PCT, investmentGoalPct: investmentGoalPct, monthlyInvestmentGoalCLP: monthlyInvestmentGoalCLP,
+""" + indent + """  SPENDING_GOAL_PCT: SPENDING_GOAL_PCT, investmentGoalPct: investmentGoalPct, monthlyInvestmentGoalCLP: monthlyInvestmentGoalCLP, metasContables: metasContables,
 """ + indent + """  referenceMonthlyIncome: referenceMonthlyIncome, sumSpendingGoalPct: sumSpendingGoalPct,
 """ + indent + """  monthlyBudgetTotal: monthlyBudgetTotal, sumaPresupuestosCategorias: sumaPresupuestosCategorias, catIdsConPresupuesto: catIdsConPresupuesto,
 """ + indent + """  pgBytesToArrayBuffer: pgBytesToArrayBuffer, hasReceivableType: hasReceivableType,
