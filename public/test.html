@@ -327,6 +327,23 @@
 
   .card{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-sm);border:1px solid var(--border);}
 
+  /* Fila deslizada: se corre hacia la izquierda y deja ver el basurero AL LADO, no debajo.
+     El basurero queda ENCIMA (z-index mayor que la fila) y ocupa los 58px que la fila dejó
+     libres al correrse. Ponerlo detrás parecía más natural --"se asoma"-- pero lo volvía
+     inclickeable: el contenedor de la lista le interceptaba los clics. */
+  .tx-swipe-wrap{position:relative;}
+  .tx-swipe-wrap .tx-item{position:relative;z-index:1;transition:transform .18s ease;}
+  .tx-swipe-wrap.swiped .tx-item{transform:translateX(-62px);}
+  .tx-swipe-trash{
+    position:absolute;top:0;right:0;bottom:0;width:58px;z-index:2;
+    display:flex;align-items:center;justify-content:center;
+    border:none;border-radius:var(--radius-card);cursor:pointer;
+    background:var(--cat-pink-fill);color:var(--expense-ink);
+  }
+  .tx-swipe-trash svg{width:20px;height:20px;}
+  .tx-swipe-trash:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;}
+  @media (prefers-reduced-motion: reduce){ .tx-swipe-wrap .tx-item{transition:none;} }
+
   .day-group{margin-bottom:18px;}
   .day-label{font-size:12px;font-weight:500;color:var(--text-secondary);margin:0 2px 8px;}
   /* Las transacciones de un mismo día van "encapsuladas" en una sola tarjeta (nuestro .card de
@@ -334,18 +351,6 @@
      sueltas con espacio entre cada una. */
   .tx-list{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-sm);border:1px solid var(--border);overflow:hidden;}
   .tx-item{
-  /* Confirmación de borrado al deslizar una fila. Ocupa el lugar de la fila (no se superpone),
-     así no tapa las de al lado ni empuja la lista. */
-  .tx-swipe-confirm{
-    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
-    background:var(--cat-pink-fill);border-radius:var(--radius-card);
-    padding:12px 14px;margin:2px 0;
-  }
-  .tx-swipe-confirm-texto{flex:1;min-width:140px;display:flex;flex-direction:column;gap:2px;}
-  .tx-swipe-confirm-nombre{font-weight:700;font-size:13.5px;color:var(--expense-ink);}
-  .tx-swipe-confirm-texto .muted{font-size:12px;color:var(--expense-ink);opacity:.8;}
-  .tx-swipe-confirm-acciones{display:flex;gap:8px;flex:none;}
-  .tx-swipe-confirm-acciones .save-tx-btn{padding:8px 14px;font-size:12.5px;width:auto;}
     display:flex;align-items:center;gap:12px;padding:11px 12px;cursor:pointer;
     text-align:left;width:100%;border:none;border-bottom:1px solid var(--border);
   }
@@ -6037,10 +6042,10 @@
     else if (t.estado === "no_es_gasto") stateTag = '<span class="tx-state state-noesgasto">' + (isIncome ? "No es ingreso" : "No es gasto") + "</span>";
     const medio = paymentMethodInfo(t.medio);
     const montoRealInline = isCobrado ? '<span class="tx-amount-real tabular">' + money(netExpenseTx(t)) + "</span>" : "";
-    if (state.confirmDeleteTxId === t.id && !state.openTxId) {
-      return '<div class="tx-swipe-confirm"><div class="tx-swipe-confirm-texto"><span class="tx-swipe-confirm-nombre">' + esc(t.comercio) + '</span><span class="muted">\xBFEliminar esta transacci\xF3n? No se puede deshacer.</span></div><div class="tx-swipe-confirm-acciones"><button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="' + t.id + '">Cancelar</button><button class="save-tx-btn" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="' + t.id + '">S\xED, eliminar</button></div></div>';
-    }
-    return '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="' + categoryColorVars(primaryCat) + '">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name">' + esc(t.comercio) + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + esc(leftLabel) + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + (isCobrado ? " tachado" : "") + '">' + amtDisplay + "</span>" + montoRealInline + '<div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + esc(medio.corto) + "</div></span></button>";
+    const swiped = state.swipedTxId === t.id;
+    const abre = swiped ? '<div class="tx-swipe-wrap swiped">' : "";
+    const cierra = swiped ? '<button class="tx-swipe-trash" data-swipe-trash="' + t.id + '" aria-label="Eliminar ' + esc(t.comercio) + '">' + ICONS.trash + "</button></div>" : "";
+    return abre + '<button class="tx-item" data-tx="' + t.id + '"><span class="tx-avatar" style="' + categoryColorVars(primaryCat) + '">' + catIconMarkup(primaryCat.icon) + '</span><span class="tx-info"><span class="tx-name">' + esc(t.comercio) + '</span><span class="tx-sub">' + (t.reglaAuto ? '<span class="lock-badge">' + ICONS.lockSmall + "</span>" : "") + '<span style="overflow:hidden;text-overflow:ellipsis;">' + esc(leftLabel) + "</span>" + stateTag + '</span></span><span class="tx-right"><span class="tx-amount tabular ' + amountClass + (isCobrado ? " tachado" : "") + '">' + amtDisplay + "</span>" + montoRealInline + '<div class="tx-right-sub"><span class="tx-hora">' + t.hora + "</span><span>\xB7</span>" + (paymentMethodTagIcon(medio) ? '<span class="medio-tag-icon">' + paymentMethodTagIcon(medio) + "</span>" : "") + esc(medio.corto) + "</div></span></button>" + cierra;
   }
   __name(renderTxItem, "renderTxItem");
   function advFilterCount() {
@@ -6270,6 +6275,10 @@
     const cancelDeleteTxBtn = e.target.closest("[data-cancel-delete-tx]");
     if (cancelDeleteTxBtn) {
       state.confirmDeleteTxId = null;
+      if (state.deleteSheet) {
+        closeSheet();
+      }
+      state.swipedTxId = null;
       renderSheet();
       renderIfListVisible();
       return;
@@ -6285,6 +6294,7 @@
         return t.id !== delId;
       }));
       state.confirmDeleteTxId = null;
+      state.swipedTxId = null;
       closeSheet();
       render();
       toast("Transacci\xF3n eliminada");
@@ -6465,6 +6475,12 @@
         suppressRowSwipeClick = false;
         return;
       }
+      if (state.swipedTxId === txItem.getAttribute("data-tx")) {
+        state.swipedTxId = null;
+        renderIfListVisible();
+        return;
+      }
+      state.swipedTxId = null;
       openSheet(txItem.getAttribute("data-tx"));
       return;
     }
@@ -7603,6 +7619,11 @@
         if (!ok) state.rotarTokenError = "No se pudo cambiar el c\xF3digo. Revisa tu conexi\xF3n e intenta de nuevo.";
         renderMenuView();
       });
+      return;
+    }
+    const swipeTrashBtn = e.target.closest("[data-swipe-trash]");
+    if (swipeTrashBtn) {
+      openEliminarTx(swipeTrashBtn.getAttribute("data-swipe-trash"));
       return;
     }
     const histRestaurarBtn = e.target.closest("[data-historial-restaurar]");
@@ -9377,7 +9398,7 @@
   var suppressRowSwipeClick = false;
   var rowSwipe = null;
   phone.addEventListener("pointerdown", function(e) {
-    if (state.openTxId || state.confirmDeleteTxId) return;
+    if (state.openTxId || state.deleteSheet) return;
     const row = e.target.closest ? e.target.closest(".tx-item[data-tx]") : null;
     if (!row) return;
     rowSwipe = {
@@ -9395,7 +9416,7 @@
     if (dx > -ROW_SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
     rowSwipe.armado = true;
     suppressRowSwipeClick = true;
-    state.confirmDeleteTxId = rowSwipe.txId;
+    state.swipedTxId = rowSwipe.txId;
     renderIfListVisible();
   }, { passive: true });
   phone.addEventListener("pointerup", function(e) {
@@ -10842,6 +10863,23 @@
     }, 260);
   }
   __name(openNewTxSheet, "openNewTxSheet");
+  function renderEliminarTxContent() {
+    const t = getTx(state.deleteSheet.txId);
+    if (!t) return "";
+    return '<div class="sheet-block card"><div class="sheet-block-title">\xBFEliminar esta transacci\xF3n?</div><div class="menu-item-card" style="padding:0;margin:10px 0 12px;"><span class="menu-item-card-icon" style="--fill:var(--cat-pink-fill);--ink:var(--expense-ink)">' + ICONS.trash + '</span><div class="menu-item-card-body"><div class="menu-item-card-name">' + esc(t.comercio) + '</div><div class="menu-item-card-sub">' + money(t.monto) + " \xB7 " + dayLabel(t.fecha) + '</div></div></div><p class="muted" style="font-size:12.5px;margin:0 0 14px;">No se puede deshacer.</p><div style="display:flex;gap:10px;"><button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="' + t.id + '">Cancelar</button><button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="' + t.id + '">S\xED, eliminar</button></div></div>';
+  }
+  __name(renderEliminarTxContent, "renderEliminarTxContent");
+  function openEliminarTx(txId) {
+    state.openTxId = null;
+    state.creatingNew = false;
+    state.filterSheetOpen = false;
+    state.notaSheet = null;
+    state.deleteSheet = { txId };
+    openSheetOverlay();
+    renderSheet();
+    document.getElementById("sheet-content").scrollTop = 0;
+  }
+  __name(openEliminarTx, "openEliminarTx");
   function renderNotaCategoriaContent() {
     const { mes, catId } = state.notaSheet;
     const info = catInfo(catId);
@@ -10872,6 +10910,8 @@
     state.openTxId = null;
     state.creatingNew = false;
     state.notaSheet = null;
+    state.deleteSheet = null;
+    state.swipedTxId = null;
     state.editandoTCTx = null;
     state.draftTx = null;
     state.filterSheetOpen = false;
@@ -11220,6 +11260,12 @@
     if (state.filterSheetOpen) {
       const contentEl2 = document.getElementById("sheet-content");
       contentEl2.innerHTML = renderFilterSheetContent();
+      document.getElementById("sheet-close-btn").innerHTML = ICONS.close;
+      return;
+    }
+    if (state.deleteSheet) {
+      const contentEl2 = document.getElementById("sheet-content");
+      contentEl2.innerHTML = renderEliminarTxContent();
       document.getElementById("sheet-close-btn").innerHTML = ICONS.close;
       return;
     }
@@ -12068,6 +12114,13 @@
     filterSheetOpen: false,
     // {mes, catId} mientras el pop-up de la nota de una categoría está abierto; null si no.
     notaSheet: null,
+    // Fila de Transacciones corrida hacia la izquierda, mostrando el basurero al lado. Solo una a
+    // la vez: deslizar otra cierra la anterior.
+    swipedTxId: null,
+    // Pop-up de confirmación de borrado. Va como hoja (igual que notaSheet) y no como un bloque
+    // debajo de la fila: debajo empujaba la lista y se leía como parte de la transacción, no como
+    // una pregunta que hay que contestar.
+    deleteSheet: null,
     // id de la transacción cuyo tipo de cambio se está editando en el detalle, o null.
     editandoTCTx: null,
     addingPaymentMethod: false,
@@ -12400,6 +12453,7 @@
   document.getElementById("auth-brand-icon").innerHTML = ICONS.lock;
   document.getElementById("auth-recovery-brand-icon").innerHTML = ICONS.lock;
   regenerateInstallmentsFor("t31");
+  state.monthIndex = currentMonthIndex();
   render();
   initSupabaseAuth();
 })();
