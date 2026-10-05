@@ -148,6 +148,32 @@ export function renderDonutBlock(titulo, subtitulo, tipo, monthTx, periodoFiltro
       '</div>'+
       '<div class="donut-legend">'+legend+'</div>'+
     '</div>'+
+    renderDonutFueraDelDonut(tipo, monthTx, total)+
+  '</div>';
+}
+// Cuánta plata del período NO está representada en el donut, y por qué.
+//
+// Un donut por categoría no puede dibujar lo que no tiene categoría, y eso es correcto. Lo que
+// estaba mal era el rótulo: la cifra del centro dice "total", y contradecía a la tarjeta de
+// arriba sin que nada lo explicara. Caso real reportado: Entradas mostraba ~$4.000.000 y el
+// donut de ingresos $2.881.025 -- la diferencia eran cobros y depósitos sin clasificar, que no
+// tienen categoría y por lo tanto no pueden aparecer acá.
+//
+// Se dice cuánto falta y qué hacer para que aparezca, en vez de dejar dos "totales" distintos a
+// un centímetro de distancia.
+function renderDonutFueraDelDonut(tipo, monthTx, totalDonut){
+  // Lo que el donut deja afuera: transacciones del tipo sin ninguna categoría asignada. Se mide
+  // sobre las MISMAS transacciones que recibió el donut, no recalculando el período por otro
+  // lado -- si se separaran, este aviso tendría el mismo problema que vino a arreglar.
+  const sinCategoria = monthTx
+    .filter(t=>t.tipo===tipo && t.estado!=='no_es_gasto' && !(t.categorias||[]).length)
+    .reduce((s,t)=>s+(t.monto||0), 0);
+  if(sinCategoria<=0) return '';
+  const queHacer = tipo==='ingreso'
+    ? 'Son entradas sin categoría — cobros que te devolvieron, movimientos entre tus cuentas o depósitos sin clasificar. Clasifícalos y aparecen acá.'
+    : 'Están sin categoría todavía. Clasifícalos y aparecen acá.';
+  return '<div class="file-format-hint" style="margin:10px 0 0;">'+
+    'Quedan <b>'+money(sinCategoria)+'</b> fuera de este gráfico. '+queHacer+
   '</div>';
 }
 

@@ -208,6 +208,18 @@ phone.addEventListener('click', function(e: any){
   // (categoryFilter + categoryFilterMonth, con su pill descartable), con un id centinela porque
   // el número no sale de UNA categoría sino del conjunto de metas con aporte fijo que cuentan
   // -- ver FILTRO_APORTE_FIJO en helpers.ts.
+  // Tocar "Entradas" en Balance: lleva a las entradas de ESE período. Es la única forma de
+  // verificar esa cifra -- la lista de Transacciones no filtra por mes (ver filteredTx), así que
+  // sin esto el número no se podía auditar desde ninguna parte de la app.
+  const drillEntradas = e.target.closest('[data-drill-entradas]');
+  if(drillEntradas){
+    state.categoryFilter = null;
+    state.categoryFilterMonth = drillEntradas.getAttribute('data-drill-entradas');
+    state.filter = 'entradas';
+    state.tab = 'transacciones';
+    render();
+    return;
+  }
   const drillAporte = e.target.closest('[data-drill-aporte-anio]');
   if(drillAporte){
     state.categoryFilter = FILTRO_APORTE_FIJO;

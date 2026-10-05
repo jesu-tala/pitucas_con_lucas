@@ -21,12 +21,23 @@ import { monthTotals, yearTotals, fullYearMonths } from './evolucion';
 // que lo explicara: con $2.881.025 de ingreso, $868.207 de gastos y $400.000 de inversiones el
 // balance mostraba $2.855.380, y parecía que se había quedado pegado en un valor viejo. Estaba
 // bien calculado -- había $1.242.562 de entradas que no son ingreso real.
-function renderEntradasTile(t){
+function renderEntradasTile(t, periodo){
   const sub = t.entradas !== t.ingresos
     ? '<div class="stat-sub">ingreso real: '+money(t.ingresos)+'</div>'
     : '';
+  // La cifra es tocable: lleva a las entradas DE ESE PERÍODO, que es la única forma de verificarla.
+  //
+  // Reportado como "en agosto tengo en entradas aprox 4 millones pero no veo que las entradas
+  // sumen eso". La suma estaba bien; lo que no existía era forma de comprobarlo: la lista de
+  // Transacciones con el chip "Entradas" muestra TODOS los meses (a propósito, ver filteredTx),
+  // no el mes de Balance. Así que el número no se podía auditar a ojo desde ninguna parte.
+  //
+  // Mismo patrón de "tocar un número -> ver su detalle" que el drill-down del donut y el del
+  // avance del objetivo anual.
   return '<div class="card stat-tile stat-ingresos"><div class="stat-label">Entradas</div>'+
-    '<div class="stat-value tabular">'+money(t.entradas)+'</div>'+sub+'</div>';
+    '<div class="stat-value tabular">'+
+      '<button type="button" class="drill-num" data-drill-entradas="'+periodo+'">'+money(t.entradas)+'</button>'+
+    '</div>'+sub+'</div>';
 }
 
 function renderOtrasEntradasCards(t){
@@ -309,7 +320,7 @@ export function renderBalanceView(){
     balancePeriodoSelectorHtml()+
     monthSwitcherHtml()+
     '<div class="stat-grid">'+
-      renderEntradasTile(mt)+
+      renderEntradasTile(mt, month)+
       '<div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">'+money(mt.gastos)+'</div></div>'+
       '<div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">'+money(mt.inversiones)+'</div></div>'+
       '<div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:'+(mt.balance>=0?'var(--income-ink)':'var(--expense-ink)')+'">'+money(mt.balance)+'</div></div>'+
@@ -360,7 +371,7 @@ function renderBalanceViewAnio(){
     balancePeriodoSelectorHtml()+
     yearSwitcherHtml(year)+
     '<div class="stat-grid">'+
-      renderEntradasTile(yr)+
+      renderEntradasTile(yr, String(yr.year))+
       '<div class="card stat-tile stat-gastos"><div class="stat-label">Gastos</div><div class="stat-value tabular">'+money(yr.gastos)+'</div></div>'+
       '<div class="card stat-tile stat-inversiones"><div class="stat-label">Inversiones</div><div class="stat-value tabular">'+money(yr.inversiones)+'</div></div>'+
       '<div class="card stat-tile stat-balance"><div class="stat-label">Balance</div><div class="stat-value tabular" style="color:'+(yr.balance>=0?'var(--income-ink)':'var(--expense-ink)')+'">'+money(yr.balance)+'</div></div>'+
