@@ -12,6 +12,7 @@
 
 import { ICONS } from './icons';
 import './state';
+import { state, currentMonthIndex } from './state';
 import './helpers';
 import { regenerateInstallmentsFor } from './shared-expenses';
 import './ui/toasts';
@@ -104,6 +105,20 @@ document.getElementById('fab-add').innerHTML = ICONS.plus;
 document.getElementById('auth-brand-icon').innerHTML = ICONS.lock;
 document.getElementById('auth-recovery-brand-icon').innerHTML = ICONS.lock;
 regenerateInstallmentsFor('t31');
+
+// monthIndex es un ÍNDICE dentro de MONTHS, y MONTHS se muta: currentMonthIndex() ya corrió al
+// inicializar state.ts, cuando el array llegaba hasta agosto -- empujó el mes actual y devolvió
+// su posición. Pero después los datos de muestra (ensureMonthExists, las cuotas proyectadas)
+// agregan meses INTERMEDIOS, el array se reordena, y ese índice queda apuntando a otro mes.
+//
+// En octubre de 2026 el síntoma era concreto: la app abría en septiembre. Pasaba inadvertido
+// porque applyStateBlob() recalcula monthIndex al cargar los datos reales, así que solo se veía
+// con la maqueta -- o sea, en los tests, que empezaron a fallar el 1 de octubre.
+//
+// Se recalcula acá, cuando ya están todos los meses y antes del primer render, en vez de
+// confiar en que nada vuelva a tocar MONTHS después.
+state.monthIndex = currentMonthIndex();
+
 render();
 
 // Everything above runs the same as the mockup (sample data). Only here does Supabase start:

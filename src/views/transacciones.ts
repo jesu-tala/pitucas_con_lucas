@@ -158,24 +158,17 @@ export function renderTxItem(t){
   // ya definitivo (lo que de verdad terminó siendo tuyo, ej. $25.000 tachado -> $10.000 al lado).
   const montoRealInline = isCobrado ? '<span class="tx-amount-real tabular">'+money(netExpenseTx(t))+'</span>' : '';
 
-  // La confirmación de borrado va como HERMANA del botón de la fila, nunca adentro: un <button>
-  // dentro de otro <button> es HTML inválido y el navegador reacomoda el DOM, lo que rompe el
-  // tap de la fila entera. Mismo texto y mismos botones que la confirmación del detalle
-  // (renderSheet en sheet.ts), para que el gesto y el botón pidan lo mismo de la misma forma.
-  if(state.confirmDeleteTxId===t.id && !state.openTxId){
-    return '<div class="tx-swipe-confirm">'+
-      '<div class="tx-swipe-confirm-texto">'+
-        '<span class="tx-swipe-confirm-nombre">'+esc(t.comercio)+'</span>'+
-        '<span class="muted">¿Eliminar esta transacción? No se puede deshacer.</span>'+
-      '</div>'+
-      '<div class="tx-swipe-confirm-acciones">'+
-        '<button class="save-tx-btn" style="background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="'+t.id+'">Cancelar</button>'+
-        '<button class="save-tx-btn" style="background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="'+t.id+'">Sí, eliminar</button>'+
-      '</div>'+
-    '</div>';
-  }
+  // Deslizada: la fila se corre hacia la izquierda y deja ver un basurero AL LADO. Antes la
+  // confirmación reemplazaba la fila entera y aparecía debajo, lo que empujaba la lista y se
+  // leía como parte de la transacción en vez de como una pregunta. Ahora el basurero solo
+  // revela la acción; la pregunta va en un pop-up aparte (ver openEliminarTx en sheet.ts).
+  const swiped = state.swipedTxId===t.id;
+  const abre = swiped ? '<div class="tx-swipe-wrap swiped">' : '';
+  const cierra = swiped
+    ? '<button class="tx-swipe-trash" data-swipe-trash="'+t.id+'" aria-label="Eliminar '+esc(t.comercio)+'">'+ICONS.trash+'</button></div>'
+    : '';
 
-  return '<button class="tx-item" data-tx="'+t.id+'">'+
+  return abre+'<button class="tx-item" data-tx="'+t.id+'">'+
     '<span class="tx-avatar" style="'+categoryColorVars(primaryCat)+'">'+catIconMarkup(primaryCat.icon)+'</span>'+
     '<span class="tx-info">'+
       '<span class="tx-name">'+esc(t.comercio)+'</span>'+
@@ -188,7 +181,7 @@ export function renderTxItem(t){
       montoRealInline+
       '<div class="tx-right-sub"><span class="tx-hora">'+t.hora+'</span><span>·</span>'+(paymentMethodTagIcon(medio)?'<span class="medio-tag-icon">'+paymentMethodTagIcon(medio)+'</span>':'')+esc(medio.corto)+'</div>'+
     '</span>'+
-  '</button>';
+  '</button>'+cierra;
 }
 
 export function advFilterCount(){

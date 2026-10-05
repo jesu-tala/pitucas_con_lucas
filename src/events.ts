@@ -4,7 +4,7 @@ import { enterDemoMode, exitDemoMode } from './demo';
 import { navClearType, navDepth, navPeek, navPop, navPopIfTop, navPush, NavFrame } from './nav';
 import { render } from './render';
 import { ensureMonthExists, formatEditableNumber, liveFormatThousands, regenerateInstallmentsFor, safeEvalExpr, safeEvalMoneyExpr, stripThousandsMarks, computeShareAmounts, shareAmountsSum, commitPersonaSplit, defaultPersonaSplitDraft, draftFromExistingSplit, draftFromExistingGroupSplit, participantsOfGroup, resetCustomValuesOnMembershipChange } from './shared-expenses';
-import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter, defaultAssignAmount, conversionInnerHtml, openNotaCategoria} from './sheet';
+import { receiptItemIdCounter, receiptTotal, closeSheet, currentEditableTx, getTx, saveReceipt, paymentMethodIdCounter, nextReceiptItemId, openReceiptFlow, openFilterSheet, openLinkFromIncome, openLinkFromPending, openNewTxSheet, openEliminarTx, openSheet, renderReceiptItemsTotalsSummary, renderSheet, saveDraftTx, setPaymentMethodIdCounter, defaultAssignAmount, conversionInnerHtml, openNotaCategoria} from './sheet';
 import { convertirUSDaCLP, tipoCambioUSDCLP, tipoCambioCacheado } from './currency';
 import { CATEGORIES, CONTACTS, GROUPS, GROUP_PARTICIPANTS, GROUP_CATEGORY_RULES, TRANSFER_INFO, PAYMENT_METHODS, SPENDING_GOAL_PCT, INVESTMENT_GOALS, TOTAL_GOAL_CHECKS, MONTHS, PLANNER, PLATFORM_DATA, BUDGETS, TRANSACTIONS, goalIdCounter, money, moneyPlain, monthlyBudgetTotal, setTransferInfo, setInvestmentGoals, setGoalIdCounter, setMonthlyBudgetTotal, setSubtabDrag, setSuppressNextSubtabClick, setTransactions, state, subtabDrag, suppressNextSubtabClick, todayISO, setUltimoRespaldo, setNotaCategoria} from './state';
 import { buildGroupExportWorkbookArrayBuffer } from './group-export';
@@ -153,9 +153,11 @@ phone.addEventListener('click', function(e: any){
   const cancelDeleteTxBtn = e.target.closest('[data-cancel-delete-tx]');
   if(cancelDeleteTxBtn){
     state.confirmDeleteTxId = null;
-    // La confirmación puede estar en el detalle O en la lista (si vino del gesto de deslizar),
-    // así que se repintan las dos: renderSheet sola dejaba la fila de la lista en modo
-    // confirmación para siempre, sin forma de salir.
+    // Cancelar cierra el pop-up si la pregunta vino del gesto, y en cualquier caso devuelve la
+    // fila deslizada a su lugar: dejarla corrida después de cancelar la hacía parecer que la
+    // acción seguía pendiente.
+    if(state.deleteSheet){ closeSheet(); }
+    state.swipedTxId = null;
     renderSheet();
     renderIfListVisible();
     return;
@@ -172,6 +174,7 @@ phone.addEventListener('click', function(e: any){
     }
     setTransactions(TRANSACTIONS.filter(function(t){ return t.id!==delId; }));
     state.confirmDeleteTxId = null;
+    state.swipedTxId = null;
     closeSheet();
     render();
     toast('Transacción eliminada');
@@ -346,6 +349,14 @@ phone.addEventListener('click', function(e: any){
     // la confirmación que el gesto acababa de abrir, y la confirmación desaparecía de la lista.
     // Mismo patrón que suppressNextSubtabClick para el arrastre de los subtabs.
     if(suppressRowSwipeClick){ suppressRowSwipeClick = false; return; }
+    // Tocar la fila corrida la devuelve a su lugar en vez de abrir el detalle: el primer toque
+    // después de deslizar es casi siempre "me equivoqué, cerrá eso".
+    if(state.swipedTxId===txItem.getAttribute('data-tx')){
+      state.swipedTxId = null;
+      renderIfListVisible();
+      return;
+    }
+    state.swipedTxId = null;
     openSheet(txItem.getAttribute('data-tx'));
     return;
   }
@@ -1503,6 +1514,11 @@ phone.addEventListener('click', function(e: any){
       if(!ok) state.rotarTokenError = 'No se pudo cambiar el código. Revisa tu conexión e intenta de nuevo.';
       renderMenuView();
     });
+    return;
+  }
+  const swipeTrashBtn = e.target.closest('[data-swipe-trash]');
+  if(swipeTrashBtn){
+    openEliminarTx(swipeTrashBtn.getAttribute('data-swipe-trash'));
     return;
   }
   const histRestaurarBtn = e.target.closest('[data-historial-restaurar]');
@@ -3292,7 +3308,7 @@ let suppressRowSwipeClick = false;
 let rowSwipe: { pointerId:number, startX:number, startY:number, txId:string, armado:boolean } | null = null;
 
 phone.addEventListener('pointerdown', function(e: any){
-  if(state.openTxId || state.confirmDeleteTxId) return;   // ya hay una hoja o una confirmación abierta
+  if(state.openTxId || state.deleteSheet) return;   // ya hay una hoja abierta
   const row = e.target.closest ? e.target.closest('.tx-item[data-tx]') : null;
   if(!row) return;
   rowSwipe = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY,
@@ -3307,7 +3323,10 @@ phone.addEventListener('pointermove', function(e: any){
   if(dx > -ROW_SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
   rowSwipe.armado = true;
   suppressRowSwipeClick = true;
-  state.confirmDeleteTxId = rowSwipe.txId;
+  // El gesto solo CORRE la fila para dejar ver el basurero. La pregunta la hace el pop-up, y
+  // solo si se toca ese basurero -- dos pasos, porque deslizar sin querer en una lista con
+  // scroll es fácil y borrar no se deshace.
+  state.swipedTxId = rowSwipe.txId;
   renderIfListVisible();
 }, {passive:true});
 

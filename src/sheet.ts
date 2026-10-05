@@ -722,6 +722,42 @@ export function openNewTxSheet(tipoInicial?){
 // Nota de una categoría en un mes concreto. Se abre desde el ícono de la fila del desglose en
 // Balance, con el mismo patrón de sheet que el resto de la app (.sheet-block.card) en vez de un
 // pop-up propio -- así hereda el overlay, el cerrar con Escape y el swipe hacia abajo.
+// Pop-up de "¿eliminar esta transacción?". Va como hoja --el mismo patrón que la nota por
+// categoría-- y no como un bloque debajo de la fila: debajo empujaba la lista y se leía como
+// parte de la transacción, no como una pregunta que hay que contestar.
+//
+// Muestra qué se va a borrar (comercio, monto, fecha) porque el gesto que llega hasta acá es un
+// deslizamiento y es fácil haberse equivocado de fila.
+export function renderEliminarTxContent(){
+  const t = getTx(state.deleteSheet.txId);
+  if(!t) return '';
+  return '<div class="sheet-block card">'+
+    '<div class="sheet-block-title">¿Eliminar esta transacción?</div>'+
+    '<div class="menu-item-card" style="padding:0;margin:10px 0 12px;">'+
+      '<span class="menu-item-card-icon" style="--fill:var(--cat-pink-fill);--ink:var(--expense-ink)">'+ICONS.trash+'</span>'+
+      '<div class="menu-item-card-body">'+
+        '<div class="menu-item-card-name">'+esc(t.comercio)+'</div>'+
+        '<div class="menu-item-card-sub">'+money(t.monto)+' · '+dayLabel(t.fecha)+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<p class="muted" style="font-size:12.5px;margin:0 0 14px;">No se puede deshacer.</p>'+
+    '<div style="display:flex;gap:10px;">'+
+      '<button class="save-tx-btn" style="flex:1;background:var(--surface-sunken);color:var(--text);" data-cancel-delete-tx="'+t.id+'">Cancelar</button>'+
+      '<button class="save-tx-btn" style="flex:1;background:var(--cat-pink-fill);color:var(--expense-ink);" data-confirm-delete-tx="'+t.id+'">Sí, eliminar</button>'+
+    '</div>'+
+  '</div>';
+}
+export function openEliminarTx(txId){
+  state.openTxId = null;
+  state.creatingNew = false;
+  state.filterSheetOpen = false;
+  state.notaSheet = null;
+  state.deleteSheet = {txId};
+  openSheetOverlay();
+  renderSheet();
+  document.getElementById('sheet-content').scrollTop = 0;
+}
+
 export function renderNotaCategoriaContent(){
   const {mes, catId} = state.notaSheet;
   const info = catInfo(catId);
@@ -761,6 +797,10 @@ export function closeSheet(){
   state.openTxId = null;
   state.creatingNew = false;
   state.notaSheet = null;
+  state.deleteSheet = null;
+  // La fila deslizada vuelve a su lugar al cerrar: si no, quedaba corrida mostrando el basurero
+  // después de cancelar, como si la acción siguiera pendiente.
+  state.swipedTxId = null;
   state.editandoTCTx = null;
   state.draftTx = null;
   state.filterSheetOpen = false;
@@ -1315,6 +1355,12 @@ export function renderSheet(){
   if(state.filterSheetOpen){
     const contentEl = document.getElementById('sheet-content');
     contentEl.innerHTML = renderFilterSheetContent();
+    document.getElementById('sheet-close-btn').innerHTML = ICONS.close;
+    return;
+  }
+  if(state.deleteSheet){
+    const contentEl = document.getElementById('sheet-content');
+    contentEl.innerHTML = renderEliminarTxContent();
     document.getElementById('sheet-close-btn').innerHTML = ICONS.close;
     return;
   }

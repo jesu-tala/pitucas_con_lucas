@@ -423,6 +423,13 @@ export const state: AppState = {
   filterSheetOpen:false,
   // {mes, catId} mientras el pop-up de la nota de una categoría está abierto; null si no.
   notaSheet:null as null | {mes:string; catId:string},
+  // Fila de Transacciones corrida hacia la izquierda, mostrando el basurero al lado. Solo una a
+  // la vez: deslizar otra cierra la anterior.
+  swipedTxId:null as null | string,
+  // Pop-up de confirmación de borrado. Va como hoja (igual que notaSheet) y no como un bloque
+  // debajo de la fila: debajo empujaba la lista y se leía como parte de la transacción, no como
+  // una pregunta que hay que contestar.
+  deleteSheet:null as null | {txId:string},
   // id de la transacción cuyo tipo de cambio se está editando en el detalle, o null.
   editandoTCTx:null as null | string,
   addingPaymentMethod:false,  // true while the "add card" mini-form is shown
