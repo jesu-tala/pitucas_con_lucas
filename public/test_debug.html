@@ -2772,7 +2772,7 @@
   }
   __name(renderDonutBlock, "renderDonutBlock");
   function monthlyInvestmentGoalCLP() {
-    return INVESTMENT_GOALS.reduce((s, m) => s + (m.aporteMensualMeta || 0), 0);
+    return metasContables().reduce((s, m) => s + (m.aporteMensualMeta || 0), 0);
   }
   __name(monthlyInvestmentGoalCLP, "monthlyInvestmentGoalCLP");
   function referenceMonthlyIncome() {
@@ -12418,7 +12418,7 @@
     ensurePaymentMethodForSuggestion: ensurePaymentMethodForSuggestion, guessPaymentMethodIdFromSuggestion: guessPaymentMethodIdFromSuggestion,
     lastSalaryTx: lastSalaryTx, currentMonthHasSalary: currentMonthHasSalary, todayISO: todayISO,
     parseStatementPDF: parseStatementPDF, findSimilarTx: findSimilarTx, createTxFromMovement: createTxFromMovement,
-    SPENDING_GOAL_PCT: SPENDING_GOAL_PCT, investmentGoalPct: investmentGoalPct, monthlyInvestmentGoalCLP: monthlyInvestmentGoalCLP,
+    SPENDING_GOAL_PCT: SPENDING_GOAL_PCT, investmentGoalPct: investmentGoalPct, monthlyInvestmentGoalCLP: monthlyInvestmentGoalCLP, metasContables: metasContables,
     referenceMonthlyIncome: referenceMonthlyIncome, sumSpendingGoalPct: sumSpendingGoalPct,
     monthlyBudgetTotal: monthlyBudgetTotal, sumaPresupuestosCategorias: sumaPresupuestosCategorias, catIdsConPresupuesto: catIdsConPresupuesto,
     pgBytesToArrayBuffer: pgBytesToArrayBuffer, hasReceivableType: hasReceivableType,
